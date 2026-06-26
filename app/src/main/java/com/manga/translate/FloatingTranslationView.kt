@@ -56,6 +56,15 @@ class FloatingTranslationView @JvmOverloads constructor(
         strokeWidth = resources.displayMetrics.density * 1.5f
         strokeCap = Paint.Cap.ROUND
     }
+    private val previewFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0x2600ACC1
+        style = Paint.Style.FILL
+    }
+    private val previewStrokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0xFF00ACC1.toInt()
+        style = Paint.Style.STROKE
+        strokeWidth = resources.displayMetrics.density * 1.5f
+    }
 
     private var bubbles: List<BubbleTranslation> = emptyList()
     private var imageWidth = 0
@@ -86,6 +95,12 @@ class FloatingTranslationView @JvmOverloads constructor(
     private var swipeTriggered = false
     private var longPressTriggered = false
     private var editMode = false
+    private var createBubbleMode = false
+    private var isCreatingBubble = false
+    private var createDownImageX = 0f
+    private var createDownImageY = 0f
+    private val createDrawingRect = RectF()
+    private val createPreviewRect = RectF()
     private var touchPassthroughEnabled = false
     private var editScrollThroughEnabled = false
     private var bubbleRenderSettings = SettingsStore(context.applicationContext).loadNormalBubbleRenderSettings()
@@ -116,6 +131,7 @@ class FloatingTranslationView @JvmOverloads constructor(
     var onBubbleTap: ((Int) -> Unit)? = null
     var onBubbleResizeTap: ((Int) -> Unit)? = null
     var onBubbleLongPress: ((Int) -> Unit)? = null
+    var onBubbleCreated: ((RectF) -> Unit)? = null
 
     init {
         isClickable = true
@@ -165,6 +181,9 @@ class FloatingTranslationView @JvmOverloads constructor(
     fun setEditMode(enabled: Boolean) {
         if (editMode == enabled) return
         editMode = enabled
+        if (!enabled) {
+            setCreateBubbleMode(false)
+        }
         dragging = false
         activeId = null
         longPressTriggered = false
@@ -172,6 +191,17 @@ class FloatingTranslationView @JvmOverloads constructor(
         parent?.requestDisallowInterceptTouchEvent(false)
         invalidate()
     }
+
+    fun setCreateBubbleMode(enabled: Boolean) {
+        if (createBubbleMode == enabled) return
+        createBubbleMode = enabled && editMode
+        isCreatingBubble = false
+        createDrawingRect.setEmpty()
+        createPreviewRect.setEmpty()
+        invalidate()
+    }
+
+    fun isInCreateBubbleMode(): Boolean = createBubbleMode
 
     fun setNormalBubbleRenderSettings(settings: NormalBubbleRenderSettings) {
         if (bubbleRenderSettings == settings) return
@@ -199,7 +229,8 @@ class FloatingTranslationView @JvmOverloads constructor(
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
-        if (bubbles.isEmpty() || imageWidth <= 0 || imageHeight <= 0) return
+        if (bubbles.isEmpty() && !createBubbleMode) return
+        if (imageWidth <= 0 || imageHeight <= 0) return
         for (bubble in bubbles) {
             if (!bubble.hasDisplayText() && !editMode) continue
             updateBubbleRect(bubbleRect, bubble)
@@ -211,11 +242,18 @@ class FloatingTranslationView @JvmOverloads constructor(
                 }
             }
         }
+        if (editMode && createBubbleMode && !createPreviewRect.isEmpty) {
+            canvas.drawRoundRect(createPreviewRect, 8f * resources.displayMetrics.density, 8f * resources.displayMetrics.density, previewFillPaint)
+            canvas.drawRoundRect(createPreviewRect, 8f * resources.displayMetrics.density, 8f * resources.displayMetrics.density, previewStrokePaint)
+        }
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
         if (touchPassthroughEnabled && !editMode) {
             return false
+        }
+        if (createBubbleMode && editMode) {
+            return handleCreateTouch(event)
         }
         val allowParentScrollInEditMode = editMode && editScrollThroughEnabled
         val transformHandled = onTransformTouch?.invoke(event) == true
@@ -382,6 +420,79 @@ class FloatingTranslationView @JvmOverloads constructor(
         offsets[id] = newX to newY
         onOffsetChanged?.invoke(id, newX, newY)
         invalidate()
+    }
+
+    private fun screenToImageX(screenX: Float): Float {
+        if (scaleX <= 0f) return 0f
+        return ((screenX - displayRect.left) / scaleX).coerceIn(0f, imageWidth.toFloat())
+    }
+
+    private fun screenToImageY(screenY: Float): Float {
+        if (scaleY <= 0f) return 0f
+        return ((screenY - displayRect.top) / scaleY).coerceIn(0f, imageHeight.toFloat())
+    }
+
+    private fun imageToScreenX(imageX: Float): Float = displayRect.left + imageX * scaleX
+    private fun imageToScreenY(imageY: Float): Float = displayRect.top + imageY * scaleY
+
+    private fun handleCreateTouch(event: MotionEvent): Boolean {
+        if (imageWidth <= 0 || imageHeight <= 0) return true
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                isCreatingBubble = true
+                createDownImageX = screenToImageX(event.x)
+                createDownImageY = screenToImageY(event.y)
+                createDrawingRect.set(createDownImageX, createDownImageY, createDownImageX, createDownImageY)
+                createPreviewRect.setEmpty()
+                parent?.requestDisallowInterceptTouchEvent(true)
+                invalidate()
+                return true
+            }
+            MotionEvent.ACTION_MOVE -> {
+                if (!isCreatingBubble) return true
+                val imageX = screenToImageX(event.x)
+                val imageY = screenToImageY(event.y)
+                createDrawingRect.set(
+                    min(createDownImageX, imageX),
+                    min(createDownImageY, imageY),
+                    max(createDownImageX, imageX),
+                    max(createDownImageY, imageY)
+                )
+                createPreviewRect.set(
+                    imageToScreenX(createDrawingRect.left),
+                    imageToScreenY(createDrawingRect.top),
+                    imageToScreenX(createDrawingRect.right),
+                    imageToScreenY(createDrawingRect.bottom)
+                )
+                invalidate()
+                return true
+            }
+            MotionEvent.ACTION_UP -> {
+                if (!isCreatingBubble) return true
+                isCreatingBubble = false
+                val created = RectF(createDrawingRect)
+                createDrawingRect.setEmpty()
+                createPreviewRect.setEmpty()
+                parent?.requestDisallowInterceptTouchEvent(false)
+                invalidate()
+                val minSize = 24f * resources.displayMetrics.density
+                val screenWidth = created.width() * scaleX
+                val screenHeight = created.height() * scaleY
+                if (screenWidth >= minSize && screenHeight >= minSize) {
+                    onBubbleCreated?.invoke(created)
+                }
+                return true
+            }
+            MotionEvent.ACTION_CANCEL -> {
+                isCreatingBubble = false
+                createDrawingRect.setEmpty()
+                createPreviewRect.setEmpty()
+                parent?.requestDisallowInterceptTouchEvent(false)
+                invalidate()
+                return true
+            }
+        }
+        return true
     }
 
     private fun updateScale() {

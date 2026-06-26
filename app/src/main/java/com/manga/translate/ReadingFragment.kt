@@ -243,11 +243,14 @@ class ReadingFragment : Fragment() {
         binding.translationOverlay.onBubbleLongPress = { bubbleId ->
             showBubbleActionDialog(bubbleId)
         }
+        binding.translationOverlay.onBubbleCreated = { rect ->
+            handleBubbleCreatedFromDrag(rect)
+        }
         binding.readingEditButton.setOnClickListener {
             toggleEditMode()
         }
         binding.readingAddButton.setOnClickListener {
-            addNewBubble()
+            enterCreateBubbleMode()
         }
         binding.readingClearButton.setOnClickListener {
             clearAllBubbles()
@@ -1696,6 +1699,42 @@ class ReadingFragment : Fragment() {
         translationStore.save(imageFile, translation)
         if (folderReadingMode == FolderReadingMode.WEBTOON_SCROLL) {
             webtoonAdapter.notifyTranslationChanged(imageFile.absolutePath)
+        }
+    }
+
+    private fun enterCreateBubbleMode() {
+        if (!isEditMode) return
+        if (blockBubbleEditingWhileZoomed()) return
+        if (folderReadingMode == FolderReadingMode.WEBTOON_SCROLL) {
+            addNewBubble()
+            return
+        }
+        binding.readingEditControls.visibility = View.GONE
+        binding.readingResizePanel.visibility = View.GONE
+        binding.translationOverlay.setCreateBubbleMode(true)
+        Toast.makeText(
+            requireContext(),
+            R.string.reading_create_bubble_hint,
+            Toast.LENGTH_SHORT
+        ).show()
+    }
+
+    private fun handleBubbleCreatedFromDrag(rect: RectF) {
+        if (!isEditMode) return
+        binding.readingEditControls.visibility = View.VISIBLE
+        binding.translationOverlay.setCreateBubbleMode(false)
+        val translation = currentTranslation ?: return
+        val nextId = (translation.bubbles.maxOfOrNull { it.id } ?: -1) + 1
+        val newBubble = BubbleTranslation.pending(nextId, RectF(rect), "", BubbleSource.MANUAL)
+        val updated = translation.copy(bubbles = translation.bubbles + newBubble)
+        currentTranslation = updated
+        if (folderReadingMode == FolderReadingMode.WEBTOON_SCROLL) {
+            pendingWebtoonScrollAnchor = captureWebtoonScrollAnchor()
+        }
+        renderCurrentTranslation()
+        saveCurrentTranslation()
+        if (folderReadingMode == FolderReadingMode.WEBTOON_SCROLL) {
+            restorePendingWebtoonScrollAnchor()
         }
     }
 
