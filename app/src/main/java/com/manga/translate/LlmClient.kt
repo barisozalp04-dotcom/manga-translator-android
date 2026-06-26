@@ -333,7 +333,7 @@ class LlmClient(
                 val results = ArrayList<BaiduOcrWord>(wordsResult.length())
                 for (i in 0 until wordsResult.length()) {
                     val item = wordsResult.optJSONObject(i) ?: continue
-                    val words = item.optString("words")?.trim().orEmpty()
+                    val words = item.optString("words").trim().orEmpty()
                     if (words.isBlank()) continue
                     val location = item.optJSONObject("location")?.let { loc ->
                         val top = loc.optInt("top", 0).toFloat()
