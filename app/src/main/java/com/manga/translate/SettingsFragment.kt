@@ -770,6 +770,7 @@ class SettingsFragment : Fragment() {
             }
         )
         dialogBinding.normalBubbleHorizontalTextSwitch.isChecked = currentSettings.useHorizontalText
+        dialogBinding.normalBubbleFreeAutoAdaptColorSwitch.isChecked = currentSettings.autoAdaptFreeBubbleColor
         AlertDialog.Builder(requireContext())
             .setTitle(R.string.normal_bubble_render_settings_title)
             .setView(dialogBinding.root)
@@ -788,7 +789,8 @@ class SettingsFragment : Fragment() {
                         dialogBinding.normalBubbleFreeOpacityPercentInput.text?.toString()
                     ) ?: currentSettings.freeBubbleOpacityPercent,
                     minAreaPerCharSp = 16f + dialogBinding.normalBubbleMinAreaSeekbar.progress * 2.4f,
-                    useHorizontalText = dialogBinding.normalBubbleHorizontalTextSwitch.isChecked
+                    useHorizontalText = dialogBinding.normalBubbleHorizontalTextSwitch.isChecked,
+                    autoAdaptFreeBubbleColor = dialogBinding.normalBubbleFreeAutoAdaptColorSwitch.isChecked
                 )
                 settingsStore.saveNormalBubbleRenderSettings(updated)
                 updateNormalBubbleRenderSettingsButton()
@@ -811,6 +813,7 @@ class SettingsFragment : Fragment() {
             currentSettings.shape
         )
         dialogBinding.floatingBubbleHorizontalTextSwitch.isChecked = currentSettings.useHorizontalText
+        dialogBinding.floatingBubbleAutoAdaptColorSwitch.isChecked = currentSettings.autoAdaptBubbleColor
         val seekBarProgress = ((currentSettings.minAreaPerCharSp - 16f) / 2.4f).roundToInt().coerceIn(0, 100)
         dialogBinding.floatingBubbleMinAreaSeekbar.progress = seekBarProgress
         dialogBinding.floatingBubbleMinAreaValueLabel.text =
@@ -842,7 +845,8 @@ class SettingsFragment : Fragment() {
                         currentSettings.shape
                     ),
                     useHorizontalText = dialogBinding.floatingBubbleHorizontalTextSwitch.isChecked,
-                    minAreaPerCharSp = 16f + dialogBinding.floatingBubbleMinAreaSeekbar.progress * 2.4f
+                    minAreaPerCharSp = 16f + dialogBinding.floatingBubbleMinAreaSeekbar.progress * 2.4f,
+                    autoAdaptBubbleColor = dialogBinding.floatingBubbleAutoAdaptColorSwitch.isChecked
                 )
                 settingsStore.saveFloatingBubbleRenderSettings(updated)
                 updateFloatingBubbleRenderSettingsButton()

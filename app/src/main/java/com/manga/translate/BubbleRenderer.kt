@@ -82,7 +82,26 @@ class BubbleRenderer(context: Context) {
         for (bubble in translation.bubbles) {
             val text = bubble.text.trim()
             if (text.isBlank()) continue
-            fillPaint.alpha = resolveBubbleOpacityAlpha(bubble)
+            val opacityAlpha = resolveBubbleOpacityAlpha(bubble)
+            val useAutoAdaptColor = bubble.source == BubbleSource.TEXT_DETECTOR &&
+                bubbleRenderSettings.autoAdaptFreeBubbleColor
+            if (useAutoAdaptColor) {
+                val sampleLeft = bubble.rect.left * scaleX
+                val sampleTop = bubble.rect.top * scaleY
+                val sampleRight = bubble.rect.right * scaleX
+                val sampleBottom = bubble.rect.bottom * scaleY
+                val sampled = BubbleColorSampler.sampleBackgroundColor(
+                    output, sampleLeft, sampleTop, sampleRight, sampleBottom
+                )
+                if (sampled != null) {
+                    fillPaint.color = sampled
+                } else {
+                    fillPaint.color = Color.WHITE
+                }
+            } else {
+                fillPaint.color = Color.WHITE
+            }
+            fillPaint.alpha = opacityAlpha
             BubbleShapePaths.buildPath(
                 outPath = bubblePath,
                 bubble = bubble,

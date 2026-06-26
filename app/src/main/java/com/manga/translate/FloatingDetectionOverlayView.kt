@@ -1,6 +1,7 @@
 package com.manga.translate
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
@@ -26,11 +27,6 @@ class FloatingDetectionOverlayView @JvmOverloads constructor(
     private val boxPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = 0xD9FFFFFF.toInt()
         style = Paint.Style.FILL
-    }
-    private val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0xFF1F1F1F.toInt()
-        style = Paint.Style.STROKE
-        strokeWidth = resources.displayMetrics.density * 1.2f
     }
     private val editBorderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = 0xFF00ACC1.toInt()
@@ -78,6 +74,8 @@ class FloatingDetectionOverlayView @JvmOverloads constructor(
     private var bubbles: List<BubbleTranslation> = emptyList()
     private var bubbleRenderSettings = SettingsStore(context.applicationContext).loadFloatingBubbleRenderSettings()
     private var bubbleOpacity = bubbleRenderSettings.opacityPercent / 100f
+    private var sourceBitmap: Bitmap? = null
+    private val bubbleColorCache = mutableMapOf<Int, Int>()
     private var editMode = false
     private var createBubbleMode = false
     private val touchSlop = 3f * resources.displayMetrics.density
@@ -116,14 +114,23 @@ class FloatingDetectionOverlayView @JvmOverloads constructor(
         this.sourceWidth = sourceWidth.coerceAtLeast(1)
         this.sourceHeight = sourceHeight.coerceAtLeast(1)
         this.bubbles = bubbles
+        bubbleColorCache.clear()
         draggingBubbleId = null
         isDragging = false
         cancelLongPressDelete()
         invalidate()
     }
 
+    fun setSourceBitmap(bitmap: Bitmap?) {
+        if (sourceBitmap === bitmap) return
+        sourceBitmap = bitmap
+        bubbleColorCache.clear()
+        invalidate()
+    }
+
     fun clearDetections() {
         bubbles = emptyList()
+        bubbleColorCache.clear()
         draggingBubbleId = null
         isDragging = false
         isDrawing = false
@@ -164,6 +171,7 @@ class FloatingDetectionOverlayView @JvmOverloads constructor(
         if (bubbleRenderSettings == settings) return
         bubbleRenderSettings = settings
         bubbleOpacity = settings.opacityPercent / 100f
+        bubbleColorCache.clear()
         applyBubbleOpacity()
         invalidate()
     }
@@ -346,6 +354,7 @@ class FloatingDetectionOverlayView @JvmOverloads constructor(
             )
         )
         bubbles = mutable
+        bubbleColorCache.remove(id)
         onBubblesChanged?.invoke(mutable)
         setDirty(true)
         invalidate()
@@ -387,12 +396,11 @@ class FloatingDetectionOverlayView @JvmOverloads constructor(
             val rect = bubble.rect
             updateDisplayRect(rect, sourceRect)
             if (sourceRect.width() < 2f || sourceRect.height() < 2f) continue
+            applyBubbleFillColor(bubble)
             if (bubbleRenderSettings.shape == FloatingBubbleShape.INSCRIBED_ELLIPSE) {
                 canvas.drawOval(sourceRect, boxPaint)
-                canvas.drawOval(sourceRect, borderPaint)
             } else {
                 canvas.drawRoundRect(sourceRect, radius, radius, boxPaint)
-                canvas.drawRoundRect(sourceRect, radius, radius, borderPaint)
             }
             if (editMode) {
                 if (bubbleRenderSettings.shape == FloatingBubbleShape.INSCRIBED_ELLIPSE) {
@@ -468,6 +476,40 @@ class FloatingDetectionOverlayView @JvmOverloads constructor(
 
     private fun applyBubbleOpacity() {
         boxPaint.color = Color.argb((bubbleOpacity * 255f).toInt().coerceIn(0, 255), 255, 255, 255)
+    }
+
+    private fun applyBubbleFillColor(bubble: BubbleTranslation) {
+        if (!bubbleRenderSettings.autoAdaptBubbleColor) {
+            applyBubbleOpacity()
+            return
+        }
+        val alpha = (bubbleOpacity * 255f).toInt().coerceIn(0, 255)
+        val color = bubbleColorCache.getOrPut(bubble.id) {
+            val bmp = sourceBitmap
+            val sampleScaleX = if (sourceWidth > 0 && bmp != null) {
+                bmp.width.toFloat() / sourceWidth.toFloat()
+            } else {
+                1f
+            }
+            val sampleScaleY = if (sourceHeight > 0 && bmp != null) {
+                bmp.height.toFloat() / sourceHeight.toFloat()
+            } else {
+                1f
+            }
+            BubbleColorSampler.sampleBackgroundColor(
+                bmp,
+                bubble.rect.left * sampleScaleX,
+                bubble.rect.top * sampleScaleY,
+                bubble.rect.right * sampleScaleX,
+                bubble.rect.bottom * sampleScaleY
+            ) ?: Color.WHITE
+        }
+        boxPaint.color = Color.argb(
+            alpha,
+            Color.red(color),
+            Color.green(color),
+            Color.blue(color)
+        )
     }
 
     private fun updateDisplayRect(source: RectF, outRect: RectF) {

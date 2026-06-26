@@ -82,7 +82,8 @@ data class NormalBubbleRenderSettings(
     val freeBubbleShrinkPercent: Int,
     val freeBubbleOpacityPercent: Int,
     val minAreaPerCharSp: Float,
-    val useHorizontalText: Boolean
+    val useHorizontalText: Boolean,
+    val autoAdaptFreeBubbleColor: Boolean = true
 )
 
 enum class FloatingBubbleShape(val prefValue: String, val labelRes: Int) {
@@ -101,7 +102,8 @@ data class FloatingBubbleRenderSettings(
     val opacityPercent: Int,
     val shape: FloatingBubbleShape,
     val useHorizontalText: Boolean,
-    val minAreaPerCharSp: Float
+    val minAreaPerCharSp: Float,
+    val autoAdaptBubbleColor: Boolean = true
 )
 
 data class CustomRequestParameter(
@@ -382,6 +384,8 @@ class SettingsStore(context: Context) {
         internal const val KEY_FLOATING_BUBBLE_HORIZONTAL_TEXT = "floating_bubble_horizontal_text"
         internal const val KEY_FLOATING_BUBBLE_MIN_AREA_PER_CHAR_SP =
             "floating_bubble_min_area_per_char_sp"
+        internal const val KEY_FLOATING_BUBBLE_AUTO_ADAPT_COLOR =
+            "floating_bubble_auto_adapt_color"
         internal const val KEY_OCR_API_TIMEOUT_SECONDS = "ocr_api_timeout_seconds"
         internal const val KEY_OCR_API_CONCURRENCY = "ocr_api_concurrency"
         internal const val KEY_LOCAL_OCR_CONCURRENCY = "local_ocr_concurrency"
@@ -395,6 +399,8 @@ class SettingsStore(context: Context) {
             "normal_free_bubble_shrink_percent"
         internal const val KEY_NORMAL_FREE_BUBBLE_OPACITY_PERCENT =
             "normal_free_bubble_opacity_percent"
+        internal const val KEY_NORMAL_FREE_BUBBLE_AUTO_ADAPT_COLOR =
+            "normal_free_bubble_auto_adapt_color"
         internal const val KEY_MODEL_IO_LOGGING = "model_io_logging"
         internal const val KEY_API_RETRY_COUNT = "api_retry_count"
         internal const val KEY_MAX_CONCURRENCY = "max_concurrency"
@@ -460,6 +466,7 @@ class SettingsStore(context: Context) {
         internal const val MIN_FLOATING_BUBBLE_SIZE_ADJUST_PERCENT = -30
         internal const val MAX_FLOATING_BUBBLE_SIZE_ADJUST_PERCENT = 30
         internal const val DEFAULT_FLOATING_MIN_AREA_PER_CHAR_SP = 48f
+        internal const val DEFAULT_FLOATING_BUBBLE_AUTO_ADAPT_COLOR = true
         internal const val MIN_FLOATING_MIN_AREA_PER_CHAR_SP = 16f
         internal const val MAX_FLOATING_MIN_AREA_PER_CHAR_SP = 256f
         internal const val DEFAULT_NORMAL_BUBBLE_SHRINK_PERCENT = 10
@@ -467,6 +474,7 @@ class SettingsStore(context: Context) {
         internal const val MAX_NORMAL_BUBBLE_SHRINK_PERCENT = 30
         internal const val DEFAULT_NORMAL_FREE_BUBBLE_SHRINK_PERCENT = 10
         internal const val DEFAULT_NORMAL_FREE_BUBBLE_OPACITY_PERCENT = 90
+        internal const val DEFAULT_NORMAL_FREE_BUBBLE_AUTO_ADAPT_COLOR = true
         internal const val DEFAULT_NORMAL_MIN_AREA_PER_CHAR_SP = 48f
         internal const val MIN_NORMAL_MIN_AREA_PER_CHAR_SP = 16f
         internal const val MAX_NORMAL_MIN_AREA_PER_CHAR_SP = 256f

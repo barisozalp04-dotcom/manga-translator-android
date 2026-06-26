@@ -1,6 +1,7 @@
 package com.manga.translate
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
@@ -88,6 +89,8 @@ class FloatingTranslationView @JvmOverloads constructor(
     private var touchPassthroughEnabled = false
     private var editScrollThroughEnabled = false
     private var bubbleRenderSettings = SettingsStore(context.applicationContext).loadNormalBubbleRenderSettings()
+    private var sourceBitmap: Bitmap? = null
+    private val bubbleColorCache = mutableMapOf<Int, Int>()
     private val longPressTimeout = ViewConfiguration.getLongPressTimeout().toLong()
     private val doubleTapTimeout = ViewConfiguration.getDoubleTapTimeout().toLong()
     private val doubleTapSlop = ViewConfiguration.get(context).scaledDoubleTapSlop.toFloat()
@@ -123,7 +126,15 @@ class FloatingTranslationView @JvmOverloads constructor(
         bubbles = result?.bubbles.orEmpty()
         imageWidth = result?.width ?: 0
         imageHeight = result?.height ?: 0
+        bubbleColorCache.clear()
         updateScale()
+        invalidate()
+    }
+
+    fun setSourceBitmap(bitmap: Bitmap?) {
+        if (sourceBitmap === bitmap) return
+        sourceBitmap = bitmap
+        bubbleColorCache.clear()
         invalidate()
     }
 
@@ -165,6 +176,7 @@ class FloatingTranslationView @JvmOverloads constructor(
     fun setNormalBubbleRenderSettings(settings: NormalBubbleRenderSettings) {
         if (bubbleRenderSettings == settings) return
         bubbleRenderSettings = settings
+        bubbleColorCache.clear()
         invalidate()
     }
 
@@ -436,7 +448,8 @@ class FloatingTranslationView @JvmOverloads constructor(
     private fun drawBubble(canvas: Canvas, bubble: BubbleTranslation) {
         val offset = offsets[bubble.id] ?: 0f to 0f
         val shrinkPercent = resolveBubbleShrinkPercent(bubble)
-        fillPaint.alpha = resolveBubbleOpacityAlpha(bubble)
+        val opacityAlpha = resolveBubbleOpacityAlpha(bubble)
+        resolveBubbleFillColor(bubble, opacityAlpha)
         BubbleShapePaths.buildPath(
             outPath = bubblePath,
             bubble = bubble,
@@ -476,6 +489,37 @@ class FloatingTranslationView @JvmOverloads constructor(
             bubbleRenderSettings.opacityPercent
         }
         return ((opacityPercent.coerceIn(0, 100) / 100f) * 255f).toInt()
+    }
+
+    private fun resolveBubbleFillColor(bubble: BubbleTranslation, opacityAlpha: Int) {
+        val useAutoAdaptColor = bubble.source == BubbleSource.TEXT_DETECTOR &&
+            bubbleRenderSettings.autoAdaptFreeBubbleColor
+        if (useAutoAdaptColor) {
+            val color = bubbleColorCache.getOrPut(bubble.id) {
+                val bmp = sourceBitmap
+                val sampleScaleX = if (imageWidth > 0 && bmp != null) {
+                    bmp.width.toFloat() / imageWidth.toFloat()
+                } else {
+                    1f
+                }
+                val sampleScaleY = if (imageHeight > 0 && bmp != null) {
+                    bmp.height.toFloat() / imageHeight.toFloat()
+                } else {
+                    1f
+                }
+                BubbleColorSampler.sampleBackgroundColor(
+                    bmp,
+                    bubble.rect.left * sampleScaleX,
+                    bubble.rect.top * sampleScaleY,
+                    bubble.rect.right * sampleScaleX,
+                    bubble.rect.bottom * sampleScaleY
+                ) ?: Color.WHITE
+            }
+            fillPaint.color = color
+        } else {
+            fillPaint.color = Color.WHITE
+        }
+        fillPaint.alpha = opacityAlpha
     }
 
     private fun drawDeleteIcon(canvas: Canvas, rect: RectF) {

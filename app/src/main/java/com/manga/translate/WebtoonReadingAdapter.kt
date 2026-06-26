@@ -607,6 +607,7 @@ class WebtoonReadingAdapter(
             binding.readingPageOverlay.onBubbleResizeTap = null
             binding.readingPageOverlay.onBubbleLongPress = null
             binding.readingPageOverlay.visibility = View.GONE
+            binding.readingPageOverlay.setSourceBitmap(null)
             binding.readingPagePlaceholder.visibility = View.VISIBLE
             updateViewHeight(binding.root, ViewGroup.LayoutParams.WRAP_CONTENT)
             updateViewHeight(binding.readingPageImage, ViewGroup.LayoutParams.WRAP_CONTENT)
@@ -685,12 +686,14 @@ class WebtoonReadingAdapter(
             val height = binding.readingPageImage.height.toFloat()
             if (width <= 0f || height <= 0f) {
                 binding.readingPageOverlay.visibility = View.GONE
+                binding.readingPageOverlay.setSourceBitmap(null)
                 return
             }
             val resolved = resolveOverlayTranslation(translation)
             val lockedForEdit = isLockedEditPage()
             updateOverlayDisplayRect(width, height)
             binding.readingPageOverlay.setContentZoomScale(imageTransformController.currentContentZoomScale())
+            binding.readingPageOverlay.setSourceBitmap(currentBitmap)
             binding.readingPageOverlay.setTranslations(resolved)
             binding.readingPageOverlay.setOffsets(if (lockedForEdit) lockedPageOffsets else emptyMap())
             binding.readingPageOverlay.setTouchPassthroughEnabled(!lockedForEdit)

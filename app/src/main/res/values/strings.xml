@@ -154,6 +154,7 @@
     <string name="normal_bubble_opacity_percent_hint">普通气泡不透明度 (0–100)</string>
     <string name="normal_bubble_free_shrink_percent_hint">游离气泡回缩 (0–30)</string>
     <string name="normal_bubble_free_opacity_percent_hint">游离气泡不透明度 (0–100)</string>
+    <string name="normal_bubble_free_auto_adapt_color">游离气泡自适应背景色</string>
     <string name="normal_bubble_min_area_per_char_label">文字密度下限（值越大文字越大，可能扩大气泡）</string>
     <string name="normal_bubble_min_area_value">当前: %d sp² / 字</string>
     <string name="normal_bubble_layout_horizontal">横向排版</string>
@@ -163,6 +164,7 @@
     <string name="floating_bubble_render_settings_note">用于悬浮窗翻译结果覆盖层。大小支持外扩或内缩，形状支持矩形或内接椭圆。文字会根据气泡大小自动适配字号；当文字密度过高时自动扩大气泡。</string>
     <string name="floating_bubble_size_adjust_percent_hint">气泡框大小 (-30–30，正数外扩)</string>
     <string name="floating_bubble_opacity_percent_hint">气泡框不透明度 (0–100)</string>
+    <string name="floating_bubble_auto_adapt_color">气泡自适应背景色</string>
     <string name="floating_bubble_shape_hint">气泡框形状</string>
     <string name="floating_bubble_shape_rectangle">默认矩形</string>
     <string name="floating_bubble_shape_inscribed_ellipse">内接椭圆</string>

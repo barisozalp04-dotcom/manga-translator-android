@@ -867,6 +867,7 @@ class FloatingBallOverlayService : Service() {
         val session = currentSession
         if (session == null) {
             detectionOverlayView?.clearDetections()
+            detectionOverlayView?.setSourceBitmap(null)
             updateEditButtons()
             return
         }
@@ -875,6 +876,7 @@ class FloatingBallOverlayService : Service() {
             session.height,
             session.bubbles
         )
+        detectionOverlayView?.setSourceBitmap(currentSessionBitmap)
         updateEditButtons()
     }
 
@@ -893,6 +895,7 @@ class FloatingBallOverlayService : Service() {
     private fun replaceCurrentSessionBitmap(bitmap: Bitmap?) {
         currentSessionBitmap?.recycle()
         currentSessionBitmap = bitmap
+        detectionOverlayView?.setSourceBitmap(bitmap)
     }
 
     private fun clearCurrentSession() {

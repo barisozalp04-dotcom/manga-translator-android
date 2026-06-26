@@ -77,6 +77,14 @@
                 android:inputType="number" />
         </com.google.android.material.textfield.TextInputLayout>
 
+        <androidx.appcompat.widget.SwitchCompat
+            android:id="@+id/normal_bubble_free_auto_adapt_color_switch"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="14dp"
+            android:text="@string/normal_bubble_free_auto_adapt_color"
+            android:textColor="?attr/dialogTextColor" />
+
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"

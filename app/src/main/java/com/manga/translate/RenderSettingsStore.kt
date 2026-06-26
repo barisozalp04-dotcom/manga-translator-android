@@ -44,7 +44,11 @@ internal class RenderSettingsStore(
                 SettingsStore.MIN_NORMAL_MIN_AREA_PER_CHAR_SP,
                 SettingsStore.MAX_NORMAL_MIN_AREA_PER_CHAR_SP
             ),
-            useHorizontalText = loadUseHorizontalText()
+            useHorizontalText = loadUseHorizontalText(),
+            autoAdaptFreeBubbleColor = storage.prefs.getBoolean(
+                SettingsStore.KEY_NORMAL_FREE_BUBBLE_AUTO_ADAPT_COLOR,
+                SettingsStore.DEFAULT_NORMAL_FREE_BUBBLE_AUTO_ADAPT_COLOR
+            )
         )
     }
 
@@ -56,6 +60,7 @@ internal class RenderSettingsStore(
                 SettingsStore.KEY_NORMAL_BUBBLE_MIN_AREA_PER_CHAR_SP,
                 SettingsStore.KEY_NORMAL_FREE_BUBBLE_SHRINK_PERCENT,
                 SettingsStore.KEY_NORMAL_FREE_BUBBLE_OPACITY_PERCENT,
+                SettingsStore.KEY_NORMAL_FREE_BUBBLE_AUTO_ADAPT_COLOR,
                 SettingsStore.KEY_HORIZONTAL_TEXT
             )
         ) {
@@ -95,6 +100,10 @@ internal class RenderSettingsStore(
                     )
                 )
                 .putBoolean(SettingsStore.KEY_HORIZONTAL_TEXT, settings.useHorizontalText)
+                .putBoolean(
+                    SettingsStore.KEY_NORMAL_FREE_BUBBLE_AUTO_ADAPT_COLOR,
+                    settings.autoAdaptFreeBubbleColor
+                )
         }
     }
 
@@ -130,6 +139,10 @@ internal class RenderSettingsStore(
             ).coerceIn(
                 SettingsStore.MIN_FLOATING_MIN_AREA_PER_CHAR_SP,
                 SettingsStore.MAX_FLOATING_MIN_AREA_PER_CHAR_SP
+            ),
+            autoAdaptBubbleColor = storage.prefs.getBoolean(
+                SettingsStore.KEY_FLOATING_BUBBLE_AUTO_ADAPT_COLOR,
+                SettingsStore.DEFAULT_FLOATING_BUBBLE_AUTO_ADAPT_COLOR
             )
         )
     }
@@ -141,7 +154,8 @@ internal class RenderSettingsStore(
                 SettingsStore.KEY_FLOATING_BUBBLE_OPACITY_PERCENT,
                 SettingsStore.KEY_FLOATING_BUBBLE_SHAPE,
                 SettingsStore.KEY_FLOATING_BUBBLE_HORIZONTAL_TEXT,
-                SettingsStore.KEY_FLOATING_BUBBLE_MIN_AREA_PER_CHAR_SP
+                SettingsStore.KEY_FLOATING_BUBBLE_MIN_AREA_PER_CHAR_SP,
+                SettingsStore.KEY_FLOATING_BUBBLE_AUTO_ADAPT_COLOR
             )
         ) {
             putInt(
@@ -169,6 +183,10 @@ internal class RenderSettingsStore(
                         SettingsStore.MIN_FLOATING_MIN_AREA_PER_CHAR_SP,
                         SettingsStore.MAX_FLOATING_MIN_AREA_PER_CHAR_SP
                     )
+                )
+                .putBoolean(
+                    SettingsStore.KEY_FLOATING_BUBBLE_AUTO_ADAPT_COLOR,
+                    settings.autoAdaptBubbleColor
                 )
         }
     }

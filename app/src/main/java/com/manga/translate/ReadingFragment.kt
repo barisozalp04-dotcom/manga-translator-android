@@ -366,6 +366,7 @@ class ReadingFragment : Fragment() {
             binding.readingEmptyHint.visibility = View.VISIBLE
             binding.readingPageInfo.visibility = View.GONE
             binding.translationOverlay.visibility = View.GONE
+            binding.translationOverlay.setSourceBitmap(null)
             binding.readingEditControls.visibility = View.GONE
             hideResizePanel()
             binding.readingImage.setRegionSource(null)
@@ -675,6 +676,7 @@ class ReadingFragment : Fragment() {
     private fun updateOverlay(translation: TranslationResult?, bitmap: Bitmap?) {
         val rect = computeOverlayDisplayRect() ?: run {
             binding.translationOverlay.visibility = View.GONE
+            binding.translationOverlay.setSourceBitmap(null)
             return
         }
         val resolvedWidth = when {
@@ -689,6 +691,7 @@ class ReadingFragment : Fragment() {
         }
         if (resolvedWidth <= 0 || resolvedHeight <= 0) {
             binding.translationOverlay.visibility = View.GONE
+            binding.translationOverlay.setSourceBitmap(null)
             return
         }
         val normalized = when {
@@ -699,6 +702,7 @@ class ReadingFragment : Fragment() {
         currentTranslation = normalized
         binding.translationOverlay.setDisplayRect(rect)
         binding.translationOverlay.setContentZoomScale(imageTransformController.currentContentZoomScale())
+        binding.translationOverlay.setSourceBitmap(bitmap)
         binding.translationOverlay.setTranslations(normalized)
         binding.translationOverlay.setOffsets(emptyMap())
         binding.translationOverlay.setEditMode(isEditMode)
