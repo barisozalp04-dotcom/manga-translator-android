@@ -14,31 +14,17 @@ class EnglishOcr(
     settingsStore = settingsStore
 ) {
     override fun getDefaultCharset(): List<String> {
+        val latinDict = "!\"#\$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[]_`abcdefghijklmnopqrstuvwxyz{}¡£§ª«­°²³´µ·º»¿ÀÁÂÄÅÇÈÉÊËÌÍÎÏÒÓÔÕÖÚÜÝßàáâãäåæçèéêëìíîïñòóôõöøùúûüýąĆćČčĐđęıŁłōŒœŠšŸŽžʒβδεзṠ'€™"
+
         val chars = mutableListOf("blank")
+        chars.addAll(latinDict.map { it.toString() })
 
-        for (i in '0'..'9') {
-            chars.add(i.toString())
-        }
-
-        for (i in 'A'..'Z') {
-            chars.add(i.toString())
-        }
-
-        for (i in 'a'..'z') {
-            chars.add(i.toString())
-        }
-
-        val punctuation = "!\"#\$%&'()*+,-./:;<=>?@[\\]^_`{|}~ "
-        for (c in punctuation) {
-            chars.add(c.toString())
-        }
-
-        AppLogger.log(LOG_TAG, "Using default charset with ${chars.size} characters")
+        AppLogger.log(LOG_TAG, "Using latin_dict charset with ${chars.size} characters")
         return chars
     }
 
     companion object {
-        private const val MODEL_ASSET = "models/ocr/en_PP-OCRv5_rec_mobile_infer.onnx"
+        private const val MODEL_ASSET = "models/ocr/en_PP-OCRv6_rec_mobile_infer.onnx"
         private const val LOG_TAG = "EnglishOcr"
     }
 }

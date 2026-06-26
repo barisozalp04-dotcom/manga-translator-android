@@ -78,14 +78,15 @@ Place the following model files into the corresponding subdirectories under `ass
 - `models/ocr/manga_ocr/encoder_model.onnx`, `models/ocr/manga_ocr/decoder_model.onnx` (Japanese OCR: MangaOcr, switchable in Settings)
 - `models/ocr/manga_ocr/generation_config.json`, `models/ocr/manga_ocr/preprocessor_config.json`, `models/ocr/manga_ocr/tokenizer.json`, `models/ocr/manga_ocr/special_tokens_map.json`
 - `models/ocr/manga_ocr_mobile/encoder.tflite`, `models/ocr/manga_ocr_mobile/decoder.tflite` and tokenizer/config files (currently the default Japanese OCR: MangaOcr Mobile)
-- `models/ocr/en_PP-OCRv5_rec_mobile_infer.onnx` (English OCR)
+- `models/ocr/en_PP-OCRv6_rec_mobile_infer.onnx` (English OCR)
 - `models/ocr/korean_PP-OCRv3_rec_infer.onnx` (Korean OCR)
 - `models/text_detection/ysgyolo_1.2_OS1.0.onnx` (supplementary text detection + text masking)
-- `models/detection/Multilingual_PP-OCRv3_det_infer.onnx` (English line detection)
+- `models/detection/PP-OCRv6_det_mobile_infer.onnx` (English line detection)
 
 Model download links:
 - Speech bubble detection model: https://huggingface.co/ogkalu/comic-speech-bubble-detector-yolov8m
-- OCR model: https://huggingface.co/l0wgear/manga-ocr-2025-onnx
+- English recognition model: https://huggingface.co/PaddlePaddle/PP-OCRv6_small_rec_onnx
+- English detection model: https://huggingface.co/PaddlePaddle/PP-OCRv6_small_det_onnx
 - Korean OCR model: https://huggingface.co/breezedeus/cnocr-ppocr-korean_PP-OCRv3
 
 Prompts, fonts, and OCR configuration files are located in subdirectories under `assets/`, and their names must stay consistent with the code.

@@ -80,14 +80,15 @@
 - `models/ocr/manga_ocr/encoder_model.onnx`、`models/ocr/manga_ocr/decoder_model.onnx`（日文 OCR：MangaOcr，可在设置中切换）
 - `models/ocr/manga_ocr/generation_config.json`、`models/ocr/manga_ocr/preprocessor_config.json`、`models/ocr/manga_ocr/tokenizer.json`、`models/ocr/manga_ocr/special_tokens_map.json`
 - `models/ocr/manga_ocr_mobile/encoder.tflite`、`models/ocr/manga_ocr_mobile/decoder.tflite` 及 tokenizer/config（当前默认日文 OCR：MangaOcr Mobile）
-- `models/ocr/en_PP-OCRv5_rec_mobile_infer.onnx`（英文 OCR）
+- `models/ocr/en_PP-OCRv6_rec_mobile_infer.onnx`（英文 OCR）
 - `models/ocr/korean_PP-OCRv3_rec_infer.onnx`（韩文 OCR）
 - `models/text_detection/ysgyolo_1.2_OS1.0.onnx`（文本补检 + 文字蒙版）
-- `models/detection/Multilingual_PP-OCRv3_det_infer.onnx`（英文行检测）
+- `models/detection/PP-OCRv6_det_mobile_infer.onnx`（英文行检测）
 
 模型下载链接：
 - 气泡检测模型：https://huggingface.co/ogkalu/comic-speech-bubble-detector-yolov8m
-- OCR 模型：https://huggingface.co/l0wgear/manga-ocr-2025-onnx
+- 英文识别模型：https://huggingface.co/PaddlePaddle/PP-OCRv6_small_rec_onnx
+- 英文检测模型：https://huggingface.co/PaddlePaddle/PP-OCRv6_small_det_onnx
 - 韩文 OCR 模型：https://huggingface.co/breezedeus/cnocr-ppocr-korean_PP-OCRv3
 
 提示词、字体与 OCR 配置位于 `assets/` 子目录中，名称需与代码保持一致。

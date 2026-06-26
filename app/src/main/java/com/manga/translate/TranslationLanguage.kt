@@ -18,9 +18,13 @@ enum class TranslationLanguage(
 
     fun supportsLocalOcr(): Boolean {
         return when (this) {
-            JA_TO_ZH, EN_TO_ZH, KO_TO_ZH -> true
-            CHN_ENG_TO_ZH, FR_TO_ZH, ES_TO_ZH, PT_TO_ZH, DE_TO_ZH, IT_TO_ZH, RU_TO_ZH -> false
+            JA_TO_ZH, EN_TO_ZH, KO_TO_ZH, FR_TO_ZH, ES_TO_ZH, PT_TO_ZH, DE_TO_ZH, IT_TO_ZH -> true
+            CHN_ENG_TO_ZH, RU_TO_ZH -> false
         }
+    }
+
+    fun usesLatinOcr(): Boolean {
+        return this in setOf(EN_TO_ZH, FR_TO_ZH, ES_TO_ZH, PT_TO_ZH, DE_TO_ZH, IT_TO_ZH)
     }
 
     companion object {

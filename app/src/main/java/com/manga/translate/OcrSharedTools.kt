@@ -166,12 +166,12 @@ class BubbleTextRecognizer(
             }
             TranslationLanguage.EN_TO_ZH -> engineRegistry.getEnglishOcr(logTag)
             TranslationLanguage.KO_TO_ZH -> engineRegistry.getKoreanOcr(logTag)
-            TranslationLanguage.CHN_ENG_TO_ZH,
             TranslationLanguage.FR_TO_ZH,
             TranslationLanguage.ES_TO_ZH,
             TranslationLanguage.PT_TO_ZH,
             TranslationLanguage.DE_TO_ZH,
-            TranslationLanguage.IT_TO_ZH,
+            TranslationLanguage.IT_TO_ZH -> engineRegistry.getEnglishOcr(logTag)
+            TranslationLanguage.CHN_ENG_TO_ZH,
             TranslationLanguage.RU_TO_ZH -> null
         }
     }
@@ -184,7 +184,12 @@ class BubbleTextRecognizer(
         val lineDetector = engineRegistry.getEnglishLineDetector(logTag) ?: return emptyList()
         val lineRects = lineDetector.detectLines(source)
         return when (language) {
-            TranslationLanguage.EN_TO_ZH -> {
+            TranslationLanguage.EN_TO_ZH,
+            TranslationLanguage.FR_TO_ZH,
+            TranslationLanguage.ES_TO_ZH,
+            TranslationLanguage.PT_TO_ZH,
+            TranslationLanguage.DE_TO_ZH,
+            TranslationLanguage.IT_TO_ZH -> {
                 val engine = engineRegistry.getEnglishOcr(logTag) ?: return emptyList()
                 recognizeEnglishLines(source, lineRects, engine)
             }
@@ -196,11 +201,6 @@ class BubbleTextRecognizer(
 
             TranslationLanguage.JA_TO_ZH,
             TranslationLanguage.CHN_ENG_TO_ZH,
-            TranslationLanguage.FR_TO_ZH,
-            TranslationLanguage.ES_TO_ZH,
-            TranslationLanguage.PT_TO_ZH,
-            TranslationLanguage.DE_TO_ZH,
-            TranslationLanguage.IT_TO_ZH,
             TranslationLanguage.RU_TO_ZH -> emptyList()
         }
     }
@@ -265,7 +265,12 @@ class BubbleTextRecognizer(
                 }
             }
 
-            TranslationLanguage.EN_TO_ZH -> {
+            TranslationLanguage.EN_TO_ZH,
+            TranslationLanguage.FR_TO_ZH,
+            TranslationLanguage.ES_TO_ZH,
+            TranslationLanguage.PT_TO_ZH,
+            TranslationLanguage.DE_TO_ZH,
+            TranslationLanguage.IT_TO_ZH -> {
                 val engine = engineRegistry.getEnglishOcr(logTag)
                     ?: return OcrRecognitionResult.Failure(
                         IllegalStateException("English OCR engine unavailable")
@@ -299,11 +304,6 @@ class BubbleTextRecognizer(
             }
 
             TranslationLanguage.CHN_ENG_TO_ZH,
-            TranslationLanguage.FR_TO_ZH,
-            TranslationLanguage.ES_TO_ZH,
-            TranslationLanguage.PT_TO_ZH,
-            TranslationLanguage.DE_TO_ZH,
-            TranslationLanguage.IT_TO_ZH,
             TranslationLanguage.RU_TO_ZH -> return OcrRecognitionResult.Failure(
                 IllegalStateException("Local OCR unsupported for ${language.name}")
             )
@@ -331,7 +331,7 @@ data class EnglishLine(
 
 fun normalizeOcrText(text: String, language: TranslationLanguage): String {
     val sanitized = OcrTextSanitizer.sanitize(text, language)
-    if (language != TranslationLanguage.EN_TO_ZH && language != TranslationLanguage.KO_TO_ZH) {
+    if (!language.usesLatinOcr() && language != TranslationLanguage.KO_TO_ZH) {
         return sanitized
     }
     return sanitized.replace('\r', ' ')

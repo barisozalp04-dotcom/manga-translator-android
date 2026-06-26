@@ -755,14 +755,14 @@ internal class TranslationPipeline(
                 TranslationLanguage.JA_TO_ZH -> when (ocrSettings.japaneseLocalOcrEngine) {
                     JapaneseLocalOcrEngine.MANGA_OCR_MOBILE -> "local_ja_mangaocr_mobile"
                 }
-                TranslationLanguage.EN_TO_ZH -> "local_en"
-                TranslationLanguage.KO_TO_ZH -> "local_ko"
-                TranslationLanguage.CHN_ENG_TO_ZH,
+                TranslationLanguage.EN_TO_ZH,
                 TranslationLanguage.FR_TO_ZH,
                 TranslationLanguage.ES_TO_ZH,
                 TranslationLanguage.PT_TO_ZH,
                 TranslationLanguage.DE_TO_ZH,
-                TranslationLanguage.IT_TO_ZH,
+                TranslationLanguage.IT_TO_ZH -> "local_en"
+                TranslationLanguage.KO_TO_ZH -> "local_ko"
+                TranslationLanguage.CHN_ENG_TO_ZH,
                 TranslationLanguage.RU_TO_ZH -> "api"
             }
         }

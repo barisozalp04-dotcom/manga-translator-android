@@ -17,7 +17,7 @@ import kotlin.math.min
 
 class EnglishLineDetector(
     private val context: Context,
-    private val modelAssetName: String = "models/detection/Multilingual_PP-OCRv3_det_infer.onnx",
+    private val modelAssetName: String = "models/detection/PP-OCRv6_det_mobile_infer.onnx",
     private val threadProfile: OnnxThreadProfile = OnnxThreadProfile.LIGHT,
     private val settingsStore: SettingsStore = SettingsStore(context.applicationContext)
 ) {
@@ -256,11 +256,11 @@ class EnglishLineDetector(
     )
 
     companion object {
-        private val MEAN = floatArrayOf(0.5f, 0.5f, 0.5f)
-        private val STD = floatArrayOf(0.5f, 0.5f, 0.5f)
-        private const val PROB_THRESHOLD = 0.3f
-        private const val BOX_THRESHOLD = 0.5f
-        private const val UNCLIP_RATIO = 1.6f
+        private val MEAN = floatArrayOf(0.485f, 0.456f, 0.406f)
+        private val STD = floatArrayOf(0.229f, 0.224f, 0.225f)
+        private const val PROB_THRESHOLD = 0.2f
+        private const val BOX_THRESHOLD = 0.45f
+        private const val UNCLIP_RATIO = 1.4f
         private const val MIN_COMPONENT_PIXELS = 3
         private const val MIN_SIZE = 3
         private const val MIN_ORIGINAL_SIZE = 3f
