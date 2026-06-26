@@ -238,13 +238,18 @@ class ReadingFragment : Fragment() {
             handleBubbleEdit(bubbleId)
         }
         binding.translationOverlay.onBubbleResizeTap = { bubbleId ->
-            showResizePanel(bubbleId)
+            if (folderReadingMode == FolderReadingMode.WEBTOON_SCROLL) {
+                showResizePanel(bubbleId)
+            }
         }
         binding.translationOverlay.onBubbleLongPress = { bubbleId ->
             showBubbleActionDialog(bubbleId)
         }
         binding.translationOverlay.onBubbleCreated = { rect ->
             handleBubbleCreatedFromDrag(rect)
+        }
+        binding.translationOverlay.onBubbleResized = { bubbleId, newRect ->
+            handleBubbleResized(bubbleId, newRect)
         }
         binding.readingEditButton.setOnClickListener {
             toggleEditMode()
@@ -1590,7 +1595,11 @@ class ReadingFragment : Fragment() {
         if (bubble.supportsResizeEditing()) {
             resizeButton.setOnClickListener {
                 dialog.dismiss()
-                showResizePanel(bubbleId)
+                if (folderReadingMode == FolderReadingMode.WEBTOON_SCROLL) {
+                    showResizePanel(bubbleId)
+                } else {
+                    binding.translationOverlay.enterResizeMode(bubbleId)
+                }
             }
         } else {
             resizeButton.visibility = View.GONE
@@ -1727,6 +1736,27 @@ class ReadingFragment : Fragment() {
         val nextId = (translation.bubbles.maxOfOrNull { it.id } ?: -1) + 1
         val newBubble = BubbleTranslation.pending(nextId, RectF(rect), "", BubbleSource.MANUAL)
         val updated = translation.copy(bubbles = translation.bubbles + newBubble)
+        currentTranslation = updated
+        if (folderReadingMode == FolderReadingMode.WEBTOON_SCROLL) {
+            pendingWebtoonScrollAnchor = captureWebtoonScrollAnchor()
+        }
+        renderCurrentTranslation()
+        saveCurrentTranslation()
+        if (folderReadingMode == FolderReadingMode.WEBTOON_SCROLL) {
+            restorePendingWebtoonScrollAnchor()
+        }
+    }
+
+    private fun handleBubbleResized(bubbleId: Int, newRect: RectF) {
+        val translation = currentTranslation ?: return
+        val updatedBubbles = translation.bubbles.map { bubble ->
+            if (bubble.id == bubbleId) {
+                bubble.copy(rect = RectF(newRect))
+            } else {
+                bubble
+            }
+        }
+        val updated = translation.copy(bubbles = updatedBubbles)
         currentTranslation = updated
         if (folderReadingMode == FolderReadingMode.WEBTOON_SCROLL) {
             pendingWebtoonScrollAnchor = captureWebtoonScrollAnchor()

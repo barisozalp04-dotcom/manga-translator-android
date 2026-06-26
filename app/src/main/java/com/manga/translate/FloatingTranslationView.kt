@@ -56,6 +56,25 @@ class FloatingTranslationView @JvmOverloads constructor(
         strokeWidth = resources.displayMetrics.density * 1.5f
         strokeCap = Paint.Cap.ROUND
     }
+    private val resizeHighlightPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0xFF4FC3F7.toInt()
+        style = Paint.Style.STROKE
+        strokeWidth = resources.displayMetrics.density * 2.5f
+        pathEffect = android.graphics.DashPathEffect(
+            floatArrayOf(12f * resources.displayMetrics.density, 8f * resources.displayMetrics.density),
+            0f
+        )
+    }
+    private val resizeHandleFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0xFF4FC3F7.toInt()
+        style = Paint.Style.FILL
+    }
+    private val resizeHandleStrokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0xFFFFFFFF.toInt()
+        style = Paint.Style.STROKE
+        strokeWidth = resources.displayMetrics.density * 2f
+        strokeJoin = Paint.Join.ROUND
+    }
     private val previewFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = 0x2600ACC1
         style = Paint.Style.FILL
@@ -101,6 +120,14 @@ class FloatingTranslationView @JvmOverloads constructor(
     private var createDownImageY = 0f
     private val createDrawingRect = RectF()
     private val createPreviewRect = RectF()
+    private var resizeDragId: Int? = null
+    private var resizeDragActive = false
+    private var resizeDragBaseRect: RectF? = null
+    private val resizeDragWorkingRect = RectF()
+    private var resizeModeId: Int? = null
+    private var resizeModeAlpha = 0f
+    private var resizeModeAnimator: android.animation.ValueAnimator? = null
+    private var pendingResizeEntry: Int? = null
     private var touchPassthroughEnabled = false
     private var editScrollThroughEnabled = false
     private var bubbleRenderSettings = SettingsStore(context.applicationContext).loadNormalBubbleRenderSettings()
@@ -132,6 +159,7 @@ class FloatingTranslationView @JvmOverloads constructor(
     var onBubbleResizeTap: ((Int) -> Unit)? = null
     var onBubbleLongPress: ((Int) -> Unit)? = null
     var onBubbleCreated: ((RectF) -> Unit)? = null
+    var onBubbleResized: ((Int, RectF) -> Unit)? = null
 
     init {
         isClickable = true
@@ -184,6 +212,11 @@ class FloatingTranslationView @JvmOverloads constructor(
         if (!enabled) {
             setCreateBubbleMode(false)
         }
+        resizeDragId = null
+        resizeDragActive = false
+        resizeDragBaseRect = null
+        resizeDragWorkingRect.setEmpty()
+        exitResizeMode(animate = false)
         dragging = false
         activeId = null
         longPressTriggered = false
@@ -198,6 +231,7 @@ class FloatingTranslationView @JvmOverloads constructor(
         isCreatingBubble = false
         createDrawingRect.setEmpty()
         createPreviewRect.setEmpty()
+        exitResizeMode(animate = false)
         invalidate()
     }
 
@@ -237,9 +271,17 @@ class FloatingTranslationView @JvmOverloads constructor(
             drawBubble(canvas, bubble)
             if (editMode) {
                 drawDeleteIcon(canvas, bubbleRect)
-                if (bubble.supportsResizeEditing()) {
+                if (bubble.supportsResizeEditing() && bubble.id != resizeDragId && bubble.id != resizeModeId) {
                     drawResizeIcon(canvas, bubbleRect)
                 }
+            }
+        }
+        if (editMode && resizeModeId != null) {
+            val targetBubble = bubbles.firstOrNull { it.id == resizeModeId }
+            if (targetBubble != null) {
+                updateBubbleRect(bubbleRect, targetBubble)
+                drawResizeModeHighlight(canvas, bubbleRect)
+                drawResizeModeHandle(canvas, bubbleRect)
             }
         }
         if (editMode && createBubbleMode && !createPreviewRect.isEmpty) {
@@ -282,13 +324,42 @@ class FloatingTranslationView @JvmOverloads constructor(
                 downY = startY
                 lastX = startX
                 lastY = startY
-                activeId = if (editMode) findBubbleAt(event.x, event.y) else null
                 dragging = false
                 swipeTriggered = false
                 longPressTriggered = false
                 pendingSwipeDirection = null
                 hadMultiplePointers = false
                 removeCallbacks(longPressRunnable)
+                if (editMode) {
+                    if (resizeModeId != null) {
+                        val handleTarget = findResizeTarget(event.x, event.y)
+                        if (handleTarget != null && handleTarget == resizeModeId) {
+                            activeId = null
+                            pendingResizeEntry = null
+                            resizeDragId = handleTarget
+                            resizeDragActive = false
+                            resizeDragBaseRect = bubbles.firstOrNull { it.id == handleTarget }?.let { RectF(it.rect) }
+                            resizeDragWorkingRect.setEmpty()
+                            parent?.requestDisallowInterceptTouchEvent(true)
+                            return true
+                        }
+                    }
+                    val resizeTarget = findResizeTarget(event.x, event.y)
+                    if (resizeTarget != null && resizeModeId == null) {
+                        pendingResizeEntry = resizeTarget
+                        activeId = resizeTarget
+                        resizeDragId = null
+                        resizeDragActive = false
+                        resizeDragBaseRect = null
+                        resizeDragWorkingRect.setEmpty()
+                        parent?.requestDisallowInterceptTouchEvent(true)
+                        postDelayed(longPressRunnable, longPressTimeout)
+                        return true
+                    }
+                    activeId = findBubbleAt(event.x, event.y)
+                } else {
+                    activeId = null
+                }
                 if (allowParentScrollInEditMode && activeId == null) {
                     parent?.requestDisallowInterceptTouchEvent(false)
                     return false
@@ -300,6 +371,18 @@ class FloatingTranslationView @JvmOverloads constructor(
                 return true
             }
             MotionEvent.ACTION_MOVE -> {
+                val rid = resizeDragId
+                if (rid != null) {
+                    val dx = event.x - downX
+                    val dy = event.y - downY
+                    if (!resizeDragActive && (abs(dx) > touchSlop || abs(dy) > touchSlop)) {
+                        resizeDragActive = true
+                    }
+                    if (resizeDragActive) {
+                        applyResizeDrag(rid, event.x, event.y)
+                    }
+                    return true
+                }
                 if (editMode && activeId != null) {
                     val dx = event.x - downX
                     val dy = event.y - downY
@@ -332,13 +415,49 @@ class FloatingTranslationView @JvmOverloads constructor(
             MotionEvent.ACTION_UP -> {
                 removeCallbacks(longPressRunnable)
                 parent?.requestDisallowInterceptTouchEvent(false)
+                val rid = resizeDragId
+                if (rid != null) {
+                    if (resizeDragActive && !resizeDragWorkingRect.isEmpty) {
+                        onBubbleResized?.invoke(rid, RectF(resizeDragWorkingRect))
+                    }
+                    resizeDragId = null
+                    resizeDragActive = false
+                    resizeDragBaseRect = null
+                    resizeDragWorkingRect.setEmpty()
+                    activeId = null
+                    invalidate()
+                    return true
+                }
+                if (resizeModeId != null) {
+                    if (longPressTriggered) {
+                        dragging = false
+                        activeId = null
+                        pendingResizeEntry = null
+                        return true
+                    }
+                    if (!dragging && !swipeTriggered) {
+                        val touchedBubble = findBubbleAt(event.x, event.y)
+                        if (touchedBubble == null || touchedBubble != resizeModeId) {
+                            exitResizeMode()
+                        }
+                    }
+                    return true
+                }
                 if (longPressTriggered) {
                     dragging = false
                     activeId = null
+                    pendingResizeEntry = null
                     return true
                 }
                 if (!dragging && !swipeTriggered) {
                     if (editMode) {
+                        if (pendingResizeEntry != null) {
+                            enterResizeMode(pendingResizeEntry!!)
+                            pendingResizeEntry = null
+                            activeId = null
+                            return true
+                        }
+                        pendingResizeEntry = null
                         val removeId = findRemoveTarget(event.x, event.y)
                         if (removeId != null) {
                             onBubbleRemove?.invoke(removeId)
@@ -390,6 +509,12 @@ class FloatingTranslationView @JvmOverloads constructor(
                 pendingSwipeDirection = null
                 dragging = false
                 activeId = null
+                resizeDragId = null
+                resizeDragActive = false
+                resizeDragBaseRect = null
+                resizeDragWorkingRect.setEmpty()
+                pendingResizeEntry = null
+                invalidate()
                 return true
             }
         }
@@ -495,6 +620,120 @@ class FloatingTranslationView @JvmOverloads constructor(
         return true
     }
 
+    private fun applyResizeDrag(id: Int, screenX: Float, screenY: Float) {
+        val base = resizeDragBaseRect ?: return
+        val offset = offsets[id] ?: 0f to 0f
+        var newRight = (screenX - displayRect.left) / scaleX - offset.first
+        var newBottom = (screenY - displayRect.top) / scaleY - offset.second
+        val minImageSize = 20f / scaleX.coerceAtLeast(1f)
+        newRight = max(base.left + minImageSize, newRight).coerceAtMost(imageWidth.toFloat())
+        newBottom = max(base.top + minImageSize, newBottom).coerceAtMost(imageHeight.toFloat())
+        resizeDragWorkingRect.set(base.left, base.top, newRight, newBottom)
+        invalidate()
+    }
+
+    fun enterResizeMode(bubbleId: Int) {
+        if (!editMode) return
+        if (resizeModeId == bubbleId) return
+        exitResizeMode(animate = false)
+        resizeModeId = bubbleId
+        pendingResizeEntry = null
+        resizeDragId = null
+        resizeDragActive = false
+        resizeDragBaseRect = null
+        resizeDragWorkingRect.setEmpty()
+        animateResizeModeEnter()
+    }
+
+    fun exitResizeMode() {
+        exitResizeMode(animate = true)
+    }
+
+    private fun exitResizeMode(animate: Boolean) {
+        val wasActive = resizeModeId != null
+        resizeModeId = null
+        resizeDragId = null
+        resizeDragActive = false
+        resizeDragBaseRect = null
+        resizeDragWorkingRect.setEmpty()
+        pendingResizeEntry = null
+        resizeModeAnimator?.cancel()
+        if (animate && wasActive && resizeModeAlpha > 0f) {
+            animateResizeModeExit()
+        } else {
+            resizeModeAlpha = 0f
+            invalidate()
+        }
+    }
+
+    private fun animateResizeModeEnter() {
+        resizeModeAnimator?.cancel()
+        resizeModeAnimator = android.animation.ValueAnimator.ofFloat(resizeModeAlpha, 1f).apply {
+            duration = 200L
+            interpolator = android.view.animation.DecelerateInterpolator()
+            addUpdateListener {
+                resizeModeAlpha = it.animatedValue as Float
+                invalidate()
+            }
+            start()
+        }
+    }
+
+    private fun animateResizeModeExit() {
+        resizeModeAnimator?.cancel()
+        resizeModeAnimator = android.animation.ValueAnimator.ofFloat(resizeModeAlpha, 0f).apply {
+            duration = 150L
+            interpolator = android.view.animation.AccelerateInterpolator()
+            addUpdateListener {
+                resizeModeAlpha = it.animatedValue as Float
+                invalidate()
+            }
+            addListener(object : android.animation.AnimatorListenerAdapter() {
+                override fun onAnimationEnd(animation: android.animation.Animator) {
+                    resizeModeAlpha = 0f
+                    invalidate()
+                }
+            })
+            start()
+        }
+    }
+
+    private fun drawResizeModeHighlight(canvas: Canvas, bubbleRect: RectF) {
+        if (resizeModeAlpha <= 0f) return
+        resizeHighlightPaint.alpha = (resizeModeAlpha * 255).toInt()
+        val inset = resizeHighlightPaint.strokeWidth / 2f
+        canvas.drawRect(
+            bubbleRect.left + inset,
+            bubbleRect.top + inset,
+            bubbleRect.right - inset,
+            bubbleRect.bottom - inset,
+            resizeHighlightPaint
+        )
+    }
+
+    private fun drawResizeModeHandle(canvas: Canvas, bubbleRect: RectF) {
+        if (resizeModeAlpha <= 0f) return
+        val density = resources.displayMetrics.density
+        val handleSize = (min(bubbleRect.width(), bubbleRect.height()) * 0.28f).coerceIn(18f * density, 28f * density)
+        val cornerX = bubbleRect.right
+        val cornerY = bubbleRect.bottom
+        val cx = cornerX - handleSize * 0.3f
+        val cy = cornerY - handleSize * 0.3f
+        val scale = 0.6f + 0.4f * resizeModeAlpha
+        canvas.save()
+        canvas.scale(scale, scale, cornerX, cornerY)
+        val path = android.graphics.Path()
+        path.moveTo(cx - handleSize, cy)
+        path.lineTo(cx, cy)
+        path.lineTo(cx, cy - handleSize)
+        path.close()
+        resizeHandleFillPaint.alpha = (resizeModeAlpha * 255).toInt()
+        resizeHandleStrokePaint.alpha = (resizeModeAlpha * 255).toInt()
+        canvas.drawPath(path, resizeHandleFillPaint)
+        canvas.drawPath(path, resizeHandleStrokePaint)
+        canvas.restore()
+    }
+
     private fun updateScale() {
         if (imageWidth <= 0 || imageHeight <= 0 || displayRect.width() <= 0f || displayRect.height() <= 0f) {
             scaleX = 1f
@@ -519,11 +758,16 @@ class FloatingTranslationView @JvmOverloads constructor(
 
     private fun updateBubbleRect(outRect: RectF, bubble: BubbleTranslation) {
         val offset = offsets[bubble.id] ?: 0f to 0f
+        val rect = if (bubble.id == resizeDragId && resizeDragActive && !resizeDragWorkingRect.isEmpty) {
+            resizeDragWorkingRect
+        } else {
+            bubble.rect
+        }
         outRect.set(
-            displayRect.left + (bubble.rect.left + offset.first) * scaleX,
-            displayRect.top + (bubble.rect.top + offset.second) * scaleY,
-            displayRect.left + (bubble.rect.right + offset.first) * scaleX,
-            displayRect.top + (bubble.rect.bottom + offset.second) * scaleY
+            displayRect.left + (rect.left + offset.first) * scaleX,
+            displayRect.top + (rect.top + offset.second) * scaleY,
+            displayRect.left + (rect.right + offset.first) * scaleX,
+            displayRect.top + (rect.bottom + offset.second) * scaleY
         )
     }
 
