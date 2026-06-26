@@ -32,12 +32,15 @@ class EnglishLineDetector(
         val input = session.inputInfo.entries.first()
         inputName = input.key
         val shape = (input.value.info as TensorInfo).shape
-        inputHeight = (shape.getOrNull(2) ?: TranslationCoreDefaults.DefaultLineDetectionInputSize.toLong())
-            .toInt()
-            .coerceAtLeast(1)
-        inputWidth = (shape.getOrNull(3) ?: TranslationCoreDefaults.DefaultLineDetectionInputSize.toLong())
-            .toInt()
-            .coerceAtLeast(1)
+        inputHeight = resolveDim(shape.getOrNull(2))
+        inputWidth = resolveDim(shape.getOrNull(3))
+    }
+
+    private fun resolveDim(value: Long?): Int {
+        if (value == null || value <= 0L) {
+            return TranslationCoreDefaults.DefaultLineDetectionInputSize
+        }
+        return value.toInt().coerceAtLeast(1)
     }
 
     fun detectLines(bitmap: Bitmap): List<RectF> {
@@ -247,7 +250,8 @@ class EnglishLineDetector(
             cacheDir = context.cacheDir,
             assetProvider = context.assets::open,
             assetName = modelAssetName,
-            threadProfile = threadProfile
+            threadProfile = threadProfile,
+            useXnnpack = false
         )
     }
 

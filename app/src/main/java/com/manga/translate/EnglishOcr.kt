@@ -11,7 +11,9 @@ class EnglishOcr(
     modelAssetName = MODEL_ASSET,
     logTag = LOG_TAG,
     threadProfile = threadProfile,
-    settingsStore = settingsStore
+    settingsStore = settingsStore,
+    dictAssetName = DICT_ASSET,
+    useXnnpack = false
 ) {
     override fun getDefaultCharset(): List<String> {
         val latinDict = "!\"#\$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[]_`abcdefghijklmnopqrstuvwxyz{}¡£§ª«­°²³´µ·º»¿ÀÁÂÄÅÇÈÉÊËÌÍÎÏÒÓÔÕÖÚÜÝßàáâãäåæçèéêëìíîïñòóôõöøùúûüýąĆćČčĐđęıŁłōŒœŠšŸŽžʒβδεзṠ'€™"
@@ -25,6 +27,7 @@ class EnglishOcr(
 
     companion object {
         private const val MODEL_ASSET = "models/ocr/en_PP-OCRv6_rec_mobile_infer.onnx"
+        private const val DICT_ASSET = "models/ocr/ppocr_keys_v6_small.txt"
         private const val LOG_TAG = "EnglishOcr"
     }
 }

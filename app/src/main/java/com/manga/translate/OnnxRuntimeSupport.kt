@@ -31,9 +31,10 @@ object OnnxRuntimeSupport {
         cacheDir: File,
         assetProvider: (String) -> java.io.InputStream,
         assetName: String,
-        threadProfile: OnnxThreadProfile
+        threadProfile: OnnxThreadProfile,
+        useXnnpack: Boolean = true
     ): OrtSession {
-        val cacheKey = "${cacheDir.absolutePath}|$assetName|${threadProfile.name}"
+        val cacheKey = "${cacheDir.absolutePath}|$assetName|${threadProfile.name}|xnnpack=$useXnnpack"
         sessionCache[cacheKey]?.let { return it }
         synchronized(cacheLock) {
             sessionCache[cacheKey]?.let { return it }
@@ -41,7 +42,8 @@ object OnnxRuntimeSupport {
                 cacheDir = cacheDir,
                 assetProvider = assetProvider,
                 assetName = assetName,
-                threadProfile = threadProfile
+                threadProfile = threadProfile,
+                useXnnpack = useXnnpack
             )
             sessionCache[cacheKey] = session
             return session
@@ -52,11 +54,12 @@ object OnnxRuntimeSupport {
         cacheDir: File,
         assetProvider: (String) -> java.io.InputStream,
         assetName: String,
-        threadProfile: OnnxThreadProfile
+        threadProfile: OnnxThreadProfile,
+        useXnnpack: Boolean
     ): OrtSession {
         val modelFile = copyAssetToCacheIfMissing(cacheDir, assetProvider, assetName)
         return try {
-            createSession(modelFile, threadProfile)
+            createSession(modelFile, threadProfile, useXnnpack)
         } catch (e: OrtException) {
             if (!shouldRebuildCache(e)) throw e
             AppLogger.log(
@@ -66,21 +69,24 @@ object OnnxRuntimeSupport {
             )
             deleteCachedModel(cacheDir, assetName)
             val rebuiltFile = forceCopyAssetToCache(cacheDir, assetProvider, assetName)
-            createSession(rebuiltFile, threadProfile)
+            createSession(rebuiltFile, threadProfile, useXnnpack)
         }
     }
 
     private fun createSession(
         modelFile: File,
-        threadProfile: OnnxThreadProfile
+        threadProfile: OnnxThreadProfile,
+        useXnnpack: Boolean
     ): OrtSession {
         val options = OrtSession.SessionOptions().apply {
             setIntraOpNumThreads(threadProfile.intraOpThreads)
             setInterOpNumThreads(threadProfile.interOpThreads)
-            try {
-                addXnnpack(emptyMap())
-            } catch (e: OrtException) {
-                AppLogger.log("OnnxRuntime", "XNNPACK unavailable, using plain CPU", e)
+            if (useXnnpack) {
+                try {
+                    addXnnpack(emptyMap())
+                } catch (e: OrtException) {
+                    AppLogger.log("OnnxRuntime", "XNNPACK unavailable, using plain CPU", e)
+                }
             }
         }
         return options.use {

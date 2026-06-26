@@ -16,7 +16,9 @@ abstract class PaddleOcrBase(
     private val modelAssetName: String,
     private val logTag: String,
     private val threadProfile: OnnxThreadProfile = OnnxThreadProfile.LIGHT,
-    private val settingsStore: SettingsStore = SettingsStore(context.applicationContext)
+    private val settingsStore: SettingsStore = SettingsStore(context.applicationContext),
+    private val dictAssetName: String? = null,
+    private val useXnnpack: Boolean = true
 ) : OcrEngine {
     private val env = OnnxRuntimeSupport.environment()
     private val session: OrtSession = createSession(modelAssetName)
@@ -265,12 +267,27 @@ abstract class PaddleOcrBase(
         } catch (e: Exception) {
             AppLogger.log(logTag, "Failed to read charset from session metadata", e)
         }
+        readDictAsset()?.let { charList ->
+            AppLogger.log(logTag, "Loaded ${charList.size} characters from dict asset $dictAssetName")
+            return charList
+        }
         readCharsetFromAssetMetadata()?.let { charList ->
             AppLogger.log(logTag, "Loaded ${charList.size} characters from asset metadata fallback")
             return charList
         }
         AppLogger.log(logTag, "Falling back to built-in charset")
         return getDefaultCharset()
+    }
+
+    private fun readDictAsset(): List<String>? {
+        val name = dictAssetName ?: return null
+        return runCatching {
+            context.assets.open(name).bufferedReader(Charsets.UTF_8).useLines { lines ->
+                val raw = lines.map { it }.toList()
+                if (raw.isEmpty()) return@useLines null
+                buildCharset(raw)
+            }
+        }.getOrNull()
     }
 
     protected abstract fun getDefaultCharset(): List<String>
@@ -314,7 +331,8 @@ abstract class PaddleOcrBase(
             cacheDir = context.cacheDir,
             assetProvider = context.assets::open,
             assetName = assetName,
-            threadProfile = threadProfile
+            threadProfile = threadProfile,
+            useXnnpack = useXnnpack
         )
     }
 
