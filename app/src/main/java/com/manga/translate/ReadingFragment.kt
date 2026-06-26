@@ -1715,8 +1715,14 @@ class ReadingFragment : Fragment() {
         val newBubble = BubbleTranslation.pending(nextId, rect, "", BubbleSource.MANUAL)
         val updated = translation.copy(bubbles = translation.bubbles + newBubble)
         currentTranslation = updated
+        if (folderReadingMode == FolderReadingMode.WEBTOON_SCROLL) {
+            pendingWebtoonScrollAnchor = captureWebtoonScrollAnchor()
+        }
         renderCurrentTranslation()
         saveCurrentTranslation()
+        if (folderReadingMode == FolderReadingMode.WEBTOON_SCROLL) {
+            restorePendingWebtoonScrollAnchor()
+        }
         showResizePanel(nextId)
     }
 
