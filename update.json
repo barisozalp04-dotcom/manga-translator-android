@@ -1,12 +1,20 @@
 {
-  "versionCode": 63,
-  "versionName": "3.2.5",
+  "versionCode": 68,
+  "versionName": "3.2.10",
   "releaseChannel": "stable",
   "qqGroup": "1080302768",
-  "releasedAt": "2026-06-12",
-  "apkUrl": "https://github.com/jedzqer/manga-translator-android/releases/download/v3.2.5/app-release.apk",
-  "changelog": "支持长图阅读，解决图片层不显示、气泡检测失败、内容截断等问题，支持自动移除空白气泡，日语 OCR 支持并行推理，线程数可自定义，优化韩文乱码过滤，过滤纯符号误检框；后台闲置时自动释放模型内存；修复重译卡预处理、一键翻译按钮内存泄漏、持久化任务异常重跑。",
+  "releasedAt": "2026-06-26",
+  "apkUrl": "https://github.com/jedzqer/manga-translator-android/releases/download/v3.2.10/app-release.apk",
+  "changelog": "新增百度 API OCR（支持中英韩日法西葡德意俄等语言）与智谱 API 端点，PaddleOCR 模型更新至 v6。阅读页新增气泡改为拖动框选、带缩放动画，游离气泡和悬浮窗气泡支持自适应背景色。修复新建气泡跑偏、无法贴边、被控件遮挡等问题，修复文件夹重命名后阅读进度丢失。",
   "history": [
+    {
+      "versionCode": 63,
+      "versionName": "3.2.5",
+      "releaseChannel": "stable",
+      "releasedAt": "2026-06-12",
+      "apkUrl": "https://github.com/jedzqer/manga-translator-android/releases/download/v3.2.5/app-release.apk",
+      "changelog": "支持长图阅读，解决图片层不显示、气泡检测失败、内容截断等问题，支持自动移除空白气泡，日语 OCR 支持并行推理，线程数可自定义，优化韩文乱码过滤，过滤纯符号误检框；后台闲置时自动释放模型内存；修复重译卡预处理、一键翻译按钮内存泄漏、持久化任务异常重跑。"
+    },
     {
       "versionCode": 60,
       "versionName": "3.2.2",
