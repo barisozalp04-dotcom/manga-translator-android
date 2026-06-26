@@ -9,6 +9,7 @@ import androidx.core.graphics.createBitmap
 import androidx.core.graphics.get
 import androidx.core.graphics.scale
 import ai.onnxruntime.OnnxTensor
+import ai.onnxruntime.OrtException
 import ai.onnxruntime.OrtSession
 import ai.onnxruntime.TensorInfo
 import java.nio.FloatBuffer
@@ -40,22 +41,29 @@ class EnglishLineDetector(
     }
 
     fun detectLines(bitmap: Bitmap): List<RectF> {
+        if (bitmap.width < MIN_CROP_SIZE || bitmap.height < MIN_CROP_SIZE) {
+            return emptyList()
+        }
         val preprocessed = preprocess(bitmap)
         val tensor = preprocessed.tensor
         tensor.use {
-            session.run(mapOf(inputName to tensor)).use { outputs ->
-                val output = outputs[0]
-                val outputShape = (output.info as TensorInfo).shape
-                val probMap = extractProbMap(output.value, outputShape) ?: return emptyList()
-                val rects = extractLineRects(probMap, preprocessed)
-                val sorted = sortBoxesReadingOrder(rects)
-                if (settingsStore.loadModelIoLogging()) {
-                    AppLogger.log(
-                        "EnglishLineDetector",
-                        "Input ${bitmap.width}x${bitmap.height}, lines ${sorted.size}: ${describeRects(sorted)}"
-                    )
+            try {
+                session.run(mapOf(inputName to tensor)).use { outputs ->
+                    val output = outputs[0]
+                    val outputShape = (output.info as TensorInfo).shape
+                    val probMap = extractProbMap(output.value, outputShape) ?: return emptyList()
+                    val rects = extractLineRects(probMap, preprocessed)
+                    val sorted = sortBoxesReadingOrder(rects)
+                    if (settingsStore.loadModelIoLogging()) {
+                        AppLogger.log(
+                            "EnglishLineDetector",
+                            "Input ${bitmap.width}x${bitmap.height}, lines ${sorted.size}: ${describeRects(sorted)}"
+                        )
+                    }
+                    return sorted
                 }
-                return sorted
+            } catch (e: OrtException) {
+                return emptyList()
             }
         }
     }
@@ -265,5 +273,6 @@ class EnglishLineDetector(
         private const val MIN_SIZE = 3
         private const val MIN_ORIGINAL_SIZE = 3f
         private const val BOX_SORT_Y_THRESHOLD = 10f
+        private const val MIN_CROP_SIZE = 32
     }
 }

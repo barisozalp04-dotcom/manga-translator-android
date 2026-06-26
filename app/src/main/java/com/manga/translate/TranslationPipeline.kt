@@ -6,6 +6,7 @@ import android.graphics.RectF
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
@@ -549,6 +550,11 @@ internal class TranslationPipeline(
                         val text = if (engine != null) {
                             try {
                                 bubbleTextRecognizer.sanitizeJaCrop(engine, crop, language, "Pipeline")
+                            } catch (e: CancellationException) {
+                                throw e
+                            } catch (e: Throwable) {
+                                AppLogger.log("Pipeline", "JA pool OCR threw for region", e)
+                                ""
                             } finally {
                                 ocrEngineRegistry.returnJa(engine)
                                 crop.recycleSafely()
@@ -737,6 +743,11 @@ internal class TranslationPipeline(
                     ""
                 }
             }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            AppLogger.log(logTag, "OCR threw for region", e)
+            ""
         } finally {
             crop.recycleSafely()
         }

@@ -6,6 +6,7 @@ import android.graphics.RectF
 import androidx.core.graphics.get
 import androidx.core.graphics.scale
 import ai.onnxruntime.OnnxTensor
+import ai.onnxruntime.OrtException
 import ai.onnxruntime.OrtSession
 import ai.onnxruntime.TensorInfo
 import java.nio.FloatBuffer
@@ -28,20 +29,25 @@ abstract class PaddleOcrBase(
 
     override fun recognizeWithScore(bitmap: Bitmap, rect: RectF?): OcrEngine.OcrEngineResult {
         val preprocessed = if (rect != null) preprocess(bitmap, rect) else preprocess(bitmap)
-        preprocessed.use { tensor ->
-            session.run(mapOf(inputName to tensor)).use { outputs ->
-                val output = outputs[0]
-                val outputShape = (output.info as TensorInfo).shape
-                val decoded = ctcDecodeWithScore(output.value, outputShape)
-                if (settingsStore.loadModelIoLogging()) {
-                    val dims = if (rect != null) {
-                        "rect (${rect.left.toInt()},${rect.top.toInt()},${rect.right.toInt()},${rect.bottom.toInt()})"
-                    } else {
-                        "${bitmap.width}x${bitmap.height}"
+        return preprocessed.use { tensor ->
+            try {
+                session.run(mapOf(inputName to tensor)).use { outputs ->
+                    val output = outputs[0]
+                    val outputShape = (output.info as TensorInfo).shape
+                    val decoded = ctcDecodeWithScore(output.value, outputShape)
+                    if (settingsStore.loadModelIoLogging()) {
+                        val dims = if (rect != null) {
+                            "rect (${rect.left.toInt()},${rect.top.toInt()},${rect.right.toInt()},${rect.bottom.toInt()})"
+                        } else {
+                            "${bitmap.width}x${bitmap.height}"
+                        }
+                        AppLogger.log(logTag, "Input $dims, output: ${decoded.text}")
                     }
-                    AppLogger.log(logTag, "Input $dims, output: ${decoded.text}")
+                    decoded
                 }
-                return decoded
+            } catch (e: OrtException) {
+                AppLogger.log(logTag, "ONNX inference failed", e)
+                OcrEngine.OcrEngineResult("", 0f)
             }
         }
     }

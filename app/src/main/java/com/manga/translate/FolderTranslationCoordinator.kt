@@ -320,6 +320,15 @@ internal class FolderTranslationCoordinator(
                 } else {
                     throw e
                 }
+            } catch (e: Throwable) {
+                AppLogger.log("Library", "Batch translation crashed", e)
+                failed = true
+                ui.setFolderStatus(appContext.getString(R.string.translation_failed))
+                GlobalTaskProgressStore.fail(
+                    appContext.getString(R.string.translation_keepalive_title),
+                    appContext.getString(R.string.translation_failed)
+                )
+                onFinished()
             } finally {
                 cleanupTranslationState()
                 onTranslateEnabled(true)
@@ -454,6 +463,15 @@ internal class FolderTranslationCoordinator(
                 } else {
                     throw e
                 }
+            } catch (e: Throwable) {
+                AppLogger.log("Library", "Folder translation crashed: ${folder.name}", e)
+                failed = true
+                ui.setFolderStatus(appContext.getString(R.string.translation_failed))
+                GlobalTaskProgressStore.fail(
+                    appContext.getString(R.string.translation_keepalive_title),
+                    appContext.getString(R.string.translation_failed)
+                )
+                ui.refreshImages(folder)
             } finally {
                 cleanupTranslationState()
                 onTranslateEnabled(true)
@@ -521,7 +539,7 @@ internal class FolderTranslationCoordinator(
                         translationPipeline.ocrImage(image, force, language) { }
                     } catch (e: CancellationException) {
                         throw e
-                    } catch (e: Exception) {
+                    } catch (e: Throwable) {
                         AppLogger.log("Library", "OCR failed for ${image.name}", e)
                         null
                     }
@@ -668,6 +686,15 @@ internal class FolderTranslationCoordinator(
                 } else {
                     throw e
                 }
+            } catch (e: Throwable) {
+                AppLogger.log("Library", "Full-page translation crashed: ${folder.name}", e)
+                failed = true
+                ui.setFolderStatus(appContext.getString(R.string.translation_failed))
+                GlobalTaskProgressStore.fail(
+                    appContext.getString(R.string.translation_keepalive_title),
+                    appContext.getString(R.string.translation_failed)
+                )
+                ui.refreshImages(folder)
             } finally {
                 cleanupTranslationState()
                 onTranslateEnabled(true)
@@ -760,7 +787,7 @@ internal class FolderTranslationCoordinator(
                 translationPipeline.ocrImage(image, task.force, task.language) { }
             } catch (e: CancellationException) {
                 throw e
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
                 AppLogger.log("Library", "Collection OCR failed for ${image.name}", e)
                 null
             }
@@ -998,7 +1025,7 @@ internal class FolderTranslationCoordinator(
                             )
                         } catch (e: CancellationException) {
                             throw e
-                        } catch (e: Exception) {
+                        } catch (e: Throwable) {
                             AppLogger.log("Library", "Prepare standard page failed for ${image.name}", e)
                             null
                         }
@@ -1049,7 +1076,7 @@ internal class FolderTranslationCoordinator(
                             null
                         } catch (e: CancellationException) {
                             throw e
-                        } catch (e: Exception) {
+                        } catch (e: Throwable) {
                             AppLogger.log("Library", "Translation failed for ${image.name}", e)
                             failureMessage = e.message
                             null
@@ -1153,7 +1180,7 @@ internal class FolderTranslationCoordinator(
                             null
                         } catch (e: CancellationException) {
                             throw e
-                        } catch (e: Exception) {
+                        } catch (e: Throwable) {
                             AppLogger.log("Library", "Full-page translation failed for ${page.imageFile.name}", e)
                             failureMessage = e.message
                             null
@@ -1315,6 +1342,14 @@ internal class FolderTranslationCoordinator(
                     "Provider ${providerContext.displayName} returned invalid response for ${image.name}",
                     e
                 )
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                AppLogger.log(
+                    "Library",
+                    "Provider ${providerContext.displayName} threw for ${image.name}",
+                    e
+                )
             }
         }
         if (lastResponseException != null) {
@@ -1409,6 +1444,14 @@ internal class FolderTranslationCoordinator(
                 AppLogger.log(
                     "Library",
                     "Provider ${providerContext.displayName} returned invalid response for ${page.imageFile.name}",
+                    e
+                )
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                AppLogger.log(
+                    "Library",
+                    "Provider ${providerContext.displayName} threw for ${page.imageFile.name}",
                     e
                 )
             }
@@ -1563,7 +1606,7 @@ internal class FolderTranslationCoordinator(
             translationPipeline.ocrImage(image, force, language) { }
         } catch (e: CancellationException) {
             throw e
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             AppLogger.log("Library", "Retry OCR failed for ${image.name}", e)
             null
         } ?: return false
@@ -1584,7 +1627,7 @@ internal class FolderTranslationCoordinator(
             return false
         } catch (e: CancellationException) {
             throw e
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             AppLogger.log("Library", "Retry failed for ${image.name}", e)
             return false
         }
@@ -1627,7 +1670,7 @@ internal class FolderTranslationCoordinator(
             return false
         } catch (e: CancellationException) {
             throw e
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             AppLogger.log("Library", "Retry failed for ${page.imageFile.name}", e)
             return false
         }
