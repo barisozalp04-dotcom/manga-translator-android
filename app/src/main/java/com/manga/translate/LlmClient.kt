@@ -2,6 +2,7 @@ package com.manga.translate
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.RectF
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
@@ -241,6 +242,119 @@ class LlmClient(
             )
         }
         return null
+    }
+
+    override suspend fun recognizeFullPageWithBaidu(
+        image: Bitmap,
+        language: TranslationLanguage
+    ): List<BaiduOcrWord>? {
+        val ocrSettings = settingsStore.loadOcrApiSettings()
+        val accessToken = baiduTokenManager.getAccessToken(ocrSettings.apiKey, ocrSettings.secretKey)
+            ?: run {
+                AppLogger.log("LlmClient", "Baidu full-page OCR: failed to obtain access token")
+                return null
+            }
+        val endpoint = BAIDU_OCR_GENERAL_LOCATION_URL + "?access_token=" + accessToken
+        val imageBase64 = ImageEncodingUtils.encodeBitmapToBase64(image)
+            ?: run {
+                AppLogger.log("LlmClient", "Baidu full-page OCR: failed to encode image")
+                return null
+            }
+        val body = "image=" + java.net.URLEncoder.encode(imageBase64, "UTF-8") +
+                "&language_type=" + java.net.URLEncoder.encode(language.baiduLanguageType, "UTF-8") +
+                "&recognize_granularity=big" +
+                "&detect_direction=false" +
+                "&vertexes_location=false" +
+                "&paragraph=false"
+        val timeoutMs = ocrSettings.timeoutSeconds * 1000
+        var lastErrorCode: String? = null
+        var lastErrorBody: String? = null
+        for (attempt in 1..RETRY_COUNT) {
+            currentCoroutineContext().ensureActive()
+            val result = try {
+                executeRequest(
+                    request = Request.Builder()
+                        .url(endpoint)
+                        .post(body.toRequestBody(formUrlEncodedMediaType))
+                        .build(),
+                    timeoutMs = timeoutMs
+                ).use { response ->
+                    val code = response.code
+                    val respBody = response.body?.string().orEmpty()
+                    if (code !in 200..299) {
+                        AppLogger.log("LlmClient", "Baidu full-page OCR HTTP $code: ${summarizeBody(respBody)}")
+                        lastErrorCode = "HTTP $code"
+                        lastErrorBody = respBody
+                        null
+                    } else {
+                        parseBaiduFullPageOcrResponse(respBody)
+                    }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                AppLogger.log("LlmClient", "Baidu full-page OCR request failed (attempt $attempt)", e)
+                lastErrorCode = "NETWORK_ERROR"
+                null
+            }
+            if (result != null || attempt == RETRY_COUNT) {
+                if (result != null) return result
+                if (lastErrorCode != null) {
+                    AppLogger.log(
+                        "LlmClient",
+                        "Baidu full-page OCR request failed: $lastErrorCode, body=${summarizeBody(lastErrorBody)}"
+                    )
+                }
+                return null
+            }
+            maybeBackoffBeforeRetry(
+                attempt,
+                RetryPolicy(maxAttempts = RETRY_COUNT, mode = RetryMode.DEFAULT),
+                lastErrorCode,
+                lastErrorBody
+            )
+        }
+        return null
+    }
+
+    private fun parseBaiduFullPageOcrResponse(body: String): List<BaiduOcrWord>? {
+        return try {
+            val json = JSONObject(body)
+            if (json.has("error_code")) {
+                val errorCode = json.optInt("error_code")
+                if (errorCode != 0) {
+                    val errorMsg = json.optString("error_msg", "")
+                    AppLogger.log("LlmClient", "Baidu full-page OCR error: code=$errorCode, msg=$errorMsg")
+                    return null
+                }
+            }
+            val wordsResult = json.optJSONArray("words_result")
+            if (wordsResult != null && wordsResult.length() > 0) {
+                val results = ArrayList<BaiduOcrWord>(wordsResult.length())
+                for (i in 0 until wordsResult.length()) {
+                    val item = wordsResult.optJSONObject(i) ?: continue
+                    val words = item.optString("words")?.trim().orEmpty()
+                    if (words.isBlank()) continue
+                    val location = item.optJSONObject("location")?.let { loc ->
+                        val top = loc.optInt("top", 0).toFloat()
+                        val left = loc.optInt("left", 0).toFloat()
+                        val width = loc.optInt("width", 0).toFloat()
+                        val height = loc.optInt("height", 0).toFloat()
+                        if (width > 0f && height > 0f) {
+                            RectF(left, top, left + width, top + height)
+                        } else {
+                            null
+                        }
+                    }
+                    results.add(BaiduOcrWord(words = words, location = location))
+                }
+                return results.ifEmpty { null }
+            }
+            null
+        } catch (e: Exception) {
+            AppLogger.log("LlmClient", "Baidu full-page OCR response parse failed", e)
+            null
+        }
     }
 
     private fun parseBaiduOcrResponse(body: String): String? {
@@ -1611,6 +1725,7 @@ class LlmClient(
             "Translate only the text visible in this manga bubble into Simplified Chinese. Output only the translated text."
         private const val RETRY_COUNT = 3
         private const val BAIDU_OCR_GENERAL_URL = "https://aip.baidubce.com/rest/2.0/ocr/v1/general_basic"
+        private const val BAIDU_OCR_GENERAL_LOCATION_URL = "https://aip.baidubce.com/rest/2.0/ocr/v1/general"
         private const val MAX_CACHED_HTTP_CLIENTS = 4
         private const val RETRY_BASE_DELAY_MS = 750
         private const val RETRY_MAX_DELAY_MS = 4_000
@@ -1732,6 +1847,11 @@ data class LlmBubbleTranslationResult(
 data class LlmBubbleTranslationItem(
     val id: Int,
     val translation: String
+)
+
+data class BaiduOcrWord(
+    val words: String,
+    val location: RectF?
 )
 
 private data class LlmPromptConfig(

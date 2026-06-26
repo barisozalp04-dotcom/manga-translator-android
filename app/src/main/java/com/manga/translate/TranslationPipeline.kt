@@ -145,8 +145,17 @@ internal class TranslationPipeline(
         val ocrSettings = settingsStore.loadOcrApiSettings()
         val resolvedLanguage = TranslationLanguage.resolveForOcr(language, ocrSettings.useLocalOcr)
         val effectiveUseLocalOcr = ocrSettings.useLocalOcr && resolvedLanguage.supportsLocalOcr()
-        val cacheMode = buildOcrCacheMode(imageFile, effectiveUseLocalOcr, resolvedLanguage)
-        val expectedMetadata = buildOcrMetadata(imageFile, language, ocrSettings, cacheMode)
+        val isBaiduFullPage = !effectiveUseLocalOcr && ocrSettings.ocrApiFormat == OcrApiFormat.BAIDU_AI
+        val cacheMode = if (isBaiduFullPage) {
+            buildBaiduFullPageOcrCacheMode(imageFile)
+        } else {
+            buildOcrCacheMode(imageFile, effectiveUseLocalOcr, resolvedLanguage)
+        }
+        val expectedMetadata = if (isBaiduFullPage) {
+            buildBaiduFullPageOcrMetadata(imageFile, language, cacheMode)
+        } else {
+            buildOcrMetadata(imageFile, language, ocrSettings, cacheMode)
+        }
         if (!forceOcr) {
             val cached = ocrStore.load(imageFile, expectedMetadata = expectedMetadata)
             if (cached != null) {
@@ -190,95 +199,21 @@ internal class TranslationPipeline(
                 ocrStore.save(imageFile, emptyResult)
                 return@withContext emptyResult
             }
-            val bubbles = ArrayList<OcrBubble>(regions.size)
-            val isJaLocal = useLocalOcr && language == TranslationLanguage.JA_TO_ZH
-            val jaLocalConcurrency = if (isJaLocal) LocalOcrConcurrency.resolve(ocrSettings.localOcrConcurrencyLimit) else 1
-            if (isJaLocal && jaLocalConcurrency > 1) {
-                ocrEngineRegistry.ensureJaPool("Pipeline", ocrSettings.localOcrConcurrencyLimit)
-                val results = coroutineScope {
-                    regions.map { region ->
-                        async(Dispatchers.Default) {
-                            val clamped = PipelineBitmapDecoder.clampRect(
-                                region.rect, cropSource.width, cropSource.height
-                            ) ?: return@async null
-                            val crop = cropSource.decodeRegion(clamped) ?: return@async null
-                            val engine = ocrEngineRegistry.borrowJa("Pipeline")
-                            val text = if (engine != null) {
-                                try {
-                                    bubbleTextRecognizer.sanitizeJaCrop(engine, crop, language, "Pipeline")
-                                } finally {
-                                    ocrEngineRegistry.returnJa(engine)
-                                    crop.recycleSafely()
-                                }
-                            } else {
-                                try {
-                                    bubbleTextRecognizer
-                                        .recognizeCrop(crop, language, useLocalOcr = true, logTag = "Pipeline")
-                                        .textOrEmpty()
-                                } finally {
-                                    crop.recycleSafely()
-                                }
-                            }
-                            if (text.isBlank()) null
-                            else OcrBubble(
-                                id = region.id,
-                                rect = region.rect,
-                                text = text,
-                                source = region.source,
-                                maskContour = region.maskContour
-                            )
-                        }
-                    }.awaitAll()
-                }
-                results.filterNotNullTo(bubbles)
-            } else if (useLocalOcr || ocrSettings.apiOcrConcurrencyLimit <= 1) {
-                for (region in regions) {
-                    val text = recognizeRegionFromSource(
-                        cropSource = cropSource,
-                        rect = region.rect,
-                        language = resolvedLanguage,
-                        useLocalOcr = useLocalOcr,
-                        logTag = "Pipeline"
-                    )
-                    if (text.isBlank()) {
-                        continue
-                    }
-                    bubbles.add(
-                        OcrBubble(
-                            id = region.id,
-                            rect = region.rect,
-                            text = text,
-                            source = region.source,
-                            maskContour = region.maskContour
-                        )
-                    )
-                }
+            val bubbles: List<OcrBubble> = if (isBaiduFullPage) {
+                recognizeFullPageBaiduAndMatch(
+                    cropSource = cropSource,
+                    pageRegions = pageRegions,
+                    language = resolvedLanguage
+                )
             } else {
-                val semaphore = Semaphore(ocrSettings.apiOcrConcurrencyLimit)
-                val results = coroutineScope {
-                    regions.map { region ->
-                        async(Dispatchers.IO) {
-                            semaphore.withPermit {
-                                val text = recognizeRegionFromSource(
-                                    cropSource = cropSource,
-                                    rect = region.rect,
-                                    language = resolvedLanguage,
-                                    useLocalOcr = false,
-                                    logTag = "Pipeline"
-                                )
-                                if (text.isBlank()) null
-                                else OcrBubble(
-                                    id = region.id,
-                                    rect = region.rect,
-                                    text = text,
-                                    source = region.source,
-                                    maskContour = region.maskContour
-                                )
-                            }
-                        }
-                    }.awaitAll()
-                }
-                results.filterNotNullTo(bubbles)
+                recognizeBubblesIndividually(
+                    cropSource = cropSource,
+                    regions = regions,
+                    language = resolvedLanguage,
+                    useLocalOcr = useLocalOcr,
+                    ocrSettings = ocrSettings,
+                    ocrEngine = ocrEngine
+                )
             }
             val mergedBubbles = RectGeometryDeduplicator.mergeShortTextDetectorOcrBubbles(
                 bubbles = bubbles,
@@ -590,6 +525,201 @@ internal class TranslationPipeline(
             }
         }
 
+    private suspend fun recognizeBubblesIndividually(
+        cropSource: BitmapCropSource,
+        regions: List<PageRegion>,
+        language: TranslationLanguage,
+        useLocalOcr: Boolean,
+        ocrSettings: OcrApiSettings,
+        ocrEngine: OcrEngine?
+    ): List<OcrBubble> {
+        val bubbles = ArrayList<OcrBubble>(regions.size)
+        val isJaLocal = useLocalOcr && language == TranslationLanguage.JA_TO_ZH
+        val jaLocalConcurrency = if (isJaLocal) LocalOcrConcurrency.resolve(ocrSettings.localOcrConcurrencyLimit) else 1
+        if (isJaLocal && jaLocalConcurrency > 1) {
+            ocrEngineRegistry.ensureJaPool("Pipeline", ocrSettings.localOcrConcurrencyLimit)
+            val results = coroutineScope {
+                regions.map { region ->
+                    async(Dispatchers.Default) {
+                        val clamped = PipelineBitmapDecoder.clampRect(
+                            region.rect, cropSource.width, cropSource.height
+                        ) ?: return@async null
+                        val crop = cropSource.decodeRegion(clamped) ?: return@async null
+                        val engine = ocrEngineRegistry.borrowJa("Pipeline")
+                        val text = if (engine != null) {
+                            try {
+                                bubbleTextRecognizer.sanitizeJaCrop(engine, crop, language, "Pipeline")
+                            } finally {
+                                ocrEngineRegistry.returnJa(engine)
+                                crop.recycleSafely()
+                            }
+                        } else {
+                            try {
+                                bubbleTextRecognizer
+                                    .recognizeCrop(crop, language, useLocalOcr = true, logTag = "Pipeline")
+                                    .textOrEmpty()
+                            } finally {
+                                crop.recycleSafely()
+                            }
+                        }
+                        if (text.isBlank()) null
+                        else OcrBubble(
+                            id = region.id,
+                            rect = region.rect,
+                            text = text,
+                            source = region.source,
+                            maskContour = region.maskContour
+                        )
+                    }
+                }.awaitAll()
+            }
+            results.filterNotNullTo(bubbles)
+        } else if (useLocalOcr || ocrSettings.apiOcrConcurrencyLimit <= 1) {
+            for (region in regions) {
+                val text = recognizeRegionFromSource(
+                    cropSource = cropSource,
+                    rect = region.rect,
+                    language = language,
+                    useLocalOcr = useLocalOcr,
+                    logTag = "Pipeline"
+                )
+                if (text.isBlank()) continue
+                bubbles.add(
+                    OcrBubble(
+                        id = region.id,
+                        rect = region.rect,
+                        text = text,
+                        source = region.source,
+                        maskContour = region.maskContour
+                    )
+                )
+            }
+        } else {
+            val semaphore = Semaphore(ocrSettings.apiOcrConcurrencyLimit)
+            val results = coroutineScope {
+                regions.map { region ->
+                    async(Dispatchers.IO) {
+                        semaphore.withPermit {
+                            val text = recognizeRegionFromSource(
+                                cropSource = cropSource,
+                                rect = region.rect,
+                                language = language,
+                                useLocalOcr = false,
+                                logTag = "Pipeline"
+                            )
+                            if (text.isBlank()) null
+                            else OcrBubble(
+                                id = region.id,
+                                rect = region.rect,
+                                text = text,
+                                source = region.source,
+                                maskContour = region.maskContour
+                            )
+                        }
+                    }
+                }.awaitAll()
+            }
+            results.filterNotNullTo(bubbles)
+        }
+        return bubbles
+    }
+
+    private suspend fun recognizeFullPageBaiduAndMatch(
+        cropSource: BitmapCropSource,
+        pageRegions: PageRegionDetectionResult,
+        language: TranslationLanguage
+    ): List<OcrBubble> {
+        val fullBitmap = cropSource.decodeRegion(
+            RectF(0f, 0f, pageRegions.width.toFloat(), pageRegions.height.toFloat()),
+            maxEdge = BAIDU_FULL_PAGE_MAX_EDGE
+        ) ?: run {
+            AppLogger.log("Pipeline", "Baidu full-page OCR: failed to decode full page image")
+            return emptyList()
+        }
+        return try {
+            val baiduWords = llmClient.recognizeFullPageWithBaidu(fullBitmap, language)
+            if (baiduWords.isNullOrEmpty()) {
+                AppLogger.log("Pipeline", "Baidu full-page OCR returned no words, falling back to empty")
+                pageRegions.regions.map { region ->
+                    OcrBubble(
+                        id = region.id,
+                        rect = region.rect,
+                        text = "",
+                        source = region.source,
+                        maskContour = region.maskContour
+                    )
+                }
+            } else {
+                AppLogger.log(
+                    "Pipeline",
+                    "Baidu full-page OCR recognized ${baiduWords.size} words for ${pageRegions.regions.size} regions"
+                )
+                matchBaiduWordsToRegions(baiduWords, pageRegions.regions)
+            }
+        } catch (e: Exception) {
+            AppLogger.log("Pipeline", "Baidu full-page OCR failed, falling back to empty", e)
+            pageRegions.regions.map { region ->
+                OcrBubble(
+                    id = region.id,
+                    rect = region.rect,
+                    text = "",
+                    source = region.source,
+                    maskContour = region.maskContour
+                )
+            }
+        } finally {
+            fullBitmap.recycleSafely()
+        }
+    }
+
+    private fun matchBaiduWordsToRegions(
+        words: List<BaiduOcrWord>,
+        regions: List<PageRegion>
+    ): List<OcrBubble> {
+        val regionTexts = Array(regions.size) { StringBuilder() }
+        for (word in words) {
+            val wordLoc = word.location ?: continue
+            val cx = wordLoc.centerX()
+            val cy = wordLoc.centerY()
+            var bestRegionIndex = -1
+            for (i in regions.indices) {
+                if (regions[i].rect.contains(cx, cy)) {
+                    bestRegionIndex = i
+                    break
+                }
+            }
+            if (bestRegionIndex < 0) {
+                var bestIou = 0f
+                for (i in regions.indices) {
+                    val iou = rectIoU(wordLoc, regions[i].rect)
+                    if (iou > bestIou) {
+                        bestIou = iou
+                        bestRegionIndex = i
+                    }
+                }
+                if (bestIou < BAIDU_WORD_REGION_IOU_THRESHOLD) {
+                    bestRegionIndex = -1
+                }
+            }
+            if (bestRegionIndex >= 0) {
+                if (regionTexts[bestRegionIndex].isNotEmpty()) {
+                    regionTexts[bestRegionIndex].append('\n')
+                }
+                regionTexts[bestRegionIndex].append(word.words)
+            }
+        }
+        return regions.mapIndexed { index, region ->
+            val text = regionTexts[index].toString()
+            OcrBubble(
+                id = region.id,
+                rect = region.rect,
+                text = text,
+                source = region.source,
+                maskContour = region.maskContour
+            )
+        }
+    }
+
     private suspend fun recognizeRegionFromSource(
         cropSource: BitmapCropSource,
         rect: RectF,
@@ -631,6 +761,9 @@ internal class TranslationPipeline(
         private const val FULL_TRANS_PROMPT_ASSET = "prompts/llm_prompts_FullTrans.json"
         private const val VL_PROMPT_ASSET = "prompts/vl_bubble_prompts.json"
         private const val MODEL_RESPONSE_SILENT_RETRY_COUNT = 3
+        private const val BAIDU_FULL_PAGE_MAX_EDGE = 4096
+        private const val BAIDU_WORD_REGION_IOU_THRESHOLD = 0.15f
+        private const val BAIDU_FULL_PAGE_CACHE_MODE = "baidu_fullpage"
     }
 
     private fun buildExpectedTranslationMetadata(
@@ -772,6 +905,27 @@ internal class TranslationPipeline(
         return "$baseMode|$strategyTag"
     }
 
+    private fun buildBaiduFullPageOcrCacheMode(imageFile: File): String {
+        val strategyTag = PipelineBitmapDecoder.readImageSize(imageFile)?.let { size ->
+            buildDetectionStrategyTag(size.width, size.height)
+        } ?: "det_full_v1"
+        return "${BAIDU_FULL_PAGE_CACHE_MODE}|$strategyTag"
+    }
+
+    private fun buildBaiduFullPageOcrMetadata(
+        imageFile: File,
+        language: TranslationLanguage,
+        cacheMode: String
+    ): OcrMetadata {
+        return OcrMetadata(
+            sourceLastModified = imageFile.lastModified(),
+            sourceFileSize = imageFile.length(),
+            cacheMode = cacheMode,
+            language = language.name,
+            engineModel = BAIDU_FULL_PAGE_CACHE_MODE
+        )
+    }
+
     private suspend fun <T> executeWithModelResponseRetries(
         logTag: String,
         block: suspend () -> T?
@@ -813,6 +967,20 @@ internal fun buildDetectionStrategyTag(
     } else {
         "det_full_v1"
     }
+}
+
+internal fun rectIoU(a: RectF, b: RectF): Float {
+    val interLeft = maxOf(a.left, b.left)
+    val interTop = maxOf(a.top, b.top)
+    val interRight = minOf(a.right, b.right)
+    val interBottom = minOf(a.bottom, b.bottom)
+    val interWidth = maxOf(0f, interRight - interLeft)
+    val interHeight = maxOf(0f, interBottom - interTop)
+    val interArea = interWidth * interHeight
+    val areaA = maxOf(0f, a.width()) * maxOf(0f, a.height())
+    val areaB = maxOf(0f, b.width()) * maxOf(0f, b.height())
+    val union = areaA + areaB - interArea
+    return if (union <= 0f) 0f else interArea / union
 }
 
 data class OcrBubble(
