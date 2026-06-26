@@ -1778,7 +1778,12 @@ class ReadingFragment : Fragment() {
         val bubbleWidth = baseSize.coerceIn(80f, width * 0.6f)
         val bubbleHeight = (baseSize * 0.7f).coerceIn(60f, height * 0.6f)
         val left = (width - bubbleWidth) / 2f
-        val top = (height - bubbleHeight) / 2f
+        val top = if (folderReadingMode == FolderReadingMode.WEBTOON_SCROLL) {
+            val visibleCenterY = computeWebtoonVisibleCenterY(translation)
+            (visibleCenterY - bubbleHeight / 2f).coerceIn(0f, height - bubbleHeight)
+        } else {
+            (height - bubbleHeight) / 2f
+        }
         val rect = RectF(left, top, left + bubbleWidth, top + bubbleHeight)
         val nextId = (translation.bubbles.maxOfOrNull { it.id } ?: -1) + 1
         val newBubble = BubbleTranslation.pending(nextId, rect, "", BubbleSource.MANUAL)
@@ -1793,6 +1798,29 @@ class ReadingFragment : Fragment() {
             restorePendingWebtoonScrollAnchor()
         }
         showResizePanel(nextId)
+    }
+
+    private fun computeWebtoonVisibleCenterY(translation: TranslationResult): Float {
+        val pageIndex = readingSessionViewModel.index.value ?: return translation.height.toFloat() / 2f
+        val adapterPosition = webtoonAdapter.adapterPositionForImageIndex(pageIndex)
+        if (adapterPosition == RecyclerView.NO_POSITION) return translation.height.toFloat() / 2f
+        val itemView = webtoonLayoutManager.findViewByPosition(adapterPosition)
+        if (itemView == null) return translation.height.toFloat() / 2f
+        val recyclerView = binding.readingWebtoonList
+        val recyclerTop = recyclerView.paddingTop
+        val recyclerBottom = recyclerView.height - recyclerView.paddingBottom
+        val itemTopInRecycler = itemView.top
+        val itemBottomInRecycler = itemView.bottom
+        val visibleTop = maxOf(itemTopInRecycler, recyclerTop)
+        val visibleBottom = minOf(itemBottomInRecycler, recyclerBottom)
+        if (visibleTop >= visibleBottom) return translation.height.toFloat() / 2f
+        val itemHeight = itemView.height.toFloat()
+        if (itemHeight <= 0f) return translation.height.toFloat() / 2f
+        val visibleTopFraction = (visibleTop - itemTopInRecycler) / itemHeight
+        val visibleBottomFraction = (visibleBottom - itemTopInRecycler) / itemHeight
+        val imageHeight = translation.height.toFloat()
+        val imageVisibleCenterY = ((visibleTopFraction + visibleBottomFraction) / 2f) * imageHeight
+        return imageVisibleCenterY.coerceIn(0f, imageHeight)
     }
 
     private fun processEmptyBubbles() {
