@@ -1494,10 +1494,12 @@ class SettingsFragment : Fragment() {
                 if (enabled) android.view.View.VISIBLE else android.view.View.GONE
             dialogBinding.ocrApiUrlLayout.visibility =
                 if (isOpenAi) android.view.View.VISIBLE else android.view.View.GONE
-            dialogBinding.ocrApiKeyLayout.isEnabled = enabled
+            dialogBinding.ocrApiKeyLayout.visibility =
+                if (enabled) android.view.View.VISIBLE else android.view.View.GONE
             dialogBinding.ocrModelNameLayout.visibility =
                 if (isOpenAi) android.view.View.VISIBLE else android.view.View.GONE
-            dialogBinding.ocrApiTimeoutLayout.isEnabled = enabled
+            dialogBinding.ocrApiTimeoutLayout.visibility =
+                if (enabled) android.view.View.VISIBLE else android.view.View.GONE
             dialogBinding.ocrApiUrlInput.isEnabled = enabled
             dialogBinding.ocrApiKeyInput.isEnabled = enabled
             dialogBinding.ocrModelNameInput.isEnabled = enabled
