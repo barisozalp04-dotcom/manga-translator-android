@@ -336,10 +336,13 @@ class FloatingDetectionOverlayView @JvmOverloads constructor(
         val bubble = mutable[index]
         val width = bubble.rect.width().coerceAtLeast(1f)
         val height = bubble.rect.height().coerceAtLeast(1f)
-        val maxLeft = max(0f, sourceWidth.toFloat() - width)
-        val maxTop = max(0f, sourceHeight.toFloat() - height)
-        val newLeft = min(max(sourceX - dragOffsetX, 0f), maxLeft)
-        val newTop = min(max(sourceY - dragOffsetY, 0f), maxTop)
+        val overflowFraction = 0.5f
+        val minLeft = -width * overflowFraction
+        val maxLeft = sourceWidth.toFloat() - width * (1f - overflowFraction)
+        val minTop = -height * overflowFraction
+        val maxTop = sourceHeight.toFloat() - height * (1f - overflowFraction)
+        val newLeft = (sourceX - dragOffsetX).coerceIn(minLeft, maxLeft)
+        val newTop = (sourceY - dragOffsetY).coerceIn(minTop, maxTop)
         val deltaX = newLeft - bubble.rect.left
         val deltaY = newTop - bubble.rect.top
         val newRect = RectF(newLeft, newTop, newLeft + width, newTop + height)

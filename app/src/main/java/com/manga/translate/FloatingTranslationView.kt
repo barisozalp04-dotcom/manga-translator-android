@@ -536,10 +536,13 @@ class FloatingTranslationView @JvmOverloads constructor(
         val deltaY = dy / scaleY
         var newX = current.first + deltaX
         var newY = current.second + deltaY
-        val minX = -bubble.rect.left
-        val maxX = imageWidth - bubble.rect.right
-        val minY = -bubble.rect.top
-        val maxY = imageHeight - bubble.rect.bottom
+        val overflowFraction = 0.5f
+        val bubbleW = bubble.rect.width()
+        val bubbleH = bubble.rect.height()
+        val minX = -bubble.rect.left - bubbleW * overflowFraction
+        val maxX = imageWidth - bubble.rect.right + bubbleW * overflowFraction
+        val minY = -bubble.rect.top - bubbleH * overflowFraction
+        val maxY = imageHeight - bubble.rect.bottom + bubbleH * overflowFraction
         newX = min(max(newX, minX), maxX)
         newY = min(max(newY, minY), maxY)
         offsets[id] = newX to newY
@@ -626,8 +629,10 @@ class FloatingTranslationView @JvmOverloads constructor(
         var newRight = (screenX - displayRect.left) / scaleX - offset.first
         var newBottom = (screenY - displayRect.top) / scaleY - offset.second
         val minImageSize = 20f / scaleX.coerceAtLeast(1f)
-        newRight = max(base.left + minImageSize, newRight).coerceAtMost(imageWidth.toFloat())
-        newBottom = max(base.top + minImageSize, newBottom).coerceAtMost(imageHeight.toFloat())
+        val overflowW = base.width() * 0.5f
+        val overflowH = base.height() * 0.5f
+        newRight = max(base.left + minImageSize, newRight).coerceAtMost(imageWidth.toFloat() + overflowW)
+        newBottom = max(base.top + minImageSize, newBottom).coerceAtMost(imageHeight.toFloat() + overflowH)
         resizeDragWorkingRect.set(base.left, base.top, newRight, newBottom)
         invalidate()
     }
