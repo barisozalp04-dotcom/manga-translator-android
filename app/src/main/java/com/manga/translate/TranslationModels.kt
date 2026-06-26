@@ -38,25 +38,11 @@ data class TranslationMetadata(
     val mode: String = "",
     val language: String = "",
     val promptAsset: String = "",
-    val modelName: String = "",
-    val providerId: String = "",
     val apiFormat: String = "",
     val ocrCacheMode: String = "",
     val version: Int = CURRENT_VERSION,
     val status: PageTranslationStatus = PageTranslationStatus.UNKNOWN
 ) {
-    fun isEmpty(): Boolean {
-        return sourceLastModified <= 0L &&
-            sourceFileSize <= 0L &&
-            mode.isBlank() &&
-            language.isBlank() &&
-            promptAsset.isBlank() &&
-            modelName.isBlank() &&
-            providerId.isBlank() &&
-            apiFormat.isBlank() &&
-            ocrCacheMode.isBlank()
-    }
-
     fun isManual(): Boolean {
         return mode == MODE_MANUAL
     }

@@ -39,9 +39,6 @@ class LibraryFragment : Fragment() {
     private val readingSessionViewModel: ReadingSessionViewModel by activityViewModels()
     private val appContainer by lazy(LazyThreadSafetyMode.NONE) { requireContext().appContainer }
     private val repository by lazy(LazyThreadSafetyMode.NONE) { appContainer.libraryRepository }
-    private val translationPipeline by lazy(LazyThreadSafetyMode.NONE) {
-        appContainer.createTranslationPipeline()
-    }
     private val translationStore by lazy(LazyThreadSafetyMode.NONE) { appContainer.translationStore }
     private val glossaryStore by lazy(LazyThreadSafetyMode.NONE) { appContainer.glossaryStore }
     private val extractStateStore by lazy(LazyThreadSafetyMode.NONE) { appContainer.extractStateStore }
@@ -1321,12 +1318,7 @@ class LibraryFragment : Fragment() {
     }
 
     private fun isImageTranslated(image: File, folder: File): Boolean {
-        return translationPipeline.hasValidTranslation(
-            imageFile = image,
-            fullTranslate = preferencesGateway.isFullTranslateEnabled(folder),
-            useVlDirectTranslate = preferencesGateway.isVlDirectTranslateEnabled(folder),
-            language = preferencesGateway.getTranslationLanguage(folder)
-        )
+        return translationStore.translationFileFor(image).exists()
     }
 
     private fun buildFolderTitle(folder: File): String {

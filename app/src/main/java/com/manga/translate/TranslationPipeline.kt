@@ -817,9 +817,6 @@ internal class TranslationPipeline(
         ocrCacheMode: String,
         providerContext: PageTranslationProviderContext?
     ): TranslationMetadata {
-        val availableProviderIds = settingsStore.loadMainTranslationProviderPool()
-            .map { it.providerId }
-            .distinct()
         val apiSettings = providerContext?.apiSettings ?: settingsStore.load()
         return TranslationMetadata(
             sourceLastModified = imageFile.lastModified(),
@@ -827,12 +824,6 @@ internal class TranslationPipeline(
             mode = mode,
             language = language.name,
             promptAsset = promptAsset,
-            modelName = apiSettings.modelName,
-            providerId = when {
-                providerContext != null -> providerContext.providerId
-                availableProviderIds.isNotEmpty() -> availableProviderIds.joinToString("|")
-                else -> PRIMARY_PROVIDER_ID
-            },
             apiFormat = apiSettings.apiFormat.prefValue,
             ocrCacheMode = ocrCacheMode
         )

@@ -158,8 +158,6 @@ class TranslationStore {
                 put("mode", metadata.mode)
                 put("language", metadata.language)
                 put("promptAsset", metadata.promptAsset)
-                put("modelName", metadata.modelName)
-                put("providerId", metadata.providerId)
                 put("apiFormat", metadata.apiFormat)
                 put("ocrCacheMode", metadata.ocrCacheMode)
                 put("version", metadata.version)
@@ -218,8 +216,6 @@ class TranslationStore {
             mode = json?.optString("mode").orEmpty(),
             language = json?.optString("language").orEmpty(),
             promptAsset = json?.optString("promptAsset").orEmpty(),
-            modelName = json?.optString("modelName").orEmpty(),
-            providerId = json?.optString("providerId").orEmpty(),
             apiFormat = json?.optString("apiFormat").orEmpty(),
             ocrCacheMode = json?.optString("ocrCacheMode").orEmpty(),
             version = json?.let { it.optInt("version", TranslationMetadata.CURRENT_VERSION) }
