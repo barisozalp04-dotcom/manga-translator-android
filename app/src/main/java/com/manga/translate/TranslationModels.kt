@@ -8,6 +8,8 @@ enum class BubbleSource(val jsonValue: String) {
     MANUAL("manual"),
     UNKNOWN("unknown");
 
+    val isFreeBubble: Boolean get() = this == TEXT_DETECTOR || this == MANUAL
+
     companion object {
         fun fromJson(value: String?): BubbleSource {
             return entries.firstOrNull { it.jsonValue.equals(value, ignoreCase = true) } ?: UNKNOWN

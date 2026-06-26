@@ -83,7 +83,7 @@ class BubbleRenderer(context: Context) {
             val text = bubble.text.trim()
             if (text.isBlank()) continue
             val opacityAlpha = resolveBubbleOpacityAlpha(bubble)
-            val useAutoAdaptColor = bubble.source == BubbleSource.TEXT_DETECTOR &&
+            val useAutoAdaptColor = bubble.source.isFreeBubble &&
                 bubbleRenderSettings.autoAdaptFreeBubbleColor
             if (useAutoAdaptColor) {
                 val sampleLeft = bubble.rect.left * scaleX
@@ -128,7 +128,7 @@ class BubbleRenderer(context: Context) {
     }
 
     private fun resolveBubbleShrinkPercent(bubble: BubbleTranslation): Int {
-        return if (bubble.source == BubbleSource.TEXT_DETECTOR) {
+        return if (bubble.source.isFreeBubble) {
             bubbleRenderSettings.freeBubbleShrinkPercent
         } else {
             bubbleRenderSettings.shrinkPercent
@@ -136,7 +136,7 @@ class BubbleRenderer(context: Context) {
     }
 
     private fun resolveBubbleOpacityAlpha(bubble: BubbleTranslation): Int {
-        val opacityPercent = if (bubble.source == BubbleSource.TEXT_DETECTOR) {
+        val opacityPercent = if (bubble.source.isFreeBubble) {
             bubbleRenderSettings.freeBubbleOpacityPercent
         } else {
             bubbleRenderSettings.opacityPercent

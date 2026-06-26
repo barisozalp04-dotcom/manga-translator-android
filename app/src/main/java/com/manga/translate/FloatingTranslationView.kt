@@ -586,7 +586,7 @@ class FloatingTranslationView @JvmOverloads constructor(
     }
 
     private fun resolveBubbleShrinkPercent(bubble: BubbleTranslation): Int {
-        return if (bubble.source == BubbleSource.TEXT_DETECTOR) {
+        return if (bubble.source.isFreeBubble) {
             bubbleRenderSettings.freeBubbleShrinkPercent
         } else {
             bubbleRenderSettings.shrinkPercent
@@ -594,7 +594,7 @@ class FloatingTranslationView @JvmOverloads constructor(
     }
 
     private fun resolveBubbleOpacityAlpha(bubble: BubbleTranslation): Int {
-        val opacityPercent = if (bubble.source == BubbleSource.TEXT_DETECTOR) {
+        val opacityPercent = if (bubble.source.isFreeBubble) {
             bubbleRenderSettings.freeBubbleOpacityPercent
         } else {
             bubbleRenderSettings.opacityPercent
@@ -603,7 +603,7 @@ class FloatingTranslationView @JvmOverloads constructor(
     }
 
     private fun resolveBubbleFillColor(bubble: BubbleTranslation, opacityAlpha: Int) {
-        val useAutoAdaptColor = bubble.source == BubbleSource.TEXT_DETECTOR &&
+        val useAutoAdaptColor = bubble.source.isFreeBubble &&
             bubbleRenderSettings.autoAdaptFreeBubbleColor
         if (useAutoAdaptColor) {
             val color = bubbleColorCache.getOrPut(bubble.id) {
