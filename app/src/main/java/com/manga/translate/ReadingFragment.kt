@@ -1198,9 +1198,12 @@ class ReadingFragment : Fragment() {
                 applyResizePercent(resizeWidthPercent, resizeHeightPercent)
             }
 
-            override fun onStartTrackingTouch(seekBar: SeekBar?) = Unit
+            override fun onStartTrackingTouch(seekBar: SeekBar?) {
+                applyResizeSeekBarGesture(true)
+            }
 
             override fun onStopTrackingTouch(seekBar: SeekBar?) {
+                applyResizeSeekBarGesture(false)
                 saveCurrentTranslation()
             }
         })
@@ -1654,6 +1657,15 @@ class ReadingFragment : Fragment() {
             Toast.LENGTH_SHORT
         ).show()
         return true
+    }
+
+    private fun applyResizeSeekBarGesture(active: Boolean) {
+        if (!isAdded || _binding == null) return
+        if (isWebtoonEditSessionActive()) {
+            webtoonAdapter.setEditSessionGestureInteracting(active)
+        } else {
+            binding.translationOverlay.setGestureInteracting(active)
+        }
     }
 
     private fun applyResizePercent(widthPercent: Int?, heightPercent: Int?) {

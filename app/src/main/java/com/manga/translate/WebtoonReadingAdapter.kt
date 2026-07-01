@@ -163,6 +163,11 @@ class WebtoonReadingAdapter(
         return boundHolders[imagePath]?.firstOrNull()?.buildSnapshot()
     }
 
+    fun setEditSessionGestureInteracting(active: Boolean) {
+        val path = lockedPagePath ?: return
+        boundHolders[path]?.forEach { it.applyGestureInteracting(active) }
+    }
+
     fun adapterPositionForImageIndex(imageIndex: Int): Int {
         if (imageIndex < 0) return RecyclerView.NO_POSITION
         return displayItems.indexOfFirst { it.imageIndex == imageIndex }
@@ -481,6 +486,11 @@ class WebtoonReadingAdapter(
 
         fun resetZoom() {
             imageTransformController.resetZoom()
+        }
+
+        fun applyGestureInteracting(active: Boolean) {
+            if (binding.readingPageOverlay.visibility == View.GONE) return
+            binding.readingPageOverlay.setGestureInteracting(active)
         }
 
         fun handleTouchEvent(event: MotionEvent): Boolean {

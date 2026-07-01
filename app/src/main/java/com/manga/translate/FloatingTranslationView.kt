@@ -148,6 +148,13 @@ class FloatingTranslationView @JvmOverloads constructor(
     private var lastTapY = 0f
     private var pendingSwipeDirection: Int? = null
     private var hadMultiplePointers = false
+    private var interactionActive = false
+
+    fun setGestureInteracting(active: Boolean) {
+        if (interactionActive == active) return
+        interactionActive = active
+        invalidate()
+    }
 
     var onOffsetChanged: ((Int, Float, Float) -> Unit)? = null
     var onTap: ((Float) -> Unit)? = null
@@ -219,6 +226,9 @@ class FloatingTranslationView @JvmOverloads constructor(
         exitResizeMode(animate = false)
         dragging = false
         activeId = null
+        if (interactionActive) {
+            interactionActive = false
+        }
         longPressTriggered = false
         removeCallbacks(longPressRunnable)
         parent?.requestDisallowInterceptTouchEvent(false)
@@ -377,6 +387,7 @@ class FloatingTranslationView @JvmOverloads constructor(
                     val dy = event.y - downY
                     if (!resizeDragActive && (abs(dx) > touchSlop || abs(dy) > touchSlop)) {
                         resizeDragActive = true
+                        interactionActive = true
                     }
                     if (resizeDragActive) {
                         applyResizeDrag(rid, event.x, event.y)
@@ -388,6 +399,7 @@ class FloatingTranslationView @JvmOverloads constructor(
                     val dy = event.y - downY
                     if (!dragging && (abs(dx) > touchSlop || abs(dy) > touchSlop)) {
                         dragging = true
+                        interactionActive = true
                         removeCallbacks(longPressRunnable)
                     }
                     if (dragging) {
@@ -414,6 +426,7 @@ class FloatingTranslationView @JvmOverloads constructor(
             }
             MotionEvent.ACTION_UP -> {
                 removeCallbacks(longPressRunnable)
+                endInteraction()
                 parent?.requestDisallowInterceptTouchEvent(false)
                 val rid = resizeDragId
                 if (rid != null) {
@@ -505,6 +518,7 @@ class FloatingTranslationView @JvmOverloads constructor(
             }
             MotionEvent.ACTION_CANCEL -> {
                 removeCallbacks(longPressRunnable)
+                endInteraction()
                 parent?.requestDisallowInterceptTouchEvent(false)
                 pendingSwipeDirection = null
                 dragging = false
@@ -524,6 +538,12 @@ class FloatingTranslationView @JvmOverloads constructor(
     override fun performClick(): Boolean {
         super.performClick()
         return true
+    }
+
+    private fun endInteraction() {
+        if (!interactionActive) return
+        interactionActive = false
+        invalidate()
     }
 
     private fun updateOffset(dx: Float, dy: Float) {
@@ -568,6 +588,7 @@ class FloatingTranslationView @JvmOverloads constructor(
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 isCreatingBubble = true
+                interactionActive = true
                 createDownImageX = screenToImageX(event.x)
                 createDownImageY = screenToImageY(event.y)
                 createDrawingRect.set(createDownImageX, createDownImageY, createDownImageX, createDownImageY)
@@ -598,6 +619,7 @@ class FloatingTranslationView @JvmOverloads constructor(
             MotionEvent.ACTION_UP -> {
                 if (!isCreatingBubble) return true
                 isCreatingBubble = false
+                endInteraction()
                 val created = RectF(createDrawingRect)
                 createDrawingRect.setEmpty()
                 createPreviewRect.setEmpty()
@@ -613,6 +635,7 @@ class FloatingTranslationView @JvmOverloads constructor(
             }
             MotionEvent.ACTION_CANCEL -> {
                 isCreatingBubble = false
+                endInteraction()
                 createDrawingRect.setEmpty()
                 createPreviewRect.setEmpty()
                 parent?.requestDisallowInterceptTouchEvent(false)
@@ -825,6 +848,10 @@ class FloatingTranslationView @JvmOverloads constructor(
         )
         bubblePath.computeBounds(bubbleBounds, true)
         if (bubbleBounds.width() <= 0f || bubbleBounds.height() <= 0f) return
+        if (interactionActive) {
+            canvas.drawPath(bubblePath, fillPaint)
+            return
+        }
         val effectiveMinArea = bubbleRenderSettings.minAreaPerCharSp * contentZoomScale * contentZoomScale
         val textRect = BubbleTextScaling.resolveAreaAdjustedTextRect(
             bubble.text, bubblePath, effectiveMinArea, resources.displayMetrics.density
