@@ -3,6 +3,7 @@ package com.manga.translate
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.RectF
+import android.os.Build
 
 internal object BubbleColorSampler {
 
@@ -32,7 +33,9 @@ internal object BubbleColorSampler {
         val stepX = SAMPLE_STEP.coerceAtLeast(1)
         val stepY = SAMPLE_STEP.coerceAtLeast(1)
 
-        val tempBitmap = if (src.config == Bitmap.Config.HARDWARE) {
+        val tempBitmap = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+            src.config == Bitmap.Config.HARDWARE
+        ) {
             src.copy(Bitmap.Config.ARGB_8888, false)
         } else {
             null
