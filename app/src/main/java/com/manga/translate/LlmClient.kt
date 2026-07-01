@@ -1730,46 +1730,27 @@ class LlmClient(
         private const val RETRY_BASE_DELAY_MS = 750
         private const val RETRY_MAX_DELAY_MS = 4_000
         private const val CONFIGURED_RETRY_DELAY_MS = 3_000
-        private val BIGMODEL_OPENAI_BASE_SUFFIXES = listOf(
-            "/api/paas/v4",
-            "/api/coding/paas/v4"
-        )
 
         internal fun buildOpenAiCompatibleChatEndpoint(baseUrl: String): String {
             val trimmed = normalizeOpenAiCompatibleBaseUrl(baseUrl)
-            return when {
-                isBigModelOpenAiCompatibleBaseUrl(trimmed) -> "$trimmed/chat/completions"
-                trimmed.endsWith("/v1") -> "$trimmed/chat/completions"
-                else -> "$trimmed/v1/chat/completions"
+            return if (trimmed.endsWith("/chat/completions", ignoreCase = true)) {
+                trimmed
+            } else {
+                "$trimmed/chat/completions"
             }
         }
 
         internal fun buildOpenAiCompatibleModelsEndpoint(baseUrl: String): String {
             val trimmed = normalizeOpenAiCompatibleBaseUrl(baseUrl)
-            return when {
-                isBigModelOpenAiCompatibleBaseUrl(trimmed) -> "$trimmed/models"
-                trimmed.endsWith("/v1") -> "$trimmed/models"
-                else -> "$trimmed/v1/models"
+            return if (trimmed.endsWith("/models", ignoreCase = true)) {
+                trimmed
+            } else {
+                "$trimmed/models"
             }
-        }
-
-        internal fun isBigModelOpenAiCompatibleBaseUrl(baseUrl: String): Boolean {
-            val normalized = normalizeOpenAiCompatibleBaseUrl(baseUrl).lowercase()
-            return BIGMODEL_OPENAI_BASE_SUFFIXES.any { normalized.endsWith(it) }
         }
 
         private fun normalizeOpenAiCompatibleBaseUrl(baseUrl: String): String {
-            var normalized = baseUrl.trim().trimEnd('/')
-            val removableSuffixes = listOf(
-                "/chat/completions",
-                "/models"
-            )
-            removableSuffixes.forEach { suffix ->
-                if (normalized.endsWith(suffix, ignoreCase = true)) {
-                    normalized = normalized.dropLast(suffix.length)
-                }
-            }
-            return normalized
+            return baseUrl.trim().trimEnd('/')
         }
 
         fun reservedRequestKeys(apiFormat: ApiFormat): Set<String> {
