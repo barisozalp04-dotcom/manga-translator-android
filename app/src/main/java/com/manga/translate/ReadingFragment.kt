@@ -1005,9 +1005,13 @@ class ReadingFragment : Fragment() {
         if (isEditMode == nextEnabled) return
         if (nextEnabled) {
             editModeSnapshotBubbles = currentTranslation?.bubbles?.map {
-                it.copy(rect = RectF(it.rect))
+                it.copy(rect = RectF(it.rect), maskContour = it.maskContour?.copyOf())
             }
-            editModeSnapshotOffsets = binding.translationOverlay.getOffsets().toMap()
+            editModeSnapshotOffsets = if (folderReadingMode == FolderReadingMode.WEBTOON_SCROLL) {
+                webtoonEditOffsets.toMap()
+            } else {
+                binding.translationOverlay.getOffsets().toMap()
+            }
         }
         isEditMode = nextEnabled
         binding.translationOverlay.setEditMode(nextEnabled && folderReadingMode != FolderReadingMode.WEBTOON_SCROLL)
@@ -1015,6 +1019,8 @@ class ReadingFragment : Fragment() {
         updateReadingInteractionState()
         if (!nextEnabled) {
             hideResizePanel()
+            editModeSnapshotBubbles = null
+            editModeSnapshotOffsets = emptyMap()
         }
         updateEditButtonState()
     }
@@ -1024,16 +1030,16 @@ class ReadingFragment : Fragment() {
         val snapshotBubbles = editModeSnapshotBubbles
         val snapshotOffsets = editModeSnapshotOffsets
         if (snapshotBubbles != null && currentTranslation != null) {
-            currentTranslation = currentTranslation?.copy(bubbles = snapshotBubbles)
-            binding.translationOverlay.setOffsets(snapshotOffsets.toMutableMap())
+            val restored = currentTranslation?.copy(bubbles = snapshotBubbles)
+            currentTranslation = restored
+            applyOverlayOffsets(snapshotOffsets)
             renderCurrentTranslation()
+            restored?.let(::saveTranslationToDisk)
         }
         setEditMode(false)
         if (folderReadingMode == FolderReadingMode.WEBTOON_SCROLL) {
             clearWebtoonEditSession()
         }
-        editModeSnapshotBubbles = null
-        editModeSnapshotOffsets = emptyMap()
     }
 
     private fun updateEditButtonState() {
@@ -1762,8 +1768,12 @@ class ReadingFragment : Fragment() {
     }
 
     private fun saveCurrentTranslation() {
-        val imageFile = currentImageFile ?: return
         val translation = currentTranslation ?: return
+        saveTranslationToDisk(translation)
+    }
+
+    private fun saveTranslationToDisk(translation: TranslationResult) {
+        val imageFile = currentImageFile ?: return
         translationStore.save(imageFile, translation)
         if (folderReadingMode == FolderReadingMode.WEBTOON_SCROLL) {
             webtoonAdapter.notifyTranslationChanged(imageFile.absolutePath)
@@ -1877,9 +1887,7 @@ class ReadingFragment : Fragment() {
         }
         currentTranslation = translation.copy(bubbles = updatedBubbles)
         renderCurrentTranslation()
-        if (folderReadingMode == FolderReadingMode.WEBTOON_SCROLL) {
-            saveCurrentTranslation()
-        }
+        saveCurrentTranslation()
     }
 
     private fun addNewBubble() {

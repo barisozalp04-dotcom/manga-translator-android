@@ -1483,15 +1483,17 @@ class SettingsFragment : Fragment() {
             // Limit dialog height so the ScrollView can actually scroll when many providers are added.
             val window = dialog.window
             if (window != null) {
-                val metrics = resources.displayMetrics
-                val maxHeight = (metrics.heightPixels * 0.85).toInt()
+                val visibleFrame = android.graphics.Rect()
+                window.decorView.getWindowVisibleDisplayFrame(visibleFrame)
+                val availableHeight = visibleFrame.height().takeIf { it > 0 } ?: resources.displayMetrics.heightPixels
+                val maxHeight = (availableHeight * 0.85).toInt()
                 dialogBinding.root.measure(
-                    View.MeasureSpec.makeMeasureSpec(metrics.widthPixels, View.MeasureSpec.EXACTLY),
-                    View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
+                    View.MeasureSpec.makeMeasureSpec(visibleFrame.width().takeIf { it > 0 } ?: resources.displayMetrics.widthPixels, View.MeasureSpec.EXACTLY),
+                    View.MeasureSpec.makeMeasureSpec(maxHeight, View.MeasureSpec.AT_MOST)
                 )
-                val desiredHeight = dialogBinding.root.measuredHeight
-                val finalHeight = desiredHeight.coerceAtMost(maxHeight)
-                window.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, finalHeight)
+                val finalHeight = dialogBinding.root.measuredHeight
+                    .coerceAtLeast((200 * resources.displayMetrics.density).toInt())
+                window.setLayout(ViewGroup.LayoutParams.WRAP_CONTENT, finalHeight)
             }
         }
         dialog.show()

@@ -42,63 +42,131 @@ enum class BubbleFont(
 object BubbleFontResolver {
 
     private const val CUSTOM_FONT_DIR = "custom_fonts"
-    private const val CUSTOM_FILE_NAME = "bubble_custom_font.ttf"
     private const val DOWNLOAD_TIMEOUT_MS = 30_000L
+    private const val URL_FONT_KIND = "url"
+    private const val FILE_FONT_KIND = "file"
 
     private val okHttpClient = OkHttpClient.Builder()
         .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
         .readTimeout(DOWNLOAD_TIMEOUT_MS, java.util.concurrent.TimeUnit.MILLISECONDS)
         .build()
 
-    fun getCustomFontFile(context: Context): File {
-        return File(context.getDir(CUSTOM_FONT_DIR, Context.MODE_PRIVATE), CUSTOM_FILE_NAME)
+    private data class CustomFontTarget(
+        val file: File? = null,
+        val assetPath: String? = null
+    )
+
+    private fun managedFontFile(context: Context, tag: String, kind: String): File {
+        return File(
+            context.getDir(CUSTOM_FONT_DIR, Context.MODE_PRIVATE),
+            "bubble_custom_font_${tag}_${kind}.ttf"
+        )
     }
 
-    fun resolveTypeface(context: Context, font: BubbleFont): Typeface {
-        return resolveTypefaceInternal(context, font, getCustomFontFile(context))
+    private fun downloadedFontFile(context: Context, tag: String): File {
+        return managedFontFile(context, tag, URL_FONT_KIND)
+    }
+
+    private fun stagedCustomFontFile(context: Context, tag: String): File {
+        return managedFontFile(context, tag, FILE_FONT_KIND)
+    }
+
+    private fun markerFile(fontFile: File, suffix: String): File {
+        return File(fontFile.parentFile, fontFile.name + suffix)
+    }
+
+    private fun readMarker(file: File): String? {
+        return runCatching { file.readText().trim() }
+            .getOrNull()
+            ?.takeIf { it.isNotEmpty() }
+    }
+
+    fun resolveTypeface(
+        context: Context,
+        font: BubbleFont,
+        customUrl: String? = null,
+        customFileName: String? = null,
+        tag: String = "normal"
+    ): Typeface {
+        return when (font) {
+            BubbleFont.CUSTOM_URL -> {
+                val url = customUrl?.trim().orEmpty()
+                val cacheFile = downloadedFontFile(context, tag)
+                val storedUrl = readMarker(markerFile(cacheFile, ".url"))
+                if (url.isNotBlank() && storedUrl == url && cacheFile.exists() && cacheFile.length() > 0L) {
+                    loadTypefaceFromFile(cacheFile)
+                } else {
+                    Typeface.DEFAULT
+                }
+            }
+            BubbleFont.CUSTOM_FILE -> {
+                resolveCustomFileTarget(context, customFileName)?.let { target ->
+                    when {
+                        target.file != null -> loadTypefaceFromFile(target.file)
+                        target.assetPath != null -> {
+                            val stagedFile = stagedCustomFontFile(context, tag)
+                            val storedAssetPath = readMarker(markerFile(stagedFile, ".asset"))
+                            if (
+                                storedAssetPath == target.assetPath &&
+                                stagedFile.exists() &&
+                                stagedFile.length() > 0L
+                            ) {
+                                loadTypefaceFromFile(stagedFile)
+                            } else {
+                                Typeface.DEFAULT
+                            }
+                        }
+                        else -> Typeface.DEFAULT
+                    }
+                } ?: Typeface.DEFAULT
+            }
+            else -> resolveTypefaceInternal(font)
+        }
     }
 
     suspend fun ensureTypeface(
         context: Context,
         font: BubbleFont,
-        customUrl: String?
+        customUrl: String?,
+        customFileName: String? = null,
+        tag: String = "normal"
     ): Typeface {
         return when (font) {
             BubbleFont.CUSTOM_URL -> {
                 val url = customUrl?.trim()
                 if (!url.isNullOrBlank()) {
-                    downloadAndLoadTypeface(context, url)
+                    downloadAndLoadTypeface(context, url, tag)
                 } else {
-                    resolveTypefaceInternal(context, BubbleFont.SYSTEM_DEFAULT, getCustomFontFile(context))
+                    Typeface.DEFAULT
                 }
             }
             BubbleFont.CUSTOM_FILE -> {
-                val file = getCustomFontFile(context)
-                if (file.exists() && file.length() > 0L) {
-                    loadTypefaceFromFile(file)
-                } else {
-                    resolveTypefaceInternal(context, BubbleFont.SYSTEM_DEFAULT, getCustomFontFile(context))
+                when (val target = resolveCustomFileTarget(context, customFileName)) {
+                    null -> Typeface.DEFAULT
+                    else -> when {
+                        target.file != null -> loadTypefaceFromFile(target.file)
+                        target.assetPath != null -> stageAssetFontAndLoad(context, target.assetPath, tag)
+                        else -> Typeface.DEFAULT
+                    }
                 }
             }
             BubbleFont.GOOGLE_NOTO_SANS_SC -> fetchDownloadableFont(
                 context,
                 "Noto Sans SC",
-                R.array.com_google_android_gms_fonts_certs
+                R.array.com_google_android_gms_fonts_certs,
+                Typeface.SANS_SERIF
             )
             BubbleFont.GOOGLE_NOTO_SERIF_SC -> fetchDownloadableFont(
                 context,
                 "Noto Serif SC",
-                R.array.com_google_android_gms_fonts_certs
+                R.array.com_google_android_gms_fonts_certs,
+                Typeface.SERIF
             )
-            else -> resolveTypefaceInternal(context, font, getCustomFontFile(context))
+            else -> resolveTypefaceInternal(font)
         }
     }
 
-    private fun resolveTypefaceInternal(
-        context: Context,
-        font: BubbleFont,
-        customFontFile: File
-    ): Typeface {
+    private fun resolveTypefaceInternal(font: BubbleFont): Typeface {
         return when (font) {
             BubbleFont.SYSTEM_SANS_SERIF -> Typeface.SANS_SERIF
             BubbleFont.SYSTEM_SERIF -> Typeface.SERIF
@@ -108,13 +176,7 @@ object BubbleFontResolver {
                 val family = if (font == BubbleFont.GOOGLE_NOTO_SANS_SC) "sans-serif" else "serif"
                 Typeface.create(family, Typeface.NORMAL)
             }
-            BubbleFont.CUSTOM_FILE -> {
-                if (customFontFile.exists() && customFontFile.length() > 0L) {
-                    loadTypefaceFromFile(customFontFile)
-                } else {
-                    Typeface.DEFAULT
-                }
-            }
+            BubbleFont.CUSTOM_FILE,
             BubbleFont.CUSTOM_URL -> Typeface.DEFAULT
             BubbleFont.SYSTEM_DEFAULT -> Typeface.DEFAULT
         }
@@ -132,40 +194,46 @@ object BubbleFontResolver {
     private suspend fun fetchDownloadableFont(
         context: Context,
         query: String,
-        certsResId: Int
+        certsResId: Int,
+        fallbackTypeface: Typeface
     ): Typeface = withContext(Dispatchers.IO) {
-        val certs = readFontCertificates(context.resources, certsResId)
-        val request = FontRequest(
-            "com.google.android.gms.fonts",
-            "com.google.android.gms",
-            query,
-            certs
-        )
-        val result = withTimeoutOrNull(DOWNLOAD_TIMEOUT_MS) {
-            suspendCancellableCoroutine { continuation ->
-                val callback = object : FontsContractCompat.FontRequestCallback() {
-                    override fun onTypefaceRetrieved(typeface: Typeface) {
-                        continuation.resume(typeface)
-                    }
+        try {
+            val certs = readFontCertificates(context.resources, certsResId)
+            val request = FontRequest(
+                "com.google.android.gms.fonts",
+                "com.google.android.gms",
+                query,
+                certs
+            )
+            val result = withTimeoutOrNull(DOWNLOAD_TIMEOUT_MS) {
+                suspendCancellableCoroutine { continuation ->
+                    val callback = object : FontsContractCompat.FontRequestCallback() {
+                        override fun onTypefaceRetrieved(typeface: Typeface) {
+                            continuation.resume(typeface)
+                        }
 
-                    override fun onTypefaceRequestFailed(reason: Int) {
-                        continuation.resumeWithException(
-                            IOException("Downloadable font request failed: $reason")
-                        )
+                        override fun onTypefaceRequestFailed(reason: Int) {
+                            continuation.resumeWithException(
+                                IOException("Downloadable font request failed: $reason")
+                            )
+                        }
                     }
-                }
-                FontsContractCompat.requestFont(
-                    context.applicationContext,
-                    request,
-                    callback,
-                    Handler(Looper.getMainLooper())
-                )
-                continuation.invokeOnCancellation {
-                    // Cancellation is best-effort; the callback may still fire.
+                    FontsContractCompat.requestFont(
+                        context.applicationContext,
+                        request,
+                        callback,
+                        Handler(Looper.getMainLooper())
+                    )
+                    continuation.invokeOnCancellation {
+                        // Cancellation is best-effort; the callback may still fire.
+                    }
                 }
             }
+            result ?: fallbackTypeface
+        } catch (e: Exception) {
+            AppLogger.log("BubbleFontResolver", "Failed to fetch downloadable font: $query", e)
+            fallbackTypeface
         }
-        result ?: Typeface.DEFAULT
     }
 
     private fun readFontCertificates(resources: Resources, certsArrayResId: Int): List<List<ByteArray>> {
@@ -177,7 +245,7 @@ object BubbleFontResolver {
                     emptyList<ByteArray>()
                 } else {
                     resources.getStringArray(innerResId).map { certString ->
-                        certString.replace("\\s+".toRegex(), "").toByteArray(Charsets.UTF_8)
+                        Base64.decode(certString.replace("\\s+".toRegex(), ""), Base64.DEFAULT)
                     }
                 }
             }
@@ -186,9 +254,86 @@ object BubbleFontResolver {
         }
     }
 
-    private suspend fun downloadAndLoadTypeface(context: Context, url: String): Typeface {
+    private fun resolveCustomFileTarget(context: Context, customFileName: String?): CustomFontTarget? {
+        val trimmed = customFileName?.trim().orEmpty()
+        if (trimmed.isBlank()) return null
+
+        resolvePrivateFontFile(context, trimmed)?.let { file ->
+            return CustomFontTarget(file = file)
+        }
+
+        resolveAssetFontPath(context, trimmed)?.let { assetPath ->
+            return CustomFontTarget(assetPath = assetPath)
+        }
+
+        return null
+    }
+
+    private fun resolvePrivateFontFile(context: Context, customFileName: String): File? {
+        val directFile = File(customFileName)
+        if (directFile.isAbsolute && directFile.isFile && directFile.length() > 0L) {
+            return directFile
+        }
+
+        val fontDir = context.getDir(CUSTOM_FONT_DIR, Context.MODE_PRIVATE)
+        val baseName = File(customFileName).name
+        val candidates = linkedSetOf(
+            File(fontDir, customFileName),
+            File(fontDir, baseName),
+            File(context.filesDir, customFileName),
+            File(context.filesDir, baseName),
+            File(context.cacheDir, customFileName),
+            File(context.cacheDir, baseName)
+        )
+        if (customFileName.startsWith("files/")) {
+            candidates += File(context.filesDir, customFileName.removePrefix("files/"))
+        }
+        if (customFileName.startsWith("cache/")) {
+            candidates += File(context.cacheDir, customFileName.removePrefix("cache/"))
+        }
+        return candidates.firstOrNull { it.isFile && it.length() > 0L }
+    }
+
+    private fun resolveAssetFontPath(context: Context, customFileName: String): String? {
+        val normalized = customFileName.removePrefix("assets/").trimStart('/')
+        val candidates = linkedSetOf(normalized, customFileName)
+        return candidates.firstOrNull { path ->
+            path.isNotBlank() && runCatching {
+                context.assets.open(path).close()
+                true
+            }.getOrDefault(false)
+        }
+    }
+
+    private suspend fun stageAssetFontAndLoad(
+        context: Context,
+        assetPath: String,
+        tag: String
+    ): Typeface = withContext(Dispatchers.IO) {
+        val destFile = stagedCustomFontFile(context, tag)
+        try {
+            destFile.parentFile?.mkdirs()
+            context.assets.open(assetPath).use { input ->
+                destFile.outputStream().use { output ->
+                    input.copyTo(output)
+                }
+            }
+            markerFile(destFile, ".asset").writeText(assetPath)
+            loadTypefaceFromFile(destFile)
+        } catch (e: Exception) {
+            AppLogger.log("BubbleFontResolver", "Failed to stage font asset: $assetPath", e)
+            val storedAssetPath = readMarker(markerFile(destFile, ".asset"))
+            if (storedAssetPath == assetPath && destFile.exists() && destFile.length() > 0L) {
+                loadTypefaceFromFile(destFile)
+            } else {
+                Typeface.DEFAULT
+            }
+        }
+    }
+
+    private suspend fun downloadAndLoadTypeface(context: Context, url: String, tag: String = "normal"): Typeface {
         return withContext(Dispatchers.IO) {
-            val destFile = getCustomFontFile(context)
+            val destFile = downloadedFontFile(context, tag)
             try {
                 val request = Request.Builder().url(url).build()
                 okHttpClient.newCall(request).execute().use { response ->
@@ -203,10 +348,12 @@ object BubbleFontResolver {
                         }
                     }
                 }
+                markerFile(destFile, ".url").writeText(url)
                 loadTypefaceFromFile(destFile)
             } catch (e: Exception) {
                 AppLogger.log("BubbleFontResolver", "Failed to download font from $url", e)
-                if (destFile.exists() && destFile.length() > 0L) {
+                val storedUrl = readMarker(markerFile(destFile, ".url"))
+                if (destFile.exists() && destFile.length() > 0L && storedUrl == url) {
                     loadTypefaceFromFile(destFile)
                 } else {
                     Typeface.DEFAULT

@@ -20,6 +20,7 @@ import androidx.core.graphics.withTranslation
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.abs
@@ -82,6 +83,8 @@ class FloatingDetectionOverlayView @JvmOverloads constructor(
     private var bubbleOpacity = bubbleRenderSettings.opacityPercent / 100f
     private var sourceBitmap: Bitmap? = null
     private val bubbleColorCache = mutableMapOf<Int, Int>()
+    private val viewJob = SupervisorJob()
+    private val viewScope = CoroutineScope(Dispatchers.Main + viewJob)
     private var typefaceLoadJob: Job? = null
     private var cachedTypeface: Typeface? = null
     private var editMode = false
@@ -496,7 +499,10 @@ class FloatingDetectionOverlayView @JvmOverloads constructor(
     private fun applyTypefaceSettings() {
         val baseTypeface = cachedTypeface ?: BubbleFontResolver.resolveTypeface(
             context.applicationContext,
-            bubbleRenderSettings.font
+            bubbleRenderSettings.font,
+            customUrl = bubbleRenderSettings.customFontUrl,
+            customFileName = bubbleRenderSettings.customFontFileName,
+            tag = "floating"
         )
         val style = if (bubbleRenderSettings.isBold) Typeface.BOLD else Typeface.NORMAL
         textPaint.typeface = Typeface.create(baseTypeface, style)
@@ -505,10 +511,17 @@ class FloatingDetectionOverlayView @JvmOverloads constructor(
     private fun loadTypefaceAsync() {
         val font = bubbleRenderSettings.font
         val url = bubbleRenderSettings.customFontUrl
+        val customFileName = bubbleRenderSettings.customFontFileName
         typefaceLoadJob?.cancel()
-        typefaceLoadJob = (context as? CoroutineScope)?.launch {
+        typefaceLoadJob = viewScope.launch {
             val resolved = withContext(Dispatchers.IO) {
-                BubbleFontResolver.ensureTypeface(context.applicationContext, font, url)
+                BubbleFontResolver.ensureTypeface(
+                    context.applicationContext,
+                    font,
+                    url,
+                    customFileName,
+                    "floating"
+                )
             }
             cachedTypeface = resolved
             applyTypefaceSettings()
@@ -634,5 +647,11 @@ class FloatingDetectionOverlayView @JvmOverloads constructor(
     private fun scaleY(): Float = height.toFloat().coerceAtLeast(1f) / sourceHeight.coerceAtLeast(1)
 
     private fun cornerRadius(): Float = resources.displayMetrics.density * 8f
+
+    override fun onDetachedFromWindow() {
+        super.onDetachedFromWindow()
+        typefaceLoadJob?.cancel()
+        viewJob.cancel()
+    }
 
 }

@@ -69,7 +69,13 @@ class BubbleRenderer(context: Context) {
     }
 
     private fun applyInitialTypefaceSettings() {
-        val typeface = BubbleFontResolver.resolveTypeface(appContext, bubbleRenderSettings.font)
+        val typeface = BubbleFontResolver.resolveTypeface(
+            appContext,
+            bubbleRenderSettings.font,
+            customUrl = bubbleRenderSettings.customFontUrl,
+            customFileName = bubbleRenderSettings.customFontFileName,
+            tag = "normal"
+        )
         val style = if (bubbleRenderSettings.isBold) Typeface.BOLD else Typeface.NORMAL
         textPaint.typeface = Typeface.create(typeface, style)
     }
@@ -79,7 +85,9 @@ class BubbleRenderer(context: Context) {
             BubbleFontResolver.ensureTypeface(
                 appContext,
                 bubbleRenderSettings.font,
-                bubbleRenderSettings.customFontUrl
+                bubbleRenderSettings.customFontUrl,
+                bubbleRenderSettings.customFontFileName,
+                "normal"
             )
         }
         val style = if (bubbleRenderSettings.isBold) Typeface.BOLD else Typeface.NORMAL

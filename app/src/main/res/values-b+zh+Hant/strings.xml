@@ -157,7 +157,7 @@
     <string name="normal_bubble_free_auto_adapt_color">游離氣泡自適應背景色</string>
     <string name="normal_bubble_min_area_per_char_label">文字密度下限（值越大文字越大，可能擴大氣泡）</string>
     <string name="normal_bubble_min_area_value">當前: %d sp² / 字</string>
-    <string name="normal_bubble_layout_horizontal">横向排版</string>
+    <string name="normal_bubble_layout_horizontal">橫向排版</string>
     <string name="normal_bubble_layout_vertical">直向排版</string>
     <string name="bubble_font_label">字型</string>
     <string name="bubble_font_system_default">系統預設</string>
