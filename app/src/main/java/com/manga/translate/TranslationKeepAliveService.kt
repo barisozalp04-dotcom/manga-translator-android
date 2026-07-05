@@ -28,6 +28,7 @@ class TranslationKeepAliveService : Service() {
     }
     private var translationJob: Job? = null
     private var localModelLease: LocalModelMemoryManager.LocalModelLease? = null
+    private var currentTaskLabel: String = ""
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -43,6 +44,15 @@ class TranslationKeepAliveService : Service() {
             ?: getString(R.string.translation_keepalive_message)
         val content = intent?.getStringExtra(EXTRA_CONTENT)
             ?: getString(R.string.translation_preparing)
+        if (intent?.action == ACTION_START_TRANSLATION_TASK) {
+            loadDescriptor(intent)?.let { descriptor ->
+                currentTaskLabel = describeTaskLabel(this, descriptor)
+            }
+        } else if (intent?.action == ACTION_RESUME_TRANSLATION_TASK && currentTaskLabel.isBlank()) {
+            taskPersistence.load()?.let { descriptor ->
+                currentTaskLabel = describeTaskLabel(this, descriptor)
+            }
+        }
         startForeground(
             NOTIFICATION_ID,
             buildNotification(
@@ -217,6 +227,7 @@ class TranslationKeepAliveService : Service() {
         translationJob?.invokeOnCompletion {
             translationJob = null
             translationActionsCallback(true)
+            maybeNotifyTranslationFinished()
             taskPersistence.clear()
             releaseLocalModelLease()
             releaseWakeLock()
@@ -234,13 +245,31 @@ class TranslationKeepAliveService : Service() {
         ensureChannel(this, manager)
     }
 
+    private fun maybeNotifyTranslationFinished() {
+        val terminalState = GlobalTaskProgressStore.state.value.takeIf { it.terminal } ?: return
+        showResultNotification(
+            context = this,
+            resultTitle = terminalState.detail.ifBlank {
+                getString(R.string.translation_done)
+            },
+            taskLabel = currentTaskLabel.ifBlank {
+                getString(R.string.translation_result_task_fallback_label)
+            },
+            isError = terminalState.error,
+            isCanceled = terminalState.detail == getString(R.string.translation_canceled)
+        )
+    }
+
     companion object {
         private const val CHANNEL_ID = "translation_keepalive"
         private const val ALERT_CHANNEL_ID = "translation_alerts"
+        private const val RESULT_CHANNEL_ID = "translation_results"
         private const val NOTIFICATION_ID = 1001
         private const val ALERT_NOTIFICATION_ID = 1002
+        private const val RESULT_NOTIFICATION_ID = 1003
         private const val NOTIFICATION_REQUEST_CODE = 0
         private const val ALERT_NOTIFICATION_REQUEST_CODE = 2
+        private const val RESULT_NOTIFICATION_REQUEST_CODE = 3
         private const val CANCEL_REQUEST_CODE = 1
         private const val EXTRA_TITLE = "extra_title"
         private const val EXTRA_MESSAGE = "extra_message"
@@ -477,12 +506,102 @@ class TranslationKeepAliveService : Service() {
             return builder.build()
         }
 
+        private fun showResultNotification(
+            context: Context,
+            resultTitle: String,
+            taskLabel: String,
+            isError: Boolean,
+            isCanceled: Boolean
+        ) {
+            val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            ensureResultChannel(context, manager)
+            val pendingIntent = buildOpenLibraryPendingIntent(
+                context = context,
+                requestCode = RESULT_NOTIFICATION_REQUEST_CODE
+            )
+            val icon = when {
+                isError -> android.R.drawable.stat_notify_error
+                isCanceled -> android.R.drawable.ic_menu_close_clear_cancel
+                else -> android.R.drawable.stat_sys_upload_done
+            }
+            val category = when {
+                isError -> NotificationCompat.CATEGORY_ERROR
+                else -> NotificationCompat.CATEGORY_STATUS
+            }
+            val priority = when {
+                isError -> NotificationCompat.PRIORITY_HIGH
+                else -> NotificationCompat.PRIORITY_DEFAULT
+            }
+            val notification = NotificationCompat.Builder(context, RESULT_CHANNEL_ID)
+                .setSmallIcon(icon)
+                .setContentTitle(resultTitle)
+                .setContentText(context.getString(R.string.translation_result_message, taskLabel))
+                .setStyle(
+                    NotificationCompat.BigTextStyle().bigText(
+                        context.getString(R.string.translation_result_message, taskLabel)
+                    )
+                )
+                .setPriority(priority)
+                .setCategory(category)
+                .setAutoCancel(true)
+                .setContentIntent(pendingIntent)
+                .build()
+            manager.notify(RESULT_NOTIFICATION_ID, notification)
+        }
+
+        private fun buildOpenLibraryPendingIntent(
+            context: Context,
+            requestCode: Int
+        ): PendingIntent {
+            val openIntent = Intent(context, MainActivity::class.java).apply {
+                putExtra(EXTRA_OPEN_LIBRARY_TAB, true)
+                addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            }
+            return PendingIntent.getActivity(
+                context,
+                requestCode,
+                openIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+        }
+
+        private fun describeTaskLabel(context: Context, descriptor: TranslationTaskDescriptor): String {
+            return when (descriptor.mode) {
+                TranslationTaskPersistence.MODE_COLLECTION -> descriptor.collectionFolderPath
+                    ?.let(::File)
+                    ?.name
+                    .orEmpty()
+                TranslationTaskPersistence.MODE_BATCH -> context.getString(
+                    R.string.translation_result_batch_task_label,
+                    descriptor.tasks.map { it.folderPath }.distinct().size.coerceAtLeast(1)
+                )
+                else -> descriptor.tasks.firstOrNull()
+                    ?.folderPath
+                    ?.let(::File)
+                    ?.name
+                    .orEmpty()
+            }.ifBlank {
+                context.getString(R.string.translation_result_task_fallback_label)
+            }
+        }
+
         private fun ensureChannel(context: Context, manager: NotificationManager) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 val channel = NotificationChannel(
                     CHANNEL_ID,
                     context.getString(R.string.translation_keepalive_channel),
                     NotificationManager.IMPORTANCE_LOW
+                )
+                manager.createNotificationChannel(channel)
+            }
+        }
+
+        private fun ensureResultChannel(context: Context, manager: NotificationManager) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                val channel = NotificationChannel(
+                    RESULT_CHANNEL_ID,
+                    context.getString(R.string.translation_result_channel),
+                    NotificationManager.IMPORTANCE_DEFAULT
                 )
                 manager.createNotificationChannel(channel)
             }

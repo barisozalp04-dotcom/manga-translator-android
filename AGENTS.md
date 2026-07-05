@@ -243,6 +243,7 @@ sourceSets["main"].assets.srcDirs("src/main/assets", "../assets")
 当前漫画库后台翻译链路已调整为：
 - `LibraryFragment.kt` 不再持有翻译协程生命周期，而是将任务描述交给 `TranslationKeepAliveService.startTranslationTask(...)`。
 - `TranslationKeepAliveService.kt` 持有自己的 `CoroutineScope` 和 `Job`，真正负责文件夹翻译、合集翻译和批量翻译的执行生命周期。
+- `TranslationKeepAliveService.kt` 在后台翻译结束后会补发系统通知（成功 / 失败 / 取消），点击后回到漫画库页查看结果。
 - `FolderTranslationCoordinator.kt` 仍负责翻译编排，但不再负责启动/停止保活服务；它现在向上返回真实任务 `Job`，由 Service 持有。
 - `TranslationTaskPersistence.kt` 会持久化当前任务描述；`MangaTranslateApp.kt` 启动时如果发现有未完成任务，会调用 `resumePendingTask(...)` 尝试恢复。
 - `LibraryUiBridge.kt` 与 `ServiceLibraryUiCallbacks.kt` 用来把后台 Service 中的状态、Toast、刷新请求和模型错误对话框转发给当前附着的 Library UI。
