@@ -86,6 +86,32 @@ internal class LibraryDialogs {
             .show()
     }
 
+    private fun showSingleChoiceConfirmDialog(
+        context: Context,
+        titleRes: Int,
+        items: Array<String>,
+        checkedIndex: Int,
+        onConfirmed: (Int) -> Unit
+    ) {
+        var selectedIndex = if (items.isNotEmpty()) {
+            checkedIndex.coerceIn(0, items.lastIndex)
+        } else {
+            -1
+        }
+        AlertDialog.Builder(context)
+            .setTitle(titleRes)
+            .setSingleChoiceItems(items, selectedIndex) { _, which ->
+                selectedIndex = which
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .setPositiveButton(android.R.string.ok) { _, _ ->
+                if (selectedIndex >= 0) {
+                    onConfirmed(selectedIndex)
+                }
+            }
+            .show()
+    }
+
     private fun buildDialogContainer(context: Context): LinearLayout {
         return LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
@@ -206,6 +232,24 @@ internal class LibraryDialogs {
         val languageNames = languages.map { it.displayName(context) }.toTypedArray()
         val currentIndex = languages.indexOf(currentLanguage).coerceAtLeast(0)
         showSingleChoiceDialog(context, R.string.folder_language_setting_title, languageNames, currentIndex) {
+            onSelected(languages[it])
+        }
+    }
+
+    fun showLanguageSettingConfirmDialog(
+        context: Context,
+        languages: List<TranslationLanguage>,
+        currentLanguage: TranslationLanguage,
+        onSelected: (TranslationLanguage) -> Unit
+    ) {
+        val languageNames = languages.map { it.displayName(context) }.toTypedArray()
+        val currentIndex = languages.indexOf(currentLanguage).coerceAtLeast(0)
+        showSingleChoiceConfirmDialog(
+            context,
+            R.string.folder_language_setting_title,
+            languageNames,
+            currentIndex
+        ) {
             onSelected(languages[it])
         }
     }

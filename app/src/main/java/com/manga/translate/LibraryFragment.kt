@@ -511,7 +511,7 @@ class LibraryFragment : Fragment() {
         val supportedLanguages = TranslationLanguage.supportedForOcr(ocrSettings.useLocalOcr)
         val currentLanguage = pendingFloatingTranslateLanguage
             ?: defaultFloatingTranslateLanguage()
-        dialogs.showLanguageSettingDialog(
+        dialogs.showLanguageSettingConfirmDialog(
             context = requireContext(),
             languages = supportedLanguages,
             currentLanguage = currentLanguage
