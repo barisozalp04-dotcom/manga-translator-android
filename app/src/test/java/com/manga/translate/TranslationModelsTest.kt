@@ -2,6 +2,7 @@ package com.manga.translate
 
 import android.graphics.RectF
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotSame
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -73,6 +74,30 @@ class TranslationModelsTest {
     fun `translation language exposes baidu ocr types`() {
         assertEquals("CHN_ENG", TranslationLanguage.CHN_ENG_TO_ZH.baiduLanguageType)
         assertEquals("RUS", TranslationLanguage.RU_TO_ZH.baiduLanguageType)
+    }
+
+    @Test
+    fun `cross page merge returns detached list for single page input`() {
+        val pages = mutableListOf(
+            PageOcrResult(
+                imageFile = File("page.jpg"),
+                width = 1000,
+                height = 1600,
+                bubbles = listOf(
+                    OcrBubble(0, rect(0), "hello", BubbleSource.BUBBLE_DETECTOR)
+                )
+            )
+        )
+
+        val merged = CrossPageBubbleMerger.merge(pages)
+
+        assertNotSame(pages, merged)
+        pages.clear()
+        pages.addAll(merged)
+
+        assertEquals(1, pages.size)
+        assertEquals(1, pages.first().bubbles.size)
+        assertEquals("hello", pages.first().bubbles.first().text)
     }
 
     private fun rect(index: Int): RectF {

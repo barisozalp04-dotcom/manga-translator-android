@@ -28,7 +28,9 @@ internal object CrossPageBubbleMerger {
      * @return 合并后的 OCR 结果列表，长度与输入一致。
      */
     fun merge(pages: List<PageOcrResult>, ocrStore: OcrStore? = null): List<PageOcrResult> {
-        if (pages.size < 2) return pages
+        if (pages.size < 2) {
+            return pages.map { it.copy(bubbles = it.bubbles.toList()) }
+        }
         val working = pages.map { it.copy(bubbles = it.bubbles.toList()) }.toMutableList()
         var mergeCount = 0
         for (index in 0 until working.size - 1) {
