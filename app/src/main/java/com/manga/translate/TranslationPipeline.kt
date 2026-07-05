@@ -896,7 +896,7 @@ internal class TranslationPipeline(
                 TranslationLanguage.ES_TO_ZH,
                 TranslationLanguage.PT_TO_ZH,
                 TranslationLanguage.DE_TO_ZH,
-                TranslationLanguage.IT_TO_ZH -> "local_en"
+                TranslationLanguage.IT_TO_ZH -> "local_ppocrv6_small_rec"
                 TranslationLanguage.KO_TO_ZH -> "local_ko"
                 TranslationLanguage.CHN_ENG_TO_ZH,
                 TranslationLanguage.RU_TO_ZH -> "api"

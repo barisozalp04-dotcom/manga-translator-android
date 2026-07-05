@@ -14,7 +14,7 @@ class OcrEngineRegistry(
     private val appContext = context.applicationContext
     private var mangaOcrMobile: MangaOcrMobile? = null
     private var mangaOcrMobileInitFailed = false
-    private var englishOcr: EnglishOcr? = null
+    private var ppOcrV6SmallRec: PPOcrV6SmallRec? = null
     private var koreanOcr: KoreanOcr? = null
     private var englishLineDetector: EnglishLineDetector? = null
 
@@ -38,12 +38,12 @@ class OcrEngineRegistry(
     }
 
     @Synchronized
-    fun getEnglishOcr(logTag: String): EnglishOcr? {
-        if (englishOcr != null) return englishOcr
+    fun getPpOcrV6SmallRec(logTag: String): PPOcrV6SmallRec? {
+        if (ppOcrV6SmallRec != null) return ppOcrV6SmallRec
         return try {
-            EnglishOcr(appContext, settingsStore = settingsStore).also { englishOcr = it }
+            PPOcrV6SmallRec(appContext, settingsStore = settingsStore).also { ppOcrV6SmallRec = it }
         } catch (e: Exception) {
-            AppLogger.log(logTag, "Failed to init English OCR", e)
+            AppLogger.log(logTag, "Failed to init PP-OCRv6_small_rec", e)
             null
         }
     }
@@ -123,12 +123,12 @@ class OcrEngineRegistry(
     @Synchronized
     fun releaseLoadedEngines() {
         val hadLoadedEngines = mangaOcrMobile != null ||
-            englishOcr != null ||
+            ppOcrV6SmallRec != null ||
             koreanOcr != null ||
             englishLineDetector != null ||
             jaPool != null
         mangaOcrMobile = null
-        englishOcr = null
+        ppOcrV6SmallRec = null
         koreanOcr = null
         englishLineDetector = null
         jaPoolClosed = true
@@ -164,13 +164,13 @@ class BubbleTextRecognizer(
             ) {
                 JapaneseLocalOcrEngine.MANGA_OCR_MOBILE -> engineRegistry.getMangaOcrMobile(logTag)
             }
-            TranslationLanguage.EN_TO_ZH -> engineRegistry.getEnglishOcr(logTag)
+            TranslationLanguage.EN_TO_ZH -> engineRegistry.getPpOcrV6SmallRec(logTag)
             TranslationLanguage.KO_TO_ZH -> engineRegistry.getKoreanOcr(logTag)
             TranslationLanguage.FR_TO_ZH,
             TranslationLanguage.ES_TO_ZH,
             TranslationLanguage.PT_TO_ZH,
             TranslationLanguage.DE_TO_ZH,
-            TranslationLanguage.IT_TO_ZH -> engineRegistry.getEnglishOcr(logTag)
+            TranslationLanguage.IT_TO_ZH -> engineRegistry.getPpOcrV6SmallRec(logTag)
             TranslationLanguage.CHN_ENG_TO_ZH,
             TranslationLanguage.RU_TO_ZH -> null
         }
@@ -190,7 +190,7 @@ class BubbleTextRecognizer(
             TranslationLanguage.PT_TO_ZH,
             TranslationLanguage.DE_TO_ZH,
             TranslationLanguage.IT_TO_ZH -> {
-                val engine = engineRegistry.getEnglishOcr(logTag) ?: return emptyList()
+                val engine = engineRegistry.getPpOcrV6SmallRec(logTag) ?: return emptyList()
                 recognizeEnglishLines(source, lineRects, engine)
             }
 
@@ -271,9 +271,9 @@ class BubbleTextRecognizer(
             TranslationLanguage.PT_TO_ZH,
             TranslationLanguage.DE_TO_ZH,
             TranslationLanguage.IT_TO_ZH -> {
-                val engine = engineRegistry.getEnglishOcr(logTag)
+                val engine = engineRegistry.getPpOcrV6SmallRec(logTag)
                     ?: return OcrRecognitionResult.Failure(
-                        IllegalStateException("English OCR engine unavailable")
+                        IllegalStateException("PP-OCRv6_small_rec engine unavailable")
                     )
                 val lineDetector = engineRegistry.getEnglishLineDetector(logTag)
                 val lineRects = lineDetector?.detectLines(crop).orEmpty()

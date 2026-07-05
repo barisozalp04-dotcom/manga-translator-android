@@ -2,7 +2,7 @@ package com.manga.translate
 
 import android.content.Context
 
-class EnglishOcr(
+class PPOcrV6SmallRec(
     context: Context,
     threadProfile: OnnxThreadProfile = OnnxThreadProfile.LIGHT,
     settingsStore: SettingsStore = SettingsStore(context.applicationContext)
@@ -26,8 +26,8 @@ class EnglishOcr(
     }
 
     companion object {
-        private const val MODEL_ASSET = "models/ocr/en_PP-OCRv6_rec_mobile_infer.onnx"
+        private const val MODEL_ASSET = "models/ocr/PP-OCRv6_small_rec.onnx"
         private const val DICT_ASSET = "models/ocr/ppocr_keys_v6_small.txt"
-        private const val LOG_TAG = "EnglishOcr"
+        private const val LOG_TAG = "PPOcrV6SmallRec"
     }
 }
