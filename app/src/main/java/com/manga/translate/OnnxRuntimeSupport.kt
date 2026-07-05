@@ -5,6 +5,8 @@ import ai.onnxruntime.OrtException
 import ai.onnxruntime.OrtSession
 import java.io.File
 import java.io.FileOutputStream
+import java.security.DigestInputStream
+import java.security.MessageDigest
 import java.util.concurrent.ConcurrentHashMap
 
 enum class OnnxThreadProfile(
@@ -100,11 +102,13 @@ object OnnxRuntimeSupport {
         assetName: String
     ): File {
         val target = File(cacheDir, assetName)
+        val expectedHash = computeAssetSha256(assetProvider, assetName)
         synchronized(cacheLock) {
             if (target.exists()) {
                 target.delete()
             }
-            copyAssetToCache(target, assetProvider, assetName)
+            writeAssetToCache(target, assetProvider, assetName)
+            writeAssetHash(cacheDir, assetName, expectedHash)
         }
         return target
     }
@@ -115,14 +119,22 @@ object OnnxRuntimeSupport {
         assetName: String
     ): File {
         val target = File(cacheDir, assetName)
+        val expectedHash = computeAssetSha256(assetProvider, assetName)
         synchronized(cacheLock) {
-            if (target.exists() && target.length() > 0L) {
+            if (
+                target.exists() &&
+                target.length() > 0L &&
+                readCachedAssetHash(cacheDir, assetName) == expectedHash
+            ) {
                 return target
             }
             if (target.exists()) {
                 target.delete()
             }
-            copyAssetToCache(target, assetProvider, assetName)
+            deleteCachedAssetHash(cacheDir, assetName)
+            AppLogger.log("OnnxRuntime", "Refreshing cached asset $assetName")
+            writeAssetToCache(target, assetProvider, assetName)
+            writeAssetHash(cacheDir, assetName, expectedHash)
         }
         return target
     }
@@ -142,7 +154,7 @@ object OnnxRuntimeSupport {
         }
     }
 
-    private fun copyAssetToCache(
+    private fun writeAssetToCache(
         target: File,
         assetProvider: (String) -> java.io.InputStream,
         assetName: String
@@ -173,11 +185,55 @@ object OnnxRuntimeSupport {
         }
     }
 
+    private fun computeAssetSha256(
+        assetProvider: (String) -> java.io.InputStream,
+        assetName: String
+    ): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        assetProvider(assetName).use { input ->
+            DigestInputStream(input, digest).use { stream ->
+                val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                while (stream.read(buffer) != -1) {
+                    // DigestInputStream updates the digest as bytes are read.
+                }
+            }
+        }
+        return digest.digest().joinToString("") { "%02x".format(it) }
+    }
+
+    private fun assetHashFile(cacheDir: File, assetName: String): File {
+        return File(cacheDir, "$assetName.sha256")
+    }
+
+    private fun readCachedAssetHash(cacheDir: File, assetName: String): String? {
+        val hashFile = assetHashFile(cacheDir, assetName)
+        return runCatching { hashFile.readText().trim() }.getOrNull()?.takeIf { it.isNotEmpty() }
+    }
+
+    private fun writeAssetHash(cacheDir: File, assetName: String, hash: String) {
+        val hashFile = assetHashFile(cacheDir, assetName)
+        hashFile.parentFile?.mkdirs()
+        val tempFile = File(hashFile.parentFile, "${hashFile.name}.tmp")
+        tempFile.writeText(hash)
+        if (!tempFile.renameTo(hashFile)) {
+            hashFile.writeText(hash)
+            tempFile.delete()
+        }
+    }
+
+    private fun deleteCachedAssetHash(cacheDir: File, assetName: String) {
+        val hashFile = assetHashFile(cacheDir, assetName)
+        if (hashFile.exists() && !hashFile.delete()) {
+            hashFile.deleteOnExit()
+        }
+    }
+
     private fun deleteCachedModel(cacheDir: File, assetName: String) {
         val target = File(cacheDir, assetName)
         if (target.exists() && !target.delete()) {
             target.deleteOnExit()
         }
+        deleteCachedAssetHash(cacheDir, assetName)
         val tempFile = File(cacheDir, "$assetName.tmp")
         if (tempFile.exists() && !tempFile.delete()) {
             tempFile.deleteOnExit()
