@@ -1728,9 +1728,6 @@ class SettingsFragment : Fragment() {
             currentSettings.proofreadingModeEnabled
         dialogBinding.floatingAutoCloseOnScreenChangeSwitch.isChecked =
             currentSettings.autoCloseOnScreenChangeEnabled
-        val floatingLanguages = TranslationLanguage.supportedForOcr(
-            settingsStore.loadOcrApiSettings().useLocalOcr
-        )
         setupFloatingGestureActionDropdown(
             dialogBinding.floatingSingleTapActionInput,
             currentSettings.singleTapAction
@@ -1746,11 +1743,6 @@ class SettingsFragment : Fragment() {
         setupFloatingGestureActionDropdown(
             dialogBinding.floatingTripleTapActionInput,
             currentSettings.tripleTapAction
-        )
-        setupTranslationLanguageDropdown(
-            dialogBinding.floatingLanguageInput,
-            currentSettings.language,
-            floatingLanguages
         )
         dialogBinding.floatingVlTranslateConcurrencyInput.setText(
             formatNumber(currentSettings.ocrConcurrencyLimit)
@@ -1791,11 +1783,6 @@ class SettingsFragment : Fragment() {
                         apiUrl = dialogBinding.floatingApiUrlInput.text?.toString()?.trim().orEmpty(),
                         apiKey = dialogBinding.floatingApiKeyInput.text?.toString()?.trim().orEmpty(),
                         modelName = dialogBinding.floatingModelNameInput.text?.toString()?.trim().orEmpty(),
-                        language = parseTranslationLanguage(
-                            dialogBinding.floatingLanguageInput,
-                            currentSettings.language,
-                            floatingLanguages
-                        ),
                         timeoutSeconds = timeoutSeconds,
                         useVlDirectTranslate =
                             dialogBinding.floatingUseVlDirectTranslateSwitch.isChecked,

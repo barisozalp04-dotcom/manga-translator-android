@@ -288,7 +288,7 @@ class LibraryFragment : Fragment() {
         if (!isAdded) return@registerForActivityResult
         val data = result.data
         if (result.resultCode == android.app.Activity.RESULT_OK && data != null) {
-            startFloatingTranslateEntry(result.resultCode, data)
+            showFloatingTranslateLanguageDialog(result.resultCode, data)
             return@registerForActivityResult
         }
         showScreenCapturePermissionFailedDialog()
@@ -497,7 +497,27 @@ class LibraryFragment : Fragment() {
             .showWithScrollableMessage()
     }
 
-    private fun startFloatingTranslateEntry(resultCode: Int, resultData: Intent) {
+    private fun showFloatingTranslateLanguageDialog(resultCode: Int, resultData: Intent) {
+        val ocrSettings = settingsStore.loadOcrApiSettings()
+        val supportedLanguages = TranslationLanguage.supportedForOcr(ocrSettings.useLocalOcr)
+        val currentLanguage = TranslationLanguage.resolveForOcr(
+            TranslationLanguage.JA_TO_ZH,
+            ocrSettings.useLocalOcr
+        )
+        dialogs.showLanguageSettingDialog(
+            context = requireContext(),
+            languages = supportedLanguages,
+            currentLanguage = currentLanguage
+        ) { selectedLanguage ->
+            startFloatingTranslateEntry(resultCode, resultData, selectedLanguage)
+        }
+    }
+
+    private fun startFloatingTranslateEntry(
+        resultCode: Int,
+        resultData: Intent,
+        language: TranslationLanguage
+    ) {
         val context = requireContext()
         ContextCompat.startForegroundService(
             context,
@@ -505,6 +525,7 @@ class LibraryFragment : Fragment() {
                 action = FloatingBallOverlayService.ACTION_START
                 putExtra(FloatingBallOverlayService.EXTRA_RESULT_CODE, resultCode)
                 putExtra(FloatingBallOverlayService.EXTRA_RESULT_DATA, resultData)
+                putExtra(FloatingBallOverlayService.EXTRA_LANGUAGE, language.prefValue)
             }
         )
         val homeIntent = Intent(Intent.ACTION_MAIN).apply {

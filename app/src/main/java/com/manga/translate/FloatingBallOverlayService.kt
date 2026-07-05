@@ -117,6 +117,7 @@ class FloatingBallOverlayService : Service() {
     private var autoCloseCheckJob: Job? = null
     private var blankBubbleErrorDialog: AlertDialog? = null
     private var localModelReleaseCallback: AutoCloseable? = null
+    private var activeTranslationLanguage: TranslationLanguage? = null
     private val hideProgressStatusRunnable = Runnable {
         progressStatusView?.visibility = View.GONE
     }
@@ -185,6 +186,12 @@ class FloatingBallOverlayService : Service() {
         if (action == ACTION_START) {
             val resultCode = intent.getIntExtra(EXTRA_RESULT_CODE, Int.MIN_VALUE)
             val data = intent.getParcelableIntentExtraCompat(EXTRA_RESULT_DATA)
+            activeTranslationLanguage = intent.getStringExtra(EXTRA_LANGUAGE)?.let {
+                TranslationLanguage.fromPref(it)
+            } ?: TranslationLanguage.resolveForOcr(
+                TranslationLanguage.JA_TO_ZH,
+                settingsStore.loadOcrApiSettings().useLocalOcr
+            )
             if (resultCode != Int.MIN_VALUE && data != null) {
                 AppLogger.log("FloatingOCR", "Prepare projection from start intent")
                 prepareProjection(resultCode, data)
@@ -226,6 +233,13 @@ class FloatingBallOverlayService : Service() {
             useLocalOcr = ocrSettings.useLocalOcr && resolvedLanguage.supportsLocalOcr(),
             logTag = "FloatingOCR"
         ).textOrEmpty()
+    }
+
+    private fun currentTranslationLanguage(): TranslationLanguage {
+        return activeTranslationLanguage ?: TranslationLanguage.resolveForOcr(
+            TranslationLanguage.JA_TO_ZH,
+            settingsStore.loadOcrApiSettings().useLocalOcr
+        )
     }
 
     private fun canDrawOverlays(): Boolean {
@@ -816,7 +830,8 @@ class FloatingBallOverlayService : Service() {
                         retryCount = FLOATING_TRANSLATE_RETRY_COUNT,
                         floatPromptAsset = FLOAT_PROMPT_ASSET,
                         floatVlPromptAsset = FLOAT_VL_PROMPT_ASSET,
-                        maxVlConcurrency = MAX_FLOATING_TASK_CONCURRENCY
+                        maxVlConcurrency = MAX_FLOATING_TASK_CONCURRENCY,
+                        language = currentTranslationLanguage()
                     )
                 }
                 withContext(Dispatchers.Main) {
@@ -1057,19 +1072,20 @@ class FloatingBallOverlayService : Service() {
                     floatingBubbleTranslationCoordinator.translateImageBubbles(
                         bitmap = bitmap,
                         bubbles = deduplicatedRects.mapIndexed { index, rect ->
-                        BubbleTranslation(
-                            id = index,
-                            rect = rect,
-                            originalText = "",
-                            translatedText = "",
-                            translationState = BubbleTranslationState.PENDING,
-                            source = BubbleSource.TEXT_DETECTOR
-                        )
+                            BubbleTranslation(
+                                id = index,
+                                rect = rect,
+                                originalText = "",
+                                translatedText = "",
+                                translationState = BubbleTranslationState.PENDING,
+                                source = BubbleSource.TEXT_DETECTOR
+                            )
                         },
                         timeoutMs = floatingTimeoutMs,
                         retryCount = FLOATING_TRANSLATE_RETRY_COUNT,
                         promptAsset = FLOAT_VL_PROMPT_ASSET,
                         apiSettings = floatingApiSettings,
+                        language = currentTranslationLanguage(),
                         concurrency = floatingSettings.aiApiConcurrencyLimit,
                         maxConcurrency = MAX_FLOATING_TASK_CONCURRENCY
                     )
@@ -1087,7 +1103,7 @@ class FloatingBallOverlayService : Service() {
                     }
                     return@launch
                 }
-                val floatingLanguage = floatingSettings.language
+                val floatingLanguage = currentTranslationLanguage()
                 val translatedBubbles = if (useVlDirectTranslate) {
                     if (vlOutcome?.timedOut == true) {
                         null
@@ -1175,7 +1191,8 @@ class FloatingBallOverlayService : Service() {
                             retryCount = FLOATING_TRANSLATE_RETRY_COUNT,
                             floatPromptAsset = FLOAT_PROMPT_ASSET,
                             floatVlPromptAsset = FLOAT_VL_PROMPT_ASSET,
-                            maxVlConcurrency = MAX_FLOATING_TASK_CONCURRENCY
+                            maxVlConcurrency = MAX_FLOATING_TASK_CONCURRENCY,
+                            language = floatingLanguage
                         ).let { outcome ->
                             if (outcome.requiresVlModel || outcome.timedOut) {
                                 return@let firstPass
@@ -1700,6 +1717,7 @@ class FloatingBallOverlayService : Service() {
         const val ACTION_STOP = "com.manga.translate.action.FLOATING_STOP"
         const val EXTRA_RESULT_CODE = "extra_result_code"
         const val EXTRA_RESULT_DATA = "extra_result_data"
+        const val EXTRA_LANGUAGE = "extra_language"
         private const val FLOATING_PROGRESS_HIDE_DELAY_MS = 2_000L
         private const val CHANNEL_ID = "floating_detect_channel"
         private const val NOTIFICATION_ID = 2002

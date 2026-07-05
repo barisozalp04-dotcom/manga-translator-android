@@ -26,7 +26,8 @@ class FloatingEmptyBubbleCoordinator(
         retryCount: Int,
         floatPromptAsset: String,
         floatVlPromptAsset: String,
-        maxVlConcurrency: Int
+        maxVlConcurrency: Int,
+        language: TranslationLanguage
     ): FloatingEmptyBubbleOutcome = withContext(Dispatchers.Default) {
         val targets = baseTranslation.bubbles.filter { it.needsTranslationRetry() }
         if (targets.isEmpty()) {
@@ -47,6 +48,7 @@ class FloatingEmptyBubbleCoordinator(
                 retryCount = retryCount,
                 apiSettings = floatingApiSettings,
                 promptAsset = floatVlPromptAsset,
+                language = language,
                 concurrency = floatingSettings.aiApiConcurrencyLimit,
                 maxVlConcurrency = maxVlConcurrency
             )
@@ -61,13 +63,14 @@ class FloatingEmptyBubbleCoordinator(
                 outcome.bubbles.firstOrNull { it.id == bubble.id }?.let { bubble.withContentFrom(it) } ?: bubble
             }
         } else {
-            val recognized = recognizeEmptyBubbles(bitmap, targets)
+            val recognized = recognizeEmptyBubbles(bitmap, targets, language)
             val translated = translateRecognizedBubbles(
                 bubbles = recognized,
                 timeoutMs = timeoutMs,
                 retryCount = retryCount,
                 promptAsset = floatPromptAsset,
-                apiSettings = floatingApiSettings
+                apiSettings = floatingApiSettings,
+                language = language
             ) ?: return@withContext FloatingEmptyBubbleOutcome(
                 translation = baseTranslation,
                 timedOut = true
@@ -83,11 +86,12 @@ class FloatingEmptyBubbleCoordinator(
 
     private suspend fun recognizeEmptyBubbles(
         bitmap: Bitmap,
-        bubbles: List<BubbleTranslation>
+        bubbles: List<BubbleTranslation>,
+        language: TranslationLanguage
     ): List<BubbleTranslation> = withContext(Dispatchers.Default) {
         val ocrSettings = settingsStore.loadOcrApiSettings()
         val floatingLanguage = TranslationLanguage.resolveForOcr(
-            settingsStore.loadFloatingTranslateApiSettings().language,
+            language,
             ocrSettings.useLocalOcr
         )
         val useLocalOcr = ocrSettings.useLocalOcr && floatingLanguage.supportsLocalOcr()
@@ -114,7 +118,8 @@ class FloatingEmptyBubbleCoordinator(
         timeoutMs: Int,
         retryCount: Int,
         promptAsset: String,
-        apiSettings: ApiSettings
+        apiSettings: ApiSettings,
+        language: TranslationLanguage
     ): List<BubbleTranslation>? {
         return floatingBubbleTranslationCoordinator.translateTextBubbles(
             bubbles = bubbles,
@@ -122,7 +127,7 @@ class FloatingEmptyBubbleCoordinator(
             retryCount = retryCount,
             promptAsset = promptAsset,
             apiSettings = apiSettings,
-            language = settingsStore.loadFloatingTranslateApiSettings().language,
+            language = language,
             logTag = "FloatingOCR"
         )
     }
@@ -147,6 +152,7 @@ class FloatingEmptyBubbleCoordinator(
         retryCount: Int,
         apiSettings: ApiSettings,
         promptAsset: String,
+        language: TranslationLanguage,
         concurrency: Int,
         maxVlConcurrency: Int
     ): FloatingVlBubbleTranslateOutcome = coroutineScope {
@@ -157,6 +163,7 @@ class FloatingEmptyBubbleCoordinator(
             retryCount = retryCount,
             promptAsset = promptAsset,
             apiSettings = apiSettings,
+            language = language,
             concurrency = concurrency,
             maxConcurrency = maxVlConcurrency,
             logTag = "FloatingOCR"

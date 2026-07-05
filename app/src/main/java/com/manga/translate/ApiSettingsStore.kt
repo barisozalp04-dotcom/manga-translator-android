@@ -52,12 +52,6 @@ internal class ApiSettingsStore(
             apiUrl = storage.prefs.getString(SettingsStore.KEY_FLOATING_API_URL, "") ?: "",
             apiKey = storage.prefs.getString(SettingsStore.KEY_FLOATING_API_KEY, "") ?: "",
             modelName = storage.prefs.getString(SettingsStore.KEY_FLOATING_MODEL_NAME, "") ?: "",
-            language = TranslationLanguage.fromPref(
-                storage.prefs.getString(
-                    SettingsStore.KEY_FLOATING_LANGUAGE,
-                    TranslationLanguage.JA_TO_ZH.prefValue
-                )
-            ),
             timeoutSeconds = storage.prefs.getInt(
                 SettingsStore.KEY_FLOATING_TIMEOUT_SECONDS,
                 SettingsStore.DEFAULT_FLOATING_API_TIMEOUT_SECONDS
@@ -128,7 +122,6 @@ internal class ApiSettingsStore(
                 SettingsStore.KEY_FLOATING_API_URL,
                 SettingsStore.KEY_FLOATING_API_KEY,
                 SettingsStore.KEY_FLOATING_MODEL_NAME,
-                SettingsStore.KEY_FLOATING_LANGUAGE,
                 SettingsStore.KEY_FLOATING_TIMEOUT_SECONDS,
                 SettingsStore.KEY_FLOATING_USE_VL_DIRECT_TRANSLATE,
                 SettingsStore.KEY_FLOATING_OCR_CONCURRENCY,
@@ -144,7 +137,6 @@ internal class ApiSettingsStore(
             putString(SettingsStore.KEY_FLOATING_API_URL, settings.apiUrl)
                 .putString(SettingsStore.KEY_FLOATING_API_KEY, settings.apiKey)
                 .putString(SettingsStore.KEY_FLOATING_MODEL_NAME, settings.modelName)
-                .putString(SettingsStore.KEY_FLOATING_LANGUAGE, settings.language.prefValue)
                 .putInt(SettingsStore.KEY_FLOATING_TIMEOUT_SECONDS, normalizedTimeout)
                 .putBoolean(
                     SettingsStore.KEY_FLOATING_USE_VL_DIRECT_TRANSLATE,

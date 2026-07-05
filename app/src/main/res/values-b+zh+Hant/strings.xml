@@ -215,7 +215,6 @@
     <string name="floating_gesture_action_clear_screen">清屏</string>
     <string name="floating_gesture_action_none">無操作</string>
     <string name="floating_gesture_action_swipe_translate">劃屏翻譯</string>
-    <string name="floating_language_hint">懸浮窗翻譯語言</string>
     <string name="floating_ocr_concurrency_hint">懸浮窗 OCR 並行上限 (1–50)</string>
     <string name="floating_ai_api_concurrency_hint">懸浮窗 AI API 並行上限 (1–50)</string>
     <string name="floating_translate_settings_note">留空某一項則使用主設定中的對應配置。</string>

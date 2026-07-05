@@ -386,7 +386,7 @@ sourceSets["main"].assets.srcDirs("src/main/assets", "../assets")
 - 多供应商调度：`additional_translation_providers`
 - 主请求控制：`api_timeout_seconds`、`api_retry_count`、`max_concurrency`
 - OCR 配置：`ocr_use_local`、`ocr_api_format`、`ocr_api_url`、`ocr_api_key`、`ocr_secret_key`、`ocr_model_name`
-- 悬浮窗配置：`floating_api_url`、`floating_api_key`、`floating_model_name`、`floating_language`
+- 悬浮窗配置：`floating_api_url`、`floating_api_key`、`floating_model_name`
 - 气泡框渲染配置：`normal_bubble_shrink_percent`、`normal_bubble_min_area_per_char_sp`、`horizontal_text_layout`、`floating_bubble_size_adjust_percent`、`floating_bubble_opacity_percent`、`floating_bubble_shape`、`floating_bubble_horizontal_text`、`floating_bubble_min_area_per_char_sp`
 - 全局字体配置：`bubble_font`、`bubble_custom_font_file`、`bubble_font_bold`
 - 文件夹级配置：`full_translate_enabled_<folder>`、`glossary_processing_enabled_<folder>`、`translation_language_<folder>`、`vl_direct_translate_enabled_<folder>`、`reading_mode_<folder>`

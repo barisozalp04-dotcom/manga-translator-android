@@ -32,25 +32,6 @@ class SettingsStoreTest {
     }
 
     @Test
-    fun `floating language persistence uses prefValue and keeps legacy compatibility`() {
-        val store = SettingsStore(context)
-
-        store.saveFloatingTranslateApiSettings(
-            store.loadFloatingTranslateApiSettings().copy(language = TranslationLanguage.FR_TO_ZH)
-        )
-
-        val prefs = context.getSharedPreferences("manga_translate_settings", Context.MODE_PRIVATE)
-        assertEquals("fr_to_zh", prefs.getString("floating_language", null))
-
-        prefs.edit().putString("floating_language", "EN_TO_ZH").commit()
-
-        assertEquals(
-            TranslationLanguage.EN_TO_ZH,
-            store.loadFloatingTranslateApiSettings().language
-        )
-    }
-
-    @Test
     fun `translation language availability follows ocr mode`() {
         assertEquals(
             listOf(

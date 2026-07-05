@@ -345,7 +345,6 @@ internal class ProviderProfileStore(
                     .put("apiUrl", profile.floatingTranslateSettings.apiUrl)
                     .put("apiKey", profile.floatingTranslateSettings.apiKey)
                     .put("modelName", profile.floatingTranslateSettings.modelName)
-                    .put("language", profile.floatingTranslateSettings.language.prefValue)
                     .put("timeoutSeconds", profile.floatingTranslateSettings.timeoutSeconds)
                     .put(
                         "useVlDirectTranslate",
@@ -497,12 +496,6 @@ internal class ProviderProfileStore(
                 apiUrl = floatingJson.optString("apiUrl"),
                 apiKey = floatingJson.optString("apiKey"),
                 modelName = floatingJson.optString("modelName"),
-                language = TranslationLanguage.fromPref(
-                    floatingJson.optString(
-                        "language",
-                        TranslationLanguage.JA_TO_ZH.prefValue
-                    )
-                ),
                 timeoutSeconds = floatingJson.optInt(
                     "timeoutSeconds",
                     SettingsStore.DEFAULT_FLOATING_API_TIMEOUT_SECONDS
