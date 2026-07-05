@@ -3,6 +3,67 @@ package com.manga.translate
 internal class RenderSettingsStore(
     private val storage: SettingsStoreStorage
 ) {
+    fun loadBubbleFontSettings(): BubbleFontSettings {
+        if (
+            storage.prefs.contains(SettingsStore.KEY_BUBBLE_FONT) ||
+            storage.prefs.contains(SettingsStore.KEY_BUBBLE_CUSTOM_FONT_FILE) ||
+            storage.prefs.contains(SettingsStore.KEY_BUBBLE_FONT_BOLD)
+        ) {
+            return BubbleFontSettings(
+                font = BubbleFont.fromPref(
+                    storage.prefs.getString(SettingsStore.KEY_BUBBLE_FONT, null)
+                ),
+                customFontFileName = storage.prefs.getString(
+                    SettingsStore.KEY_BUBBLE_CUSTOM_FONT_FILE,
+                    ""
+                ) ?: "",
+                isBold = storage.prefs.getBoolean(SettingsStore.KEY_BUBBLE_FONT_BOLD, false)
+            )
+        }
+
+        val normalFont = BubbleFont.fromPref(
+            storage.prefs.getString(SettingsStore.KEY_NORMAL_BUBBLE_FONT, null)
+        )
+        val floatingFont = BubbleFont.fromPref(
+            storage.prefs.getString(SettingsStore.KEY_FLOATING_BUBBLE_FONT, null)
+        )
+        val customFileName = storage.prefs.getString(
+            SettingsStore.KEY_NORMAL_BUBBLE_CUSTOM_FONT_FILE,
+            ""
+        )?.takeIf { it.isNotBlank() }
+            ?: storage.prefs.getString(SettingsStore.KEY_FLOATING_BUBBLE_CUSTOM_FONT_FILE, "")
+            ?: ""
+        val isBold = storage.prefs.getBoolean(SettingsStore.KEY_NORMAL_BUBBLE_FONT_BOLD, false) ||
+            storage.prefs.getBoolean(SettingsStore.KEY_FLOATING_BUBBLE_FONT_BOLD, false)
+        val selectedFont = when {
+            normalFont == BubbleFont.CUSTOM_FILE || floatingFont == BubbleFont.CUSTOM_FILE ->
+                BubbleFont.CUSTOM_FILE
+            else -> BubbleFont.SYSTEM_DEFAULT
+        }
+        return BubbleFontSettings(
+            font = selectedFont,
+            customFontFileName = customFileName,
+            isBold = isBold
+        )
+    }
+
+    fun saveBubbleFontSettings(settings: BubbleFontSettings) {
+        storage.editSettings(
+            setOf(
+                SettingsStore.KEY_BUBBLE_FONT,
+                SettingsStore.KEY_BUBBLE_CUSTOM_FONT_FILE,
+                SettingsStore.KEY_BUBBLE_FONT_BOLD
+            )
+        ) {
+            putString(SettingsStore.KEY_BUBBLE_FONT, settings.font.prefValue)
+                .putString(
+                    SettingsStore.KEY_BUBBLE_CUSTOM_FONT_FILE,
+                    settings.customFontFileName
+                )
+                .putBoolean(SettingsStore.KEY_BUBBLE_FONT_BOLD, settings.isBold)
+        }
+    }
+
     fun loadUseHorizontalText(): Boolean {
         return storage.prefs.getBoolean(SettingsStore.KEY_HORIZONTAL_TEXT, true)
     }
@@ -14,6 +75,7 @@ internal class RenderSettingsStore(
     }
 
     fun loadNormalBubbleRenderSettings(): NormalBubbleRenderSettings {
+        val fontSettings = loadBubbleFontSettings()
         return NormalBubbleRenderSettings(
             shrinkPercent = storage.prefs.getInt(
                 SettingsStore.KEY_NORMAL_BUBBLE_SHRINK_PERCENT,
@@ -49,12 +111,10 @@ internal class RenderSettingsStore(
                 SettingsStore.KEY_NORMAL_FREE_BUBBLE_AUTO_ADAPT_COLOR,
                 SettingsStore.DEFAULT_NORMAL_FREE_BUBBLE_AUTO_ADAPT_COLOR
             ),
-            font = BubbleFont.fromPref(
-                storage.prefs.getString(SettingsStore.KEY_NORMAL_BUBBLE_FONT, null)
-            ),
-            customFontUrl = storage.prefs.getString(SettingsStore.KEY_NORMAL_BUBBLE_CUSTOM_FONT_URL, "") ?: "",
-            customFontFileName = storage.prefs.getString(SettingsStore.KEY_NORMAL_BUBBLE_CUSTOM_FONT_FILE, "") ?: "",
-            isBold = storage.prefs.getBoolean(SettingsStore.KEY_NORMAL_BUBBLE_FONT_BOLD, false)
+            font = fontSettings.font,
+            customFontUrl = "",
+            customFontFileName = fontSettings.customFontFileName,
+            isBold = fontSettings.isBold
         )
     }
 
@@ -67,11 +127,7 @@ internal class RenderSettingsStore(
                 SettingsStore.KEY_NORMAL_FREE_BUBBLE_SHRINK_PERCENT,
                 SettingsStore.KEY_NORMAL_FREE_BUBBLE_OPACITY_PERCENT,
                 SettingsStore.KEY_NORMAL_FREE_BUBBLE_AUTO_ADAPT_COLOR,
-                SettingsStore.KEY_HORIZONTAL_TEXT,
-                SettingsStore.KEY_NORMAL_BUBBLE_FONT,
-                SettingsStore.KEY_NORMAL_BUBBLE_CUSTOM_FONT_URL,
-                SettingsStore.KEY_NORMAL_BUBBLE_CUSTOM_FONT_FILE,
-                SettingsStore.KEY_NORMAL_BUBBLE_FONT_BOLD
+                SettingsStore.KEY_HORIZONTAL_TEXT
             )
         ) {
             putInt(
@@ -114,14 +170,11 @@ internal class RenderSettingsStore(
                     SettingsStore.KEY_NORMAL_FREE_BUBBLE_AUTO_ADAPT_COLOR,
                     settings.autoAdaptFreeBubbleColor
                 )
-                .putString(SettingsStore.KEY_NORMAL_BUBBLE_FONT, settings.font.prefValue)
-                .putString(SettingsStore.KEY_NORMAL_BUBBLE_CUSTOM_FONT_URL, settings.customFontUrl)
-                .putString(SettingsStore.KEY_NORMAL_BUBBLE_CUSTOM_FONT_FILE, settings.customFontFileName)
-                .putBoolean(SettingsStore.KEY_NORMAL_BUBBLE_FONT_BOLD, settings.isBold)
         }
     }
 
     fun loadFloatingBubbleRenderSettings(): FloatingBubbleRenderSettings {
+        val fontSettings = loadBubbleFontSettings()
         return FloatingBubbleRenderSettings(
             sizeAdjustPercent = storage.prefs.getInt(
                 SettingsStore.KEY_FLOATING_BUBBLE_SIZE_ADJUST_PERCENT,
@@ -158,12 +211,10 @@ internal class RenderSettingsStore(
                 SettingsStore.KEY_FLOATING_BUBBLE_AUTO_ADAPT_COLOR,
                 SettingsStore.DEFAULT_FLOATING_BUBBLE_AUTO_ADAPT_COLOR
             ),
-            font = BubbleFont.fromPref(
-                storage.prefs.getString(SettingsStore.KEY_FLOATING_BUBBLE_FONT, null)
-            ),
-            customFontUrl = storage.prefs.getString(SettingsStore.KEY_FLOATING_BUBBLE_CUSTOM_FONT_URL, "") ?: "",
-            customFontFileName = storage.prefs.getString(SettingsStore.KEY_FLOATING_BUBBLE_CUSTOM_FONT_FILE, "") ?: "",
-            isBold = storage.prefs.getBoolean(SettingsStore.KEY_FLOATING_BUBBLE_FONT_BOLD, false)
+            font = fontSettings.font,
+            customFontUrl = "",
+            customFontFileName = fontSettings.customFontFileName,
+            isBold = fontSettings.isBold
         )
     }
 
@@ -175,11 +226,7 @@ internal class RenderSettingsStore(
                 SettingsStore.KEY_FLOATING_BUBBLE_SHAPE,
                 SettingsStore.KEY_FLOATING_BUBBLE_HORIZONTAL_TEXT,
                 SettingsStore.KEY_FLOATING_BUBBLE_MIN_AREA_PER_CHAR_SP,
-                SettingsStore.KEY_FLOATING_BUBBLE_AUTO_ADAPT_COLOR,
-                SettingsStore.KEY_FLOATING_BUBBLE_FONT,
-                SettingsStore.KEY_FLOATING_BUBBLE_CUSTOM_FONT_URL,
-                SettingsStore.KEY_FLOATING_BUBBLE_CUSTOM_FONT_FILE,
-                SettingsStore.KEY_FLOATING_BUBBLE_FONT_BOLD
+                SettingsStore.KEY_FLOATING_BUBBLE_AUTO_ADAPT_COLOR
             )
         ) {
             putInt(
@@ -212,10 +259,6 @@ internal class RenderSettingsStore(
                     SettingsStore.KEY_FLOATING_BUBBLE_AUTO_ADAPT_COLOR,
                     settings.autoAdaptBubbleColor
                 )
-                .putString(SettingsStore.KEY_FLOATING_BUBBLE_FONT, settings.font.prefValue)
-                .putString(SettingsStore.KEY_FLOATING_BUBBLE_CUSTOM_FONT_URL, settings.customFontUrl)
-                .putString(SettingsStore.KEY_FLOATING_BUBBLE_CUSTOM_FONT_FILE, settings.customFontFileName)
-                .putBoolean(SettingsStore.KEY_FLOATING_BUBBLE_FONT_BOLD, settings.isBold)
         }
     }
 

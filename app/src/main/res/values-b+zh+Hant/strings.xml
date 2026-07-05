@@ -149,7 +149,7 @@
     <string name="floating_translate_settings_title">懸浮窗翻譯設定</string>
     <string name="normal_bubble_render_settings_button">普通氣泡框設定</string>
     <string name="normal_bubble_render_settings_title">普通氣泡框設定</string>
-    <string name="normal_bubble_render_settings_note">用於閱讀頁、條漫頁與匯出圖片的普通氣泡框繪製。可分別設定普通氣泡與游離氣泡的回縮、不透明度、字型與加粗。文字會根據氣泡大小自動適配字號；當文字密度過高時自動擴大氣泡。游離氣泡僅指普通模式下由文字檢測補出的框，不包含使用者手動新增氣泡。</string>
+    <string name="normal_bubble_render_settings_note">用於閱讀頁、條漫頁與匯出圖片的普通氣泡框繪製。可分別設定普通氣泡與游離氣泡的回縮與不透明度。文字會根據氣泡大小自動適配字號；當文字密度過高時自動擴大氣泡。游離氣泡僅指普通模式下由文字檢測補出的框，不包含使用者手動新增氣泡。字型請在單獨的「字型設定」中統一調整。</string>
     <string name="normal_bubble_shrink_percent_hint">氣泡框回縮 (0–30)</string>
     <string name="normal_bubble_opacity_percent_hint">普通氣泡不透明度 (0–100)</string>
     <string name="normal_bubble_free_shrink_percent_hint">游離氣泡回縮 (0–30)</string>
@@ -159,6 +159,17 @@
     <string name="normal_bubble_min_area_value">當前: %d sp² / 字</string>
     <string name="normal_bubble_layout_horizontal">橫向排版</string>
     <string name="normal_bubble_layout_vertical">直向排版</string>
+    <string name="bubble_font_settings_button">字型設定</string>
+    <string name="bubble_font_settings_button_uploaded">字型設定（已上傳）</string>
+    <string name="bubble_font_settings_title">字型設定</string>
+    <string name="bubble_font_settings_note">普通氣泡框和懸浮窗氣泡框共用這一套字型設定。目前只保留「系統預設」和「上傳字型檔案」兩種模式，因為多數系統內建字型對中文會回退到同一套字形，看起來幾乎沒有差別。</string>
+    <string name="bubble_font_use_uploaded">使用上傳字型檔案</string>
+    <string name="bubble_font_upload_button">上傳字型檔案</string>
+    <string name="bubble_font_uploaded_file_empty">目前尚未上傳字型檔案</string>
+    <string name="bubble_font_uploaded_file_value">目前字型檔案：%1$s</string>
+    <string name="bubble_font_upload_missing">請先上傳字型檔案</string>
+    <string name="bubble_font_upload_success">字型檔案已上傳：%1$s</string>
+    <string name="bubble_font_upload_failed">上傳字型檔案失敗，請確認檔案有效</string>
     <string name="bubble_font_label">字型</string>
     <string name="bubble_font_system_default">系統預設</string>
     <string name="bubble_font_system_sans_serif">系統無襯線</string>
@@ -173,7 +184,7 @@
     <string name="bubble_font_bold">字型加粗</string>
     <string name="floating_bubble_render_settings_button">懸浮窗氣泡設定</string>
     <string name="floating_bubble_render_settings_title">懸浮窗氣泡設定</string>
-    <string name="floating_bubble_render_settings_note">用於懸浮窗翻譯結果覆蓋層。大小支援外擴或內縮，形狀支援矩形或內接橢圓。文字會根據氣泡大小自動適配字號；當文字密度過高時自動擴大氣泡。</string>
+    <string name="floating_bubble_render_settings_note">用於懸浮窗翻譯結果覆蓋層。大小支援外擴或內縮，形狀支援矩形或內接橢圓。文字會根據氣泡大小自動適配字號；當文字密度過高時自動擴大氣泡。字型請在單獨的「字型設定」中統一調整。</string>
     <string name="floating_bubble_size_adjust_percent_hint">氣泡框大小 (-30–30，正數外擴)</string>
     <string name="floating_bubble_opacity_percent_hint">氣泡框不透明度 (0–100)</string>
     <string name="floating_bubble_auto_adapt_color">氣泡自適應背景色</string>

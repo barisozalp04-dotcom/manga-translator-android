@@ -16,6 +16,7 @@ import android.widget.ScrollView
 import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.StringRes
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatDelegate
@@ -28,6 +29,7 @@ import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import com.manga.translate.databinding.DialogCustomRequestParamsBinding
 import com.manga.translate.databinding.DialogAiProviderProfilesBinding
+import com.manga.translate.databinding.DialogBubbleFontSettingsBinding
 import com.manga.translate.databinding.DialogLlmParamsBinding
 import com.manga.translate.databinding.DialogMultiProviderSchedulingBinding
 import com.manga.translate.databinding.DialogOcrSettingsBinding
@@ -49,6 +51,11 @@ import java.text.NumberFormat
 import java.util.Locale
 
 class SettingsFragment : Fragment() {
+    private data class ActiveBubbleFontDialogState(
+        val binding: DialogBubbleFontSettingsBinding,
+        var uploadedFontFileName: String
+    )
+
     private var _binding: FragmentSettingsBinding? = null
     private val binding get() = _binding!!
     private val appContainer by lazy(LazyThreadSafetyMode.NONE) { requireContext().appContainer }
@@ -57,6 +64,36 @@ class SettingsFragment : Fragment() {
     private val numberFormatter by lazy {
         NumberFormat.getNumberInstance(Locale.getDefault()).apply {
             isGroupingUsed = false
+        }
+    }
+    private var activeBubbleFontDialogState: ActiveBubbleFontDialogState? = null
+    private val uploadBubbleFontLauncher = registerForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        val dialogState = activeBubbleFontDialogState ?: return@registerForActivityResult
+        if (uri == null) return@registerForActivityResult
+        viewLifecycleOwner.lifecycleScope.launch {
+            val importedFileName = try {
+                withContext(Dispatchers.IO) {
+                    BubbleFontResolver.importUploadedFont(requireContext(), uri)
+                }
+            } catch (e: Exception) {
+                AppLogger.log("Settings", "Failed to import uploaded font", e)
+                Toast.makeText(
+                    requireContext(),
+                    R.string.bubble_font_upload_failed,
+                    Toast.LENGTH_SHORT
+                ).show()
+                return@launch
+            }
+            dialogState.uploadedFontFileName = importedFileName
+            dialogState.binding.bubbleFontUseUploadedSwitch.isChecked = true
+            updateBubbleFontDialogUploadedState(dialogState.binding, importedFileName)
+            Toast.makeText(
+                requireContext(),
+                getString(R.string.bubble_font_upload_success, importedFileName),
+                Toast.LENGTH_SHORT
+            ).show()
         }
     }
 
@@ -285,51 +322,21 @@ class SettingsFragment : Fragment() {
         } ?: defaultShape
     }
 
-    private fun setupBubbleFontDropdown(
-        inputView: MaterialAutoCompleteTextView,
-        currentFont: BubbleFont
+    private fun updateBubbleFontDialogUploadedState(
+        dialogBinding: DialogBubbleFontSettingsBinding,
+        uploadedFontFileName: String
     ) {
-        val fonts = BubbleFont.entries
-        val labels = fonts.map { getString(it.labelRes) }
-        val textColor = resolveColorAttr(R.attr.dialogTextColor)
-        inputView.setAdapter(
-            object : ArrayAdapter<String>(
-                requireContext(),
-                android.R.layout.simple_list_item_1,
-                labels
-            ) {
-                private fun applyThemeTextColor(view: View): View {
-                    (view as? TextView)?.setTextColor(textColor)
-                    return view
-                }
-
-                override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
-                    return applyThemeTextColor(super.getView(position, convertView, parent))
-                }
-
-                override fun getDropDownView(
-                    position: Int,
-                    convertView: View?,
-                    parent: ViewGroup
-                ): View {
-                    return applyThemeTextColor(super.getDropDownView(position, convertView, parent))
-                }
-            }
-        )
-        inputView.threshold = 0
-        inputView.setOnClickListener { inputView.showDropDown() }
-        inputView.setText(getString(currentFont.labelRes), false)
-    }
-
-    private fun parseBubbleFont(
-        inputView: MaterialAutoCompleteTextView,
-        defaultFont: BubbleFont
-    ): BubbleFont {
-        val selectedLabel = inputView.text?.toString()?.trim().orEmpty()
-        if (selectedLabel.isBlank()) return defaultFont
-        return BubbleFont.entries.firstOrNull {
-            getString(it.labelRes) == selectedLabel
-        } ?: defaultFont
+        val summaryRes = if (uploadedFontFileName.isBlank()) {
+            R.string.bubble_font_uploaded_file_empty
+        } else {
+            R.string.bubble_font_uploaded_file_value
+        }
+        val summaryText = if (uploadedFontFileName.isBlank()) {
+            getString(summaryRes)
+        } else {
+            getString(summaryRes, uploadedFontFileName)
+        }
+        dialogBinding.bubbleFontUploadedFileValue.text = summaryText
     }
 
     private fun resolveColorAttr(attrRes: Int): Int {
@@ -413,6 +420,10 @@ class SettingsFragment : Fragment() {
             showFloatingTranslateSettingsDialog()
         }
 
+        binding.bubbleFontSettingsButton.setOnClickListener {
+            showBubbleFontSettingsDialog()
+        }
+
         binding.normalBubbleRenderSettingsButton.setOnClickListener {
             showNormalBubbleRenderSettingsDialog()
         }
@@ -438,6 +449,7 @@ class SettingsFragment : Fragment() {
 
     override fun onDestroyView() {
         super.onDestroyView()
+        activeBubbleFontDialogState = null
         _binding = null
     }
 
@@ -770,6 +782,7 @@ class SettingsFragment : Fragment() {
         updateMultiProviderSchedulingButton(settingsStore.loadAdditionalTranslationProviders())
         updateCustomRequestParamsButton(settingsStore.loadCustomRequestParameters())
         updateAiProviderProfilesButton()
+        updateBubbleFontSettingsButton()
         updateNormalBubbleRenderSettingsButton()
         updateFloatingBubbleRenderSettingsButton()
     }
@@ -780,10 +793,79 @@ class SettingsFragment : Fragment() {
         )
     }
 
+    private fun updateBubbleFontSettingsButton() {
+        val fontSettings = settingsStore.loadBubbleFontSettings()
+        val labelRes = if (
+            fontSettings.font == BubbleFont.CUSTOM_FILE &&
+            fontSettings.customFontFileName.isNotBlank()
+        ) {
+            R.string.bubble_font_settings_button_uploaded
+        } else {
+            R.string.bubble_font_settings_button
+        }
+        binding.bubbleFontSettingsButton.setText(labelRes)
+    }
+
     private fun updateFloatingBubbleRenderSettingsButton() {
         binding.floatingBubbleRenderSettingsButton.setText(
             R.string.floating_bubble_render_settings_button
         )
+    }
+
+    private fun showBubbleFontSettingsDialog() {
+        val currentSettings = settingsStore.loadBubbleFontSettings()
+        val dialogBinding = DialogBubbleFontSettingsBinding.inflate(layoutInflater)
+        dialogBinding.bubbleFontUseUploadedSwitch.isChecked =
+            currentSettings.font == BubbleFont.CUSTOM_FILE
+        dialogBinding.bubbleFontBoldSwitch.isChecked = currentSettings.isBold
+        updateBubbleFontDialogUploadedState(
+            dialogBinding,
+            currentSettings.customFontFileName
+        )
+        dialogBinding.bubbleFontUploadButton.setOnClickListener {
+            uploadBubbleFontLauncher.launch(arrayOf("*/*"))
+        }
+        activeBubbleFontDialogState = ActiveBubbleFontDialogState(
+            binding = dialogBinding,
+            uploadedFontFileName = currentSettings.customFontFileName
+        )
+        val dialog = AlertDialog.Builder(requireContext())
+            .setTitle(R.string.bubble_font_settings_title)
+            .setView(dialogBinding.root)
+            .setPositiveButton(android.R.string.ok, null)
+            .setNegativeButton(android.R.string.cancel, null)
+            .create()
+        dialog.setOnDismissListener {
+            activeBubbleFontDialogState = null
+        }
+        dialog.show()
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+            val dialogState = activeBubbleFontDialogState ?: return@setOnClickListener
+            if (
+                dialogBinding.bubbleFontUseUploadedSwitch.isChecked &&
+                dialogState.uploadedFontFileName.isBlank()
+            ) {
+                Toast.makeText(
+                    requireContext(),
+                    R.string.bubble_font_upload_missing,
+                    Toast.LENGTH_SHORT
+                ).show()
+                return@setOnClickListener
+            }
+            settingsStore.saveBubbleFontSettings(
+                BubbleFontSettings(
+                    font = if (dialogBinding.bubbleFontUseUploadedSwitch.isChecked) {
+                        BubbleFont.CUSTOM_FILE
+                    } else {
+                        BubbleFont.SYSTEM_DEFAULT
+                    },
+                    customFontFileName = dialogState.uploadedFontFileName,
+                    isBold = dialogBinding.bubbleFontBoldSwitch.isChecked
+                )
+            )
+            updateBubbleFontSettingsButton()
+            dialog.dismiss()
+        }
     }
 
     private fun showNormalBubbleRenderSettingsDialog() {
@@ -818,27 +900,10 @@ class SettingsFragment : Fragment() {
         )
         dialogBinding.normalBubbleHorizontalTextSwitch.isChecked = currentSettings.useHorizontalText
         dialogBinding.normalBubbleFreeAutoAdaptColorSwitch.isChecked = currentSettings.autoAdaptFreeBubbleColor
-        setupBubbleFontDropdown(dialogBinding.normalBubbleFontInput, currentSettings.font)
-        dialogBinding.normalBubbleCustomFontUrlInput.setText(currentSettings.customFontUrl)
-        dialogBinding.normalBubbleCustomFontFileInput.setText(currentSettings.customFontFileName)
-        dialogBinding.normalBubbleFontBoldSwitch.isChecked = currentSettings.isBold
-        val updateNormalCustomInputs = { font: BubbleFont ->
-            val showUrl = font == BubbleFont.CUSTOM_URL
-            val showFile = font == BubbleFont.CUSTOM_FILE
-            dialogBinding.normalBubbleCustomFontUrlLayout.visibility =
-                if (showUrl) View.VISIBLE else View.GONE
-            dialogBinding.normalBubbleCustomFontFileLayout.visibility =
-                if (showFile) View.VISIBLE else View.GONE
-        }
-        updateNormalCustomInputs(currentSettings.font)
-        dialogBinding.normalBubbleFontInput.setOnItemClickListener { _, _, position, _ ->
-            updateNormalCustomInputs(BubbleFont.entries[position])
-        }
         AlertDialog.Builder(requireContext())
             .setTitle(R.string.normal_bubble_render_settings_title)
             .setView(dialogBinding.root)
             .setPositiveButton(android.R.string.ok) { _, _ ->
-                val selectedFont = parseBubbleFont(dialogBinding.normalBubbleFontInput, currentSettings.font)
                 val updated = NormalBubbleRenderSettings(
                     shrinkPercent = parseIntInput(
                         dialogBinding.normalBubbleShrinkPercentInput.text?.toString()
@@ -854,11 +919,7 @@ class SettingsFragment : Fragment() {
                     ) ?: currentSettings.freeBubbleOpacityPercent,
                     minAreaPerCharSp = 16f + dialogBinding.normalBubbleMinAreaSeekbar.progress * 2.4f,
                     useHorizontalText = dialogBinding.normalBubbleHorizontalTextSwitch.isChecked,
-                    autoAdaptFreeBubbleColor = dialogBinding.normalBubbleFreeAutoAdaptColorSwitch.isChecked,
-                    font = selectedFont,
-                    customFontUrl = dialogBinding.normalBubbleCustomFontUrlInput.text?.toString()?.trim().orEmpty(),
-                    customFontFileName = dialogBinding.normalBubbleCustomFontFileInput.text?.toString()?.trim().orEmpty(),
-                    isBold = dialogBinding.normalBubbleFontBoldSwitch.isChecked
+                    autoAdaptFreeBubbleColor = dialogBinding.normalBubbleFreeAutoAdaptColorSwitch.isChecked
                 )
                 settingsStore.saveNormalBubbleRenderSettings(updated)
                 updateNormalBubbleRenderSettingsButton()
@@ -897,27 +958,10 @@ class SettingsFragment : Fragment() {
                 override fun onStopTrackingTouch(seekBar: SeekBar?) {}
             }
         )
-        setupBubbleFontDropdown(dialogBinding.floatingBubbleFontInput, currentSettings.font)
-        dialogBinding.floatingBubbleCustomFontUrlInput.setText(currentSettings.customFontUrl)
-        dialogBinding.floatingBubbleCustomFontFileInput.setText(currentSettings.customFontFileName)
-        dialogBinding.floatingBubbleFontBoldSwitch.isChecked = currentSettings.isBold
-        val updateFloatingCustomInputs = { font: BubbleFont ->
-            val showUrl = font == BubbleFont.CUSTOM_URL
-            val showFile = font == BubbleFont.CUSTOM_FILE
-            dialogBinding.floatingBubbleCustomFontUrlLayout.visibility =
-                if (showUrl) View.VISIBLE else View.GONE
-            dialogBinding.floatingBubbleCustomFontFileLayout.visibility =
-                if (showFile) View.VISIBLE else View.GONE
-        }
-        updateFloatingCustomInputs(currentSettings.font)
-        dialogBinding.floatingBubbleFontInput.setOnItemClickListener { _, _, position, _ ->
-            updateFloatingCustomInputs(BubbleFont.entries[position])
-        }
         AlertDialog.Builder(requireContext())
             .setTitle(R.string.floating_bubble_render_settings_title)
             .setView(dialogBinding.root)
             .setPositiveButton(android.R.string.ok) { _, _ ->
-                val selectedFont = parseBubbleFont(dialogBinding.floatingBubbleFontInput, currentSettings.font)
                 val updated = FloatingBubbleRenderSettings(
                     sizeAdjustPercent = parseIntInput(
                         dialogBinding.floatingBubbleSizeAdjustPercentInput.text?.toString()
@@ -931,11 +975,7 @@ class SettingsFragment : Fragment() {
                     ),
                     useHorizontalText = dialogBinding.floatingBubbleHorizontalTextSwitch.isChecked,
                     minAreaPerCharSp = 16f + dialogBinding.floatingBubbleMinAreaSeekbar.progress * 2.4f,
-                    autoAdaptBubbleColor = dialogBinding.floatingBubbleAutoAdaptColorSwitch.isChecked,
-                    font = selectedFont,
-                    customFontUrl = dialogBinding.floatingBubbleCustomFontUrlInput.text?.toString()?.trim().orEmpty(),
-                    customFontFileName = dialogBinding.floatingBubbleCustomFontFileInput.text?.toString()?.trim().orEmpty(),
-                    isBold = dialogBinding.floatingBubbleFontBoldSwitch.isChecked
+                    autoAdaptBubbleColor = dialogBinding.floatingBubbleAutoAdaptColorSwitch.isChecked
                 )
                 settingsStore.saveFloatingBubbleRenderSettings(updated)
                 updateFloatingBubbleRenderSettingsButton()

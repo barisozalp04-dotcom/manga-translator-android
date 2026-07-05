@@ -90,6 +90,12 @@ data class NormalBubbleRenderSettings(
     val isBold: Boolean = false
 )
 
+data class BubbleFontSettings(
+    val font: BubbleFont = BubbleFont.SYSTEM_DEFAULT,
+    val customFontFileName: String = "",
+    val isBold: Boolean = false
+)
+
 enum class FloatingBubbleShape(val prefValue: String, val labelRes: Int) {
     RECTANGLE("rectangle", R.string.floating_bubble_shape_rectangle),
     INSCRIBED_ELLIPSE("inscribed_ellipse", R.string.floating_bubble_shape_inscribed_ellipse);
@@ -218,6 +224,14 @@ class SettingsStore(context: Context) {
 
     fun saveFloatingBubbleRenderSettings(settings: FloatingBubbleRenderSettings) {
         renderSettingsStore.saveFloatingBubbleRenderSettings(settings)
+    }
+
+    fun loadBubbleFontSettings(): BubbleFontSettings {
+        return renderSettingsStore.loadBubbleFontSettings()
+    }
+
+    fun saveBubbleFontSettings(settings: BubbleFontSettings) {
+        renderSettingsStore.saveBubbleFontSettings(settings)
     }
 
     fun loadModelIoLogging(): Boolean = apiSettingsStore.loadModelIoLogging()
@@ -417,6 +431,9 @@ class SettingsStore(context: Context) {
         internal const val KEY_FLOATING_BUBBLE_CUSTOM_FONT_URL = "floating_bubble_custom_font_url"
         internal const val KEY_FLOATING_BUBBLE_CUSTOM_FONT_FILE = "floating_bubble_custom_font_file"
         internal const val KEY_FLOATING_BUBBLE_FONT_BOLD = "floating_bubble_font_bold"
+        internal const val KEY_BUBBLE_FONT = "bubble_font"
+        internal const val KEY_BUBBLE_CUSTOM_FONT_FILE = "bubble_custom_font_file"
+        internal const val KEY_BUBBLE_FONT_BOLD = "bubble_font_bold"
         internal const val KEY_MODEL_IO_LOGGING = "model_io_logging"
         internal const val KEY_API_RETRY_COUNT = "api_retry_count"
         internal const val KEY_MAX_CONCURRENCY = "max_concurrency"

@@ -155,6 +155,7 @@ export PATH=$PATH:$ANDROID_HOME/platform-tools
 当前气泡框绘制已拆成两条独立分支：
 - 普通气泡框：用于阅读页、条漫页和导出图片，设置入口在 `SettingsFragment.kt` 的“普通气泡框设置”，渲染主入口是 `FloatingTranslationView.kt`、`BubbleRenderer.kt`、`BubbleShapePaths.kt`。
 - 悬浮窗气泡框：仅用于悬浮窗 overlay，设置入口在 `SettingsFragment.kt` 的”悬浮窗气泡设置”，渲染主入口是 `FloatingDetectionOverlayView.kt`；拥有独立的最小字号设置。
+- 字体设置：普通气泡框与悬浮窗气泡框共用一套全局字体设置，设置入口在 `SettingsFragment.kt` 的“字体设置”；当前仅保留系统默认、上传字体文件与字体加粗。
 
 ### 数据与状态存储
 - `TranslationStore.kt`：翻译结果读写。
@@ -314,6 +315,7 @@ sourceSets["main"].assets.srcDirs("src/main/assets", "../assets")
 - 文字密度定义为气泡文字区域面积（sp²）除以字符数。排版时会自动求填充气泡的最优字号；若面积密度低于下限，则按比例一次性扩大气泡路径以确保文字不会过于拥挤。
 - 这里的”游离气泡”仅指普通模式下由 `TextDetector` 补出的框，不包含用户手动新增气泡；手动新增气泡继续按普通气泡参数渲染。
 - 悬浮窗气泡设置：大小外扩/内缩、不透明度、矩形/内接椭圆、横向/竖向排版、文字密度下限（SeekBar）；作用范围仅限悬浮窗 overlay，各项参数与普通气泡框完全独立。
+- 字体设置：通过独立按钮统一控制普通气泡框与悬浮窗气泡框的字体；当前不再提供系统内置字体列表和网络字体入口，只保留系统默认、上传字体文件与字体加粗。
 
 当前 AI 供应商相关设置分为三层：
 - 主供应商设置：主 API 地址、Key、模型、API 格式、超时、重试等，仍由设置页主模型区域直接维护。
@@ -385,6 +387,7 @@ sourceSets["main"].assets.srcDirs("src/main/assets", "../assets")
 - OCR 配置：`ocr_use_local`、`ocr_api_format`、`ocr_api_url`、`ocr_api_key`、`ocr_secret_key`、`ocr_model_name`
 - 悬浮窗配置：`floating_api_url`、`floating_api_key`、`floating_model_name`、`floating_language`
 - 气泡框渲染配置：`normal_bubble_shrink_percent`、`normal_bubble_min_area_per_char_sp`、`horizontal_text_layout`、`floating_bubble_size_adjust_percent`、`floating_bubble_opacity_percent`、`floating_bubble_shape`、`floating_bubble_horizontal_text`、`floating_bubble_min_area_per_char_sp`
+- 全局字体配置：`bubble_font`、`bubble_custom_font_file`、`bubble_font_bold`
 - 文件夹级配置：`full_translate_enabled_<folder>`、`glossary_processing_enabled_<folder>`、`translation_language_<folder>`、`vl_direct_translate_enabled_<folder>`、`reading_mode_<folder>`
 - 应用级配置：`app_language`、`link_source`、主题、并发、超时等
 
