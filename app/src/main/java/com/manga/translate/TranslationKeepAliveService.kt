@@ -534,7 +534,7 @@ class TranslationKeepAliveService : Service() {
                 else -> NotificationCompat.CATEGORY_STATUS
             }
             val priority = when {
-                isError -> NotificationCompat.PRIORITY_HIGH
+                isError || isSuccess -> NotificationCompat.PRIORITY_HIGH
                 else -> NotificationCompat.PRIORITY_DEFAULT
             }
             val notification = NotificationCompat.Builder(
@@ -626,7 +626,7 @@ class TranslationKeepAliveService : Service() {
                 val channel = NotificationChannel(
                     SUCCESS_RESULT_CHANNEL_ID,
                     context.getString(R.string.translation_success_result_channel),
-                    NotificationManager.IMPORTANCE_DEFAULT
+                    NotificationManager.IMPORTANCE_HIGH
                 )
                 val soundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
                 val audioAttributes = AudioAttributes.Builder()
