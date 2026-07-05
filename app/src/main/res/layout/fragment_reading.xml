@@ -117,6 +117,18 @@
             android:padding="6dp"
             android:scaleType="centerInside"
             android:src="@android:drawable/ic_menu_edit" />
+
+        <ImageButton
+            android:id="@+id/reading_cancel_edit_button"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:layout_marginStart="6dp"
+            android:background="@android:color/transparent"
+            android:contentDescription="@string/reading_cancel_edit"
+            android:padding="6dp"
+            android:scaleType="centerInside"
+            android:src="@android:drawable/ic_menu_close_clear_cancel"
+            android:visibility="gone" />
     </LinearLayout>
 
     <LinearLayout
@@ -127,7 +139,8 @@
         android:background="#CC000000"
         android:orientation="vertical"
         android:padding="10dp"
-        android:visibility="gone">
+        android:visibility="gone"
+        android:layout_marginBottom="56dp">
 
         <LinearLayout
             android:id="@+id/reading_resize_row_width"
@@ -196,6 +209,39 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="10dp"
             android:text="@string/reading_bubble_resize_done" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/reading_bubble_size_floating_controls"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|center_horizontal"
+        android:layout_marginBottom="18dp"
+        android:background="#B3000000"
+        android:orientation="horizontal"
+        android:padding="6dp"
+        android:visibility="gone">
+
+        <ImageButton
+            android:id="@+id/reading_bubble_size_minus"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:layout_marginEnd="6dp"
+            android:background="@android:color/transparent"
+            android:contentDescription="@string/reading_bubble_size_minus"
+            android:padding="6dp"
+            android:scaleType="centerInside"
+            android:src="@drawable/ic_bubble_minus" />
+
+        <ImageButton
+            android:id="@+id/reading_bubble_size_plus"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:background="@android:color/transparent"
+            android:contentDescription="@string/reading_bubble_size_plus"
+            android:padding="6dp"
+            android:scaleType="centerInside"
+            android:src="@drawable/ic_bubble_plus" />
     </LinearLayout>
 
 </FrameLayout>

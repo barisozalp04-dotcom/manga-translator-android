@@ -7,6 +7,7 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RectF
+import android.graphics.Typeface
 import android.text.Layout
 import android.text.StaticLayout
 import android.text.TextPaint
@@ -17,6 +18,11 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
 import androidx.core.graphics.withTranslation
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
@@ -133,6 +139,8 @@ class FloatingTranslationView @JvmOverloads constructor(
     private var bubbleRenderSettings = SettingsStore(context.applicationContext).loadNormalBubbleRenderSettings()
     private var sourceBitmap: Bitmap? = null
     private val bubbleColorCache = mutableMapOf<Int, Int>()
+    private var typefaceLoadJob: Job? = null
+    private var cachedTypeface: Typeface? = null
     private val longPressTimeout = ViewConfiguration.getLongPressTimeout().toLong()
     private val doubleTapTimeout = ViewConfiguration.getDoubleTapTimeout().toLong()
     private val doubleTapSlop = ViewConfiguration.get(context).scaledDoubleTapSlop.toFloat()
@@ -150,10 +158,11 @@ class FloatingTranslationView @JvmOverloads constructor(
     private var hadMultiplePointers = false
     private var interactionActive = false
 
-    fun setGestureInteracting(active: Boolean) {
-        if (interactionActive == active) return
-        interactionActive = active
-        invalidate()
+    init {
+        isClickable = true
+        isFocusable = true
+        applyTypefaceSettings()
+        loadTypefaceAsync()
     }
 
     var onOffsetChanged: ((Int, Float, Float) -> Unit)? = null
@@ -168,9 +177,10 @@ class FloatingTranslationView @JvmOverloads constructor(
     var onBubbleCreated: ((RectF) -> Unit)? = null
     var onBubbleResized: ((Int, RectF) -> Unit)? = null
 
-    init {
-        isClickable = true
-        isFocusable = true
+    fun setGestureInteracting(active: Boolean) {
+        if (interactionActive == active) return
+        interactionActive = active
+        invalidate()
     }
 
     fun setTranslations(result: TranslationResult?) {
@@ -247,10 +257,19 @@ class FloatingTranslationView @JvmOverloads constructor(
 
     fun isInCreateBubbleMode(): Boolean = createBubbleMode
 
+    fun getResizeModeBubbleId(): Int? = resizeModeId
+
+    fun getSelectedBubbleId(): Int? {
+        if (!editMode) return null
+        return resizeModeId ?: activeId
+    }
+
     fun setNormalBubbleRenderSettings(settings: NormalBubbleRenderSettings) {
         if (bubbleRenderSettings == settings) return
         bubbleRenderSettings = settings
         bubbleColorCache.clear()
+        applyTypefaceSettings()
+        loadTypefaceAsync()
         invalidate()
     }
 
@@ -980,6 +999,29 @@ class FloatingTranslationView @JvmOverloads constructor(
             .setIncludePad(false)
             .setLineSpacing(0f, 1f)
             .build()
+    }
+
+    private fun applyTypefaceSettings() {
+        val baseTypeface = cachedTypeface ?: BubbleFontResolver.resolveTypeface(
+            context.applicationContext,
+            bubbleRenderSettings.font
+        )
+        val style = if (bubbleRenderSettings.isBold) Typeface.BOLD else Typeface.NORMAL
+        textPaint.typeface = Typeface.create(baseTypeface, style)
+    }
+
+    private fun loadTypefaceAsync() {
+        val font = bubbleRenderSettings.font
+        val url = bubbleRenderSettings.customFontUrl
+        typefaceLoadJob?.cancel()
+        typefaceLoadJob = (context as? CoroutineScope)?.launch {
+            val resolved = withContext(Dispatchers.IO) {
+                BubbleFontResolver.ensureTypeface(context.applicationContext, font, url)
+            }
+            cachedTypeface = resolved
+            applyTypefaceSettings()
+            invalidate()
+        }
     }
 
     private fun drawVerticalTextInRect(canvas: Canvas, text: String, rect: RectF) {

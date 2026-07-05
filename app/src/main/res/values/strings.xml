@@ -149,7 +149,7 @@
     <string name="floating_translate_settings_title">悬浮窗翻译设置</string>
     <string name="normal_bubble_render_settings_button">普通气泡框设置</string>
     <string name="normal_bubble_render_settings_title">普通气泡框设置</string>
-    <string name="normal_bubble_render_settings_note">用于阅读页、条漫页和导出图片的普通气泡框绘制。可分别设置普通气泡和游离气泡的回缩与不透明度。文字会根据气泡大小自动适配字号；当文字密度过高时自动扩大气泡。游离气泡仅指普通模式下由文本检测补出的框，不包含用户手动新增气泡。</string>
+    <string name="normal_bubble_render_settings_note">用于阅读页、条漫页和导出图片的普通气泡框绘制。可分别设置普通气泡和游离气泡的回缩、不透明度、字体与加粗。文字会根据气泡大小自动适配字号；当文字密度过高时自动扩大气泡。游离气泡仅指普通模式下由文本检测补出的框，不包含用户手动新增气泡。</string>
     <string name="normal_bubble_shrink_percent_hint">气泡框回缩 (0–30)</string>
     <string name="normal_bubble_opacity_percent_hint">普通气泡不透明度 (0–100)</string>
     <string name="normal_bubble_free_shrink_percent_hint">游离气泡回缩 (0–30)</string>
@@ -159,9 +159,21 @@
     <string name="normal_bubble_min_area_value">当前: %d sp² / 字</string>
     <string name="normal_bubble_layout_horizontal">横向排版</string>
     <string name="normal_bubble_layout_vertical">竖向排版</string>
+    <string name="bubble_font_label">字体</string>
+    <string name="bubble_font_system_default">系统默认</string>
+    <string name="bubble_font_system_sans_serif">系统无衬线</string>
+    <string name="bubble_font_system_serif">系统衬线</string>
+    <string name="bubble_font_system_monospace">系统等宽</string>
+    <string name="bubble_font_google_noto_sans_sc">Google Noto Sans SC</string>
+    <string name="bubble_font_google_noto_serif_sc">Google Noto Serif SC</string>
+    <string name="bubble_font_custom_url">自定义网络字体</string>
+    <string name="bubble_font_custom_file">自定义字体文件</string>
+    <string name="bubble_font_custom_url_hint">公开字体 URL（如 https://example.com/font.ttf）</string>
+    <string name="bubble_font_custom_file_hint">字体文件名（assets/ 或私有目录）</string>
+    <string name="bubble_font_bold">字体加粗</string>
     <string name="floating_bubble_render_settings_button">悬浮窗气泡设置</string>
     <string name="floating_bubble_render_settings_title">悬浮窗气泡设置</string>
-    <string name="floating_bubble_render_settings_note">用于悬浮窗翻译结果覆盖层。大小支持外扩或内缩，形状支持矩形或内接椭圆。文字会根据气泡大小自动适配字号；当文字密度过高时自动扩大气泡。</string>
+    <string name="floating_bubble_render_settings_note">用于悬浮窗翻译结果覆盖层。大小支持外扩或内缩，形状支持矩形或内接椭圆，并可选择字体与加粗。文字会根据气泡大小自动适配字号；当文字密度过高时自动扩大气泡。</string>
     <string name="floating_bubble_size_adjust_percent_hint">气泡框大小 (-30–30，正数外扩)</string>
     <string name="floating_bubble_opacity_percent_hint">气泡框不透明度 (0–100)</string>
     <string name="floating_bubble_auto_adapt_color">气泡自适应背景色</string>
@@ -469,6 +481,7 @@
     <string name="reading_page_info">%1$s  (%2$d/%3$d)</string>
     <string name="reading_edit_bubbles">编辑气泡</string>
     <string name="reading_confirm_edit">完成编辑</string>
+    <string name="reading_cancel_edit">取消编辑</string>
     <string name="reading_edit_bubble_title">编辑气泡内容</string>
     <string name="reading_bubble_width_hint">宽%%</string>
     <string name="reading_bubble_height_hint">高%%</string>
@@ -484,6 +497,8 @@
     <string name="reading_exit_zoom_before_edit">请先双击退出放大</string>
     <string name="reading_create_bubble_hint">拖动手指框选矩形区域，松开后新增空白气泡</string>
     <string name="image_translated">已翻译</string>
+    <string name="reading_bubble_size_minus">缩小气泡</string>
+    <string name="reading_bubble_size_plus">放大气泡</string>
     <string name="image_not_translated">未翻译</string>
 
     <!-- Update -->

@@ -2,6 +2,7 @@ package com.manga.translate
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Matrix
 import android.graphics.RectF
 import android.util.Size
 import android.view.MotionEvent
@@ -441,6 +442,54 @@ class WebtoonReadingAdapter(
         private var lastTapTime = 0L
         private var lastTapX = 0f
         private var lastTapY = 0f
+
+        /** Public accessor for the currently bound image path. */
+        val boundImagePath: String?
+            get() = boundPath
+
+        /**
+         * Computes the image-local Y coordinate that corresponds to the current visible
+         * vertical center of this page within the RecyclerView.
+         * Returns null if the view is not laid out or no image content is available.
+         */
+        fun computeVisibleCenterY(): Float? {
+            if (!hasCurrentContent() || currentImageHeight <= 0) return null
+            val recyclerView = binding.root.parent as? RecyclerView ?: return null
+            val recyclerTop = recyclerView.paddingTop
+            val recyclerBottom = recyclerView.height - recyclerView.paddingBottom
+            val itemTopInRecycler = binding.root.top
+            val itemBottomInRecycler = binding.root.bottom
+            if (itemTopInRecycler == itemBottomInRecycler) return null
+            val visibleTop = itemTopInRecycler.coerceAtLeast(recyclerTop)
+            val visibleBottom = itemBottomInRecycler.coerceAtMost(recyclerBottom)
+            if (visibleTop >= visibleBottom) return null
+            val itemHeight = (itemBottomInRecycler - itemTopInRecycler).toFloat()
+            if (itemHeight <= 0f) return null
+            val visibleTopFraction = (visibleTop - itemTopInRecycler) / itemHeight
+            val visibleBottomFraction = (visibleBottom - itemTopInRecycler) / itemHeight
+            val imageHeight = currentImageHeight.toFloat()
+            val centerY = ((visibleTopFraction + visibleBottomFraction) / 2f) * imageHeight
+            return centerY.coerceIn(0f, imageHeight)
+        }
+
+        /**
+         * Converts a point in the RecyclerView's coordinate space to this page's image-local
+         * coordinates, taking the current zoom/pan matrix into account.
+         * Returns null if the view is not laid out or no image content is available.
+         */
+        fun recyclerPointToImagePoint(recyclerX: Float, recyclerY: Float): Pair<Float, Float>? {
+            if (!hasCurrentContent() || currentImageWidth <= 0 || currentImageHeight <= 0) return null
+            val localX = recyclerX - binding.root.left
+            val localY = recyclerY - binding.root.top
+            val matrix = binding.readingPageImage.imageMatrix
+            val inverse = Matrix()
+            if (!matrix.invert(inverse)) return null
+            val point = floatArrayOf(localX, localY)
+            inverse.mapPoints(point)
+            val imageX = point[0].coerceIn(0f, currentImageWidth.toFloat())
+            val imageY = point[1].coerceIn(0f, currentImageHeight.toFloat())
+            return imageX to imageY
+        }
 
         fun bind(
             item: WebtoonDisplayItem,

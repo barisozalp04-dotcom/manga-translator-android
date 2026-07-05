@@ -109,7 +109,7 @@ class ReadingFragment : Fragment() {
     private var webtoonProgrammaticScroll = false
     private var webtoonLockedPageIndex: Int? = null
     private var webtoonLockedPagePath: String? = null
-    private val webtoonEditOffsets = mutableMapOf<Int, Pair<Float, Float>>()
+    private var webtoonEditOffsets = mutableMapOf<Int, Pair<Float, Float>>()
     private var webtoonPreparingEdit = false
     private var activeWebtoonZoomHolder: WebtoonReadingAdapter.WebtoonPageViewHolder? = null
     private var webtoonTouchHolder: WebtoonReadingAdapter.WebtoonPageViewHolder? = null
@@ -118,6 +118,8 @@ class ReadingFragment : Fragment() {
     private var displayedImagePath: String? = null
     private var isCurrentImageLong: Boolean = false
     private var pageTransitionGeneration: Int = 0
+    private var editModeSnapshotBubbles: List<BubbleTranslation>? = null
+    private var editModeSnapshotOffsets: Map<Int, Pair<Float, Float>> = emptyMap()
     private val pageTransitionInterpolator = FastOutSlowInInterpolator()
     private val incomingPageParallaxDp = 28f
     private val webtoonTranslationWarmRadius = 2
@@ -254,6 +256,9 @@ class ReadingFragment : Fragment() {
         binding.readingEditButton.setOnClickListener {
             toggleEditMode()
         }
+        binding.readingCancelEditButton.setOnClickListener {
+            cancelCurrentEdit()
+        }
         binding.readingAddButton.setOnClickListener {
             enterCreateBubbleMode()
         }
@@ -285,6 +290,12 @@ class ReadingFragment : Fragment() {
         binding.readingResizeConfirm.setOnClickListener {
             saveCurrentTranslation()
             hideResizePanel()
+        }
+        binding.readingBubbleSizeMinus.setOnClickListener {
+            adjustSelectedBubbleSize(deltaPercent = -10)
+        }
+        binding.readingBubbleSizePlus.setOnClickListener {
+            adjustSelectedBubbleSize(deltaPercent = 10)
         }
         updateEditButtonState()
         applyNormalBubbleRenderSettings()
@@ -992,6 +1003,12 @@ class ReadingFragment : Fragment() {
     private fun setEditMode(enabled: Boolean) {
         val nextEnabled = enabled
         if (isEditMode == nextEnabled) return
+        if (nextEnabled) {
+            editModeSnapshotBubbles = currentTranslation?.bubbles?.map {
+                it.copy(rect = RectF(it.rect))
+            }
+            editModeSnapshotOffsets = binding.translationOverlay.getOffsets().toMap()
+        }
         isEditMode = nextEnabled
         binding.translationOverlay.setEditMode(nextEnabled && folderReadingMode != FolderReadingMode.WEBTOON_SCROLL)
         syncWebtoonEditSession()
@@ -1002,12 +1019,30 @@ class ReadingFragment : Fragment() {
         updateEditButtonState()
     }
 
+    private fun cancelCurrentEdit() {
+        if (!isEditMode) return
+        val snapshotBubbles = editModeSnapshotBubbles
+        val snapshotOffsets = editModeSnapshotOffsets
+        if (snapshotBubbles != null && currentTranslation != null) {
+            currentTranslation = currentTranslation?.copy(bubbles = snapshotBubbles)
+            binding.translationOverlay.setOffsets(snapshotOffsets.toMutableMap())
+            renderCurrentTranslation()
+        }
+        setEditMode(false)
+        if (folderReadingMode == FolderReadingMode.WEBTOON_SCROLL) {
+            clearWebtoonEditSession()
+        }
+        editModeSnapshotBubbles = null
+        editModeSnapshotOffsets = emptyMap()
+    }
+
     private fun updateEditButtonState() {
         val hasImages = readingSessionViewModel.images.value.orEmpty().isNotEmpty()
         if (!hasImages) {
             binding.readingEditControls.visibility = View.GONE
             binding.readingAddButton.visibility = View.GONE
             binding.readingClearButton.visibility = View.GONE
+            binding.readingBubbleSizeFloatingControls.visibility = View.GONE
             updateReadingInteractionState()
             return
         }
@@ -1031,6 +1066,8 @@ class ReadingFragment : Fragment() {
             binding.readingAddButton.visibility = View.VISIBLE
             binding.readingClearButton.visibility = View.VISIBLE
             binding.readingClearButton.setColorFilter(Color.WHITE)
+            binding.readingBubbleSizeFloatingControls.visibility = View.VISIBLE
+            binding.readingCancelEditButton.visibility = View.VISIBLE
         } else {
             button.layoutParams = button.layoutParams.apply {
                 width = (18f * density).toInt()
@@ -1047,6 +1084,8 @@ class ReadingFragment : Fragment() {
             button.contentDescription = getString(R.string.reading_edit_bubbles)
             binding.readingAddButton.visibility = View.GONE
             binding.readingClearButton.visibility = View.GONE
+            binding.readingBubbleSizeFloatingControls.visibility = View.GONE
+            binding.readingCancelEditButton.visibility = View.GONE
         }
         updateReadingInteractionState()
     }
@@ -1788,6 +1827,61 @@ class ReadingFragment : Fragment() {
         }
     }
 
+    private fun adjustSelectedBubbleSize(deltaPercent: Int) {
+        if (!isEditMode) return
+        val translation = currentTranslation ?: return
+        val bubbleId = if (folderReadingMode == FolderReadingMode.WEBTOON_SCROLL) {
+            resizeTargetId
+        } else {
+            binding.translationOverlay.getSelectedBubbleId()
+        } ?: return
+
+        val bubble = translation.bubbles.firstOrNull { it.id == bubbleId } ?: return
+        val scale = 1f + deltaPercent / 100f
+        if (scale <= 0f) return
+
+        val centerX = bubble.rect.centerX()
+        val centerY = bubble.rect.centerY()
+        val newWidth = (bubble.rect.width() * scale).coerceAtLeast(8f)
+        val newHeight = (bubble.rect.height() * scale).coerceAtLeast(8f)
+
+        var left = centerX - newWidth / 2f
+        var top = centerY - newHeight / 2f
+        var right = left + newWidth
+        var bottom = top + newHeight
+
+        val imageWidth = translation.width.toFloat()
+        val imageHeight = translation.height.toFloat()
+        if (left < 0f) {
+            right -= left
+            left = 0f
+        }
+        if (top < 0f) {
+            bottom -= top
+            top = 0f
+        }
+        if (right > imageWidth) {
+            left -= right - imageWidth
+            right = imageWidth
+        }
+        if (bottom > imageHeight) {
+            top -= bottom - imageHeight
+            bottom = imageHeight
+        }
+        if (left < 0f) left = 0f
+        if (top < 0f) top = 0f
+
+        val updatedRect = RectF(left, top, right, bottom)
+        val updatedBubbles = translation.bubbles.map { current ->
+            if (current.id == bubbleId) current.copy(rect = updatedRect) else current
+        }
+        currentTranslation = translation.copy(bubbles = updatedBubbles)
+        renderCurrentTranslation()
+        if (folderReadingMode == FolderReadingMode.WEBTOON_SCROLL) {
+            saveCurrentTranslation()
+        }
+    }
+
     private fun addNewBubble() {
         if (!isEditMode) return
         val translation = currentTranslation ?: return
@@ -1797,12 +1891,21 @@ class ReadingFragment : Fragment() {
         val baseSize = minOf(width, height) * 0.18f
         val bubbleWidth = baseSize.coerceIn(80f, width * 0.6f)
         val bubbleHeight = (baseSize * 0.7f).coerceIn(60f, height * 0.6f)
-        val left = (width - bubbleWidth) / 2f
-        val top = if (folderReadingMode == FolderReadingMode.WEBTOON_SCROLL) {
-            val visibleCenterY = computeWebtoonVisibleCenterY(translation)
-            (visibleCenterY - bubbleHeight / 2f).coerceIn(0f, height - bubbleHeight)
+        val left: Float
+        val top: Float
+        if (folderReadingMode == FolderReadingMode.WEBTOON_SCROLL) {
+            val lockedHolder = findLockedWebtoonHolder()
+            val imageCenter = lockedHolder?.computeVisibleCenterY()
+            if (imageCenter != null) {
+                left = ((width - bubbleWidth) / 2f).coerceIn(0f, width - bubbleWidth)
+                top = (imageCenter - bubbleHeight / 2f).coerceIn(0f, height - bubbleHeight)
+            } else {
+                left = (width - bubbleWidth) / 2f
+                top = (height - bubbleHeight) / 2f
+            }
         } else {
-            (height - bubbleHeight) / 2f
+            left = (width - bubbleWidth) / 2f
+            top = (height - bubbleHeight) / 2f
         }
         val rect = RectF(left, top, left + bubbleWidth, top + bubbleHeight)
         val nextId = (translation.bubbles.maxOfOrNull { it.id } ?: -1) + 1
@@ -1820,27 +1923,15 @@ class ReadingFragment : Fragment() {
         showResizePanel(nextId)
     }
 
-    private fun computeWebtoonVisibleCenterY(translation: TranslationResult): Float {
-        val pageIndex = readingSessionViewModel.index.value ?: return translation.height.toFloat() / 2f
-        val adapterPosition = webtoonAdapter.adapterPositionForImageIndex(pageIndex)
-        if (adapterPosition == RecyclerView.NO_POSITION) return translation.height.toFloat() / 2f
-        val itemView = webtoonLayoutManager.findViewByPosition(adapterPosition)
-        if (itemView == null) return translation.height.toFloat() / 2f
-        val recyclerView = binding.readingWebtoonList
-        val recyclerTop = recyclerView.paddingTop
-        val recyclerBottom = recyclerView.height - recyclerView.paddingBottom
-        val itemTopInRecycler = itemView.top
-        val itemBottomInRecycler = itemView.bottom
-        val visibleTop = maxOf(itemTopInRecycler, recyclerTop)
-        val visibleBottom = minOf(itemBottomInRecycler, recyclerBottom)
-        if (visibleTop >= visibleBottom) return translation.height.toFloat() / 2f
-        val itemHeight = itemView.height.toFloat()
-        if (itemHeight <= 0f) return translation.height.toFloat() / 2f
-        val visibleTopFraction = (visibleTop - itemTopInRecycler) / itemHeight
-        val visibleBottomFraction = (visibleBottom - itemTopInRecycler) / itemHeight
-        val imageHeight = translation.height.toFloat()
-        val imageVisibleCenterY = ((visibleTopFraction + visibleBottomFraction) / 2f) * imageHeight
-        return imageVisibleCenterY.coerceIn(0f, imageHeight)
+    private fun findLockedWebtoonHolder(): WebtoonReadingAdapter.WebtoonPageViewHolder? {
+        val lockedIndex = webtoonLockedPageIndex ?: return null
+        val range = webtoonAdapter.adapterPositionRangeForImageIndex(lockedIndex) ?: return null
+        for (position in range) {
+            val holder = binding.readingWebtoonList.findViewHolderForAdapterPosition(position)
+                as? WebtoonReadingAdapter.WebtoonPageViewHolder ?: continue
+            if (holder.boundImagePath == webtoonLockedPagePath) return holder
+        }
+        return null
     }
 
     private fun processEmptyBubbles() {
