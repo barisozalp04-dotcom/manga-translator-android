@@ -9,8 +9,6 @@ import android.graphics.Color
 import android.graphics.Matrix
 import android.graphics.RectF
 import android.os.Bundle
-import android.text.Editable
-import android.text.TextWatcher
 import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.View
@@ -18,7 +16,6 @@ import android.view.ViewGroup
 import android.util.TypedValue
 import android.widget.FrameLayout
 import android.widget.EditText
-import android.widget.SeekBar
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.core.content.ContextCompat
@@ -37,15 +34,12 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.util.Locale
 
 class ReadingFragment : Fragment() {
     private data class WebtoonScrollAnchor(
         val imageIndex: Int,
         val topOffset: Int
     )
-
-    private fun formatInt(value: Int): String = String.format(Locale.getDefault(), "%d", value)
 
     private fun resolveColorAttr(attrRes: Int): Int {
         val typedValue = android.util.TypedValue()
@@ -90,16 +84,6 @@ class ReadingFragment : Fragment() {
     private var readingDisplayMode = ReadingDisplayMode.FIT_WIDTH
     private var folderReadingMode = FolderReadingMode.STANDARD
     private var isEditMode = false
-    private var resizeTargetId: Int? = null
-    private var resizeBaseRect: RectF? = null
-    private var resizeUpdatingWidthInput = false
-    private var resizeUpdatingHeightInput = false
-    private var resizeUpdatingWidthSlider = false
-    private var resizeUpdatingHeightSlider = false
-    private var resizeWidthPercent = 100
-    private var resizeHeightPercent = 100
-    private val resizeMinPercent = 50
-    private val resizeMaxPercent = 500
     private val glossaryStore by lazy(LazyThreadSafetyMode.NONE) { appContainer.glossaryStore }
     private lateinit var emptyBubbleCoordinator: ReadingEmptyBubbleCoordinator
     private var emptyBubbleJob: Job? = null
@@ -161,7 +145,10 @@ class ReadingFragment : Fragment() {
             handleBubbleEdit(bubbleId)
         }
         webtoonAdapter.onLockedBubbleResizeTap = { bubbleId ->
-            showResizePanel(bubbleId)
+            enterBubbleResizeMode(bubbleId)
+        }
+        webtoonAdapter.onLockedBubbleResizeModeChanged = {
+            updateBubbleSizeFloatingControls()
         }
         webtoonAdapter.onLockedBubbleLongPress = { bubbleId ->
             showBubbleActionDialog(bubbleId)
@@ -240,9 +227,10 @@ class ReadingFragment : Fragment() {
             handleBubbleEdit(bubbleId)
         }
         binding.translationOverlay.onBubbleResizeTap = { bubbleId ->
-            if (folderReadingMode == FolderReadingMode.WEBTOON_SCROLL) {
-                showResizePanel(bubbleId)
-            }
+            enterBubbleResizeMode(bubbleId)
+        }
+        binding.translationOverlay.onResizeModeChanged = {
+            updateBubbleSizeFloatingControls()
         }
         binding.translationOverlay.onBubbleLongPress = { bubbleId ->
             showBubbleActionDialog(bubbleId)
@@ -264,32 +252,6 @@ class ReadingFragment : Fragment() {
         }
         binding.readingClearButton.setOnClickListener {
             clearAllBubbles()
-        }
-        binding.readingResizeWidthSlider.max = resizeMaxPercent - resizeMinPercent
-        binding.readingResizeHeightSlider.max = resizeMaxPercent - resizeMinPercent
-        bindResizeControls(
-            slider = binding.readingResizeWidthSlider,
-            input = binding.readingResizeWidthInput,
-            isInputUpdating = { resizeUpdatingWidthInput },
-            setInputUpdating = { resizeUpdatingWidthInput = it },
-            isSliderUpdating = { resizeUpdatingWidthSlider },
-            setSliderUpdating = { resizeUpdatingWidthSlider = it },
-            getPercent = { resizeWidthPercent },
-            setPercent = { resizeWidthPercent = it }
-        )
-        bindResizeControls(
-            slider = binding.readingResizeHeightSlider,
-            input = binding.readingResizeHeightInput,
-            isInputUpdating = { resizeUpdatingHeightInput },
-            setInputUpdating = { resizeUpdatingHeightInput = it },
-            isSliderUpdating = { resizeUpdatingHeightSlider },
-            setSliderUpdating = { resizeUpdatingHeightSlider = it },
-            getPercent = { resizeHeightPercent },
-            setPercent = { resizeHeightPercent = it }
-        )
-        binding.readingResizeConfirm.setOnClickListener {
-            saveCurrentTranslation()
-            hideResizePanel()
         }
         binding.readingBubbleSizeMinus.setOnClickListener {
             adjustSelectedBubbleSize(deltaPercent = -10)
@@ -392,7 +354,7 @@ class ReadingFragment : Fragment() {
             binding.translationOverlay.visibility = View.GONE
             binding.translationOverlay.setSourceBitmap(null)
             binding.readingEditControls.visibility = View.GONE
-            hideResizePanel()
+            exitBubbleResizeMode()
             binding.readingImage.setRegionSource(null)
             binding.readingImage.setImageDrawable(null)
             displayedImagePath = null
@@ -419,7 +381,7 @@ class ReadingFragment : Fragment() {
         binding.readingEmptyHint.visibility = View.GONE
         binding.readingPageInfo.visibility = View.VISIBLE
         updateEditButtonState()
-        hideResizePanel()
+        exitBubbleResizeMode()
         binding.readingPageInfo.text = getString(
             R.string.reading_page_info,
             folder.name,
@@ -528,7 +490,7 @@ class ReadingFragment : Fragment() {
         translationWatchJob?.cancel()
         stopWebtoonTranslationWatcher(clearCache = false)
         emptyBubbleJob?.cancel()
-        hideResizePanel()
+        exitBubbleResizeMode()
         currentImageFile = null
         currentTranslation = null
         currentBitmap?.recycleSafely()
@@ -1018,7 +980,7 @@ class ReadingFragment : Fragment() {
         syncWebtoonEditSession()
         updateReadingInteractionState()
         if (!nextEnabled) {
-            hideResizePanel()
+            exitBubbleResizeMode()
             editModeSnapshotBubbles = null
             editModeSnapshotOffsets = emptyMap()
         }
@@ -1072,7 +1034,6 @@ class ReadingFragment : Fragment() {
             binding.readingAddButton.visibility = View.VISIBLE
             binding.readingClearButton.visibility = View.VISIBLE
             binding.readingClearButton.setColorFilter(Color.WHITE)
-            binding.readingBubbleSizeFloatingControls.visibility = View.VISIBLE
             binding.readingCancelEditButton.visibility = View.VISIBLE
         } else {
             button.layoutParams = button.layoutParams.apply {
@@ -1090,9 +1051,9 @@ class ReadingFragment : Fragment() {
             button.contentDescription = getString(R.string.reading_edit_bubbles)
             binding.readingAddButton.visibility = View.GONE
             binding.readingClearButton.visibility = View.GONE
-            binding.readingBubbleSizeFloatingControls.visibility = View.GONE
             binding.readingCancelEditButton.visibility = View.GONE
         }
+        updateBubbleSizeFloatingControls()
         updateReadingInteractionState()
     }
 
@@ -1230,73 +1191,6 @@ class ReadingFragment : Fragment() {
         } else {
             imageTransformController.computeImageDisplayRect()
         }
-    }
-
-    private fun bindResizeControls(
-        slider: SeekBar,
-        input: EditText,
-        isInputUpdating: () -> Boolean,
-        setInputUpdating: (Boolean) -> Unit,
-        isSliderUpdating: () -> Boolean,
-        setSliderUpdating: (Boolean) -> Unit,
-        getPercent: () -> Int,
-        setPercent: (Int) -> Unit
-    ) {
-        slider.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
-                if (isSliderUpdating()) return
-                val percent = (progress + resizeMinPercent).coerceIn(resizeMinPercent, resizeMaxPercent)
-                updateResizeInput(input, percent, isInputUpdating, setInputUpdating)
-                setPercent(percent)
-                applyResizePercent(resizeWidthPercent, resizeHeightPercent)
-            }
-
-            override fun onStartTrackingTouch(seekBar: SeekBar?) {
-                applyResizeSeekBarGesture(true)
-            }
-
-            override fun onStopTrackingTouch(seekBar: SeekBar?) {
-                applyResizeSeekBarGesture(false)
-                saveCurrentTranslation()
-            }
-        })
-        input.addTextChangedListener(object : TextWatcher {
-            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
-            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
-            override fun afterTextChanged(s: Editable?) {
-                if (isInputUpdating()) return
-                val raw = s?.toString().orEmpty()
-                val value = raw.toIntOrNull() ?: return
-                val clamped = value.coerceIn(resizeMinPercent, resizeMaxPercent)
-                if (clamped.toString() != raw) {
-                    updateResizeInput(input, clamped, isInputUpdating, setInputUpdating)
-                }
-                setSliderUpdating(true)
-                slider.progress = clamped - resizeMinPercent
-                setSliderUpdating(false)
-                setPercent(clamped)
-                applyResizePercent(resizeWidthPercent, resizeHeightPercent)
-                saveCurrentTranslation()
-            }
-        })
-        input.setOnFocusChangeListener { _, hasFocus ->
-            if (!hasFocus && getPercent() >= resizeMinPercent) {
-                saveCurrentTranslation()
-            }
-        }
-    }
-
-    private fun updateResizeInput(
-        input: EditText,
-        percent: Int,
-        isInputUpdating: () -> Boolean,
-        setInputUpdating: (Boolean) -> Unit
-    ) {
-        if (isInputUpdating()) return
-        setInputUpdating(true)
-        input.setText(formatInt(percent))
-        input.setSelection(input.text?.length ?: 0)
-        setInputUpdating(false)
     }
 
     private fun startWebtoonTranslationWatcher() {
@@ -1577,8 +1471,8 @@ class ReadingFragment : Fragment() {
         val translation = currentTranslation ?: return
         val remaining = translation.bubbles.filterNot { it.id == bubbleId }
         if (remaining.size == translation.bubbles.size) return
-        if (resizeTargetId == bubbleId) {
-            hideResizePanel()
+        if (currentResizeModeBubbleId() == bubbleId) {
+            exitBubbleResizeMode()
         }
         currentTranslation = translation.copy(bubbles = remaining)
         val offsets = currentOverlayOffsets()
@@ -1591,7 +1485,7 @@ class ReadingFragment : Fragment() {
         if (!isEditMode) return
         val translation = currentTranslation ?: return
         if (translation.bubbles.isEmpty()) return
-        hideResizePanel()
+        exitBubbleResizeMode()
         currentTranslation = translation.copy(bubbles = emptyList())
         applyOverlayOffsets(emptyMap())
         renderCurrentTranslation()
@@ -1651,11 +1545,7 @@ class ReadingFragment : Fragment() {
         if (bubble.supportsResizeEditing()) {
             resizeButton.setOnClickListener {
                 dialog.dismiss()
-                if (folderReadingMode == FolderReadingMode.WEBTOON_SCROLL) {
-                    showResizePanel(bubbleId)
-                } else {
-                    binding.translationOverlay.enterResizeMode(bubbleId)
-                }
+                enterBubbleResizeMode(bubbleId)
             }
         } else {
             resizeButton.visibility = View.GONE
@@ -1667,38 +1557,38 @@ class ReadingFragment : Fragment() {
         dialog.show()
     }
 
-    private fun showResizePanel(bubbleId: Int) {
+    private fun enterBubbleResizeMode(bubbleId: Int) {
         if (blockBubbleEditingWhileZoomed()) return
         if (!isEditMode) return
-        persistCurrentTranslation(forceSave = true)
-        val translation = currentTranslation ?: return
-        val bubble = translation.bubbles.firstOrNull { it.id == bubbleId } ?: return
-        resizeTargetId = bubbleId
-        resizeBaseRect = RectF(bubble.rect)
-        val percent = 100
-        resizeWidthPercent = percent
-        resizeHeightPercent = percent
-        resizeUpdatingWidthSlider = true
-        binding.readingResizeWidthSlider.progress = percent - resizeMinPercent
-        resizeUpdatingWidthSlider = false
-        resizeUpdatingHeightSlider = true
-        binding.readingResizeHeightSlider.progress = percent - resizeMinPercent
-        resizeUpdatingHeightSlider = false
-        resizeUpdatingWidthInput = true
-        binding.readingResizeWidthInput.setText(formatInt(percent))
-        binding.readingResizeWidthInput.setSelection(binding.readingResizeWidthInput.text?.length ?: 0)
-        resizeUpdatingWidthInput = false
-        resizeUpdatingHeightInput = true
-        binding.readingResizeHeightInput.setText(formatInt(percent))
-        binding.readingResizeHeightInput.setSelection(binding.readingResizeHeightInput.text?.length ?: 0)
-        resizeUpdatingHeightInput = false
-        binding.readingResizePanel.visibility = View.VISIBLE
+        if (folderReadingMode == FolderReadingMode.WEBTOON_SCROLL) {
+            webtoonAdapter.enterLockedBubbleResizeMode(bubbleId)
+        } else {
+            binding.translationOverlay.enterResizeMode(bubbleId)
+        }
     }
 
-    private fun hideResizePanel() {
-        resizeTargetId = null
-        resizeBaseRect = null
-        binding.readingResizePanel.visibility = View.GONE
+    private fun exitBubbleResizeMode() {
+        if (!isAdded || _binding == null) return
+        if (folderReadingMode == FolderReadingMode.WEBTOON_SCROLL) {
+            webtoonAdapter.exitLockedBubbleResizeMode()
+        } else {
+            binding.translationOverlay.exitResizeMode()
+        }
+        updateBubbleSizeFloatingControls()
+    }
+
+    private fun currentResizeModeBubbleId(): Int? {
+        return if (folderReadingMode == FolderReadingMode.WEBTOON_SCROLL) {
+            webtoonAdapter.getLockedBubbleResizeModeId()
+        } else {
+            binding.translationOverlay.getResizeModeBubbleId()
+        }
+    }
+
+    private fun updateBubbleSizeFloatingControls() {
+        if (!isAdded || _binding == null) return
+        val visible = isEditMode && currentResizeModeBubbleId() != null
+        binding.readingBubbleSizeFloatingControls.visibility = if (visible) View.VISIBLE else View.GONE
     }
 
     private fun blockBubbleEditingWhileZoomed(): Boolean {
@@ -1710,61 +1600,6 @@ class ReadingFragment : Fragment() {
             Toast.LENGTH_SHORT
         ).show()
         return true
-    }
-
-    private fun applyResizeSeekBarGesture(active: Boolean) {
-        if (!isAdded || _binding == null) return
-        if (isWebtoonEditSessionActive()) {
-            webtoonAdapter.setEditSessionGestureInteracting(active)
-        } else {
-            binding.translationOverlay.setGestureInteracting(active)
-        }
-    }
-
-    private fun applyResizePercent(widthPercent: Int?, heightPercent: Int?) {
-        val id = resizeTargetId ?: return
-        val base = resizeBaseRect ?: return
-        val translation = currentTranslation ?: return
-        val widthScale = (widthPercent ?: 100) / 100f
-        val heightScale = (heightPercent ?: 100) / 100f
-        val width = base.width() * widthScale
-        val height = base.height() * heightScale
-        if (width <= 1f || height <= 1f) return
-        val centerX = base.centerX()
-        val centerY = base.centerY()
-        var left = centerX - width / 2f
-        var top = centerY - height / 2f
-        var right = centerX + width / 2f
-        var bottom = centerY + height / 2f
-        val imageWidth = translation.width.toFloat()
-        val imageHeight = translation.height.toFloat()
-        if (left < 0f) {
-            right -= left
-            left = 0f
-        }
-        if (top < 0f) {
-            bottom -= top
-            top = 0f
-        }
-        if (right > imageWidth) {
-            left -= right - imageWidth
-            right = imageWidth
-        }
-        if (bottom > imageHeight) {
-            top -= bottom - imageHeight
-            bottom = imageHeight
-        }
-        val updatedRect = RectF(left, top, right, bottom)
-        val updatedBubbles = translation.bubbles.map { bubble ->
-            if (bubble.id == id) {
-                bubble.copy(rect = updatedRect)
-            } else {
-                bubble
-            }
-        }
-        val updated = translation.copy(bubbles = updatedBubbles)
-        currentTranslation = updated
-        renderCurrentTranslation()
     }
 
     private fun saveCurrentTranslation() {
@@ -1788,7 +1623,7 @@ class ReadingFragment : Fragment() {
             return
         }
         binding.readingEditControls.visibility = View.GONE
-        binding.readingResizePanel.visibility = View.GONE
+        exitBubbleResizeMode()
         binding.translationOverlay.setCreateBubbleMode(true)
         Toast.makeText(
             requireContext(),
@@ -1840,11 +1675,7 @@ class ReadingFragment : Fragment() {
     private fun adjustSelectedBubbleSize(deltaPercent: Int) {
         if (!isEditMode) return
         val translation = currentTranslation ?: return
-        val bubbleId = if (folderReadingMode == FolderReadingMode.WEBTOON_SCROLL) {
-            resizeTargetId
-        } else {
-            binding.translationOverlay.getSelectedBubbleId()
-        } ?: return
+        val bubbleId = currentResizeModeBubbleId() ?: return
 
         val bubble = translation.bubbles.firstOrNull { it.id == bubbleId } ?: return
         val scale = 1f + deltaPercent / 100f
@@ -1928,7 +1759,7 @@ class ReadingFragment : Fragment() {
         if (folderReadingMode == FolderReadingMode.WEBTOON_SCROLL) {
             restorePendingWebtoonScrollAnchor()
         }
-        showResizePanel(nextId)
+        enterBubbleResizeMode(nextId)
     }
 
     private fun findLockedWebtoonHolder(): WebtoonReadingAdapter.WebtoonPageViewHolder? {

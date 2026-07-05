@@ -95,6 +95,7 @@ class WebtoonReadingAdapter(
     var onLockedBubbleRemove: ((Int) -> Unit)? = null
     var onLockedBubbleTap: ((Int) -> Unit)? = null
     var onLockedBubbleResizeTap: ((Int) -> Unit)? = null
+    var onLockedBubbleResizeModeChanged: ((Int?) -> Unit)? = null
     var onLockedBubbleLongPress: ((Int) -> Unit)? = null
     var onDisplayStructureChanging: (() -> Unit)? = null
     var onDisplayStructureChanged: (() -> Unit)? = null
@@ -177,6 +178,24 @@ class WebtoonReadingAdapter(
     fun setEditSessionGestureInteracting(active: Boolean) {
         val path = lockedPagePath ?: return
         boundHolders[path]?.forEach { it.applyGestureInteracting(active) }
+    }
+
+    fun enterLockedBubbleResizeMode(bubbleId: Int) {
+        val path = lockedPagePath ?: return
+        boundHolders[path]?.forEach { it.enterResizeMode(bubbleId) }
+    }
+
+    fun exitLockedBubbleResizeMode() {
+        val path = lockedPagePath ?: return
+        boundHolders[path]?.forEach { it.exitResizeMode() }
+    }
+
+    fun getLockedBubbleResizeModeId(): Int? {
+        val path = lockedPagePath ?: return null
+        return boundHolders[path]
+            ?.asSequence()
+            ?.mapNotNull { it.getResizeModeBubbleId() }
+            ?.firstOrNull()
     }
 
     fun adapterPositionForImageIndex(imageIndex: Int): Int {
@@ -527,6 +546,7 @@ class WebtoonReadingAdapter(
             binding.readingPageOverlay.onBubbleRemove = null
             binding.readingPageOverlay.onBubbleTap = null
             binding.readingPageOverlay.onBubbleResizeTap = null
+            binding.readingPageOverlay.onResizeModeChanged = null
             binding.readingPageOverlay.onBubbleLongPress = null
             binding.readingPageOverlay.visibility = View.GONE
             applyPlaceholder(item)
@@ -571,6 +591,17 @@ class WebtoonReadingAdapter(
             if (binding.readingPageOverlay.visibility == View.GONE) return
             binding.readingPageOverlay.setGestureInteracting(active)
         }
+
+        fun enterResizeMode(bubbleId: Int) {
+            if (binding.readingPageOverlay.visibility == View.GONE) return
+            binding.readingPageOverlay.enterResizeMode(bubbleId)
+        }
+
+        fun exitResizeMode() {
+            binding.readingPageOverlay.exitResizeMode()
+        }
+
+        fun getResizeModeBubbleId(): Int? = binding.readingPageOverlay.getResizeModeBubbleId()
 
         fun handleTouchEvent(event: MotionEvent): Boolean {
             val transformHandled = imageTransformController.handleTouch(event)
@@ -695,6 +726,7 @@ class WebtoonReadingAdapter(
             binding.readingPageOverlay.onBubbleRemove = null
             binding.readingPageOverlay.onBubbleTap = null
             binding.readingPageOverlay.onBubbleResizeTap = null
+            binding.readingPageOverlay.onResizeModeChanged = null
             binding.readingPageOverlay.onBubbleLongPress = null
             binding.readingPageOverlay.visibility = View.GONE
             binding.readingPageOverlay.setSourceBitmap(null)
@@ -805,6 +837,11 @@ class WebtoonReadingAdapter(
             }
             binding.readingPageOverlay.onBubbleResizeTap = if (lockedForEdit) {
                 { bubbleId -> onLockedBubbleResizeTap?.invoke(bubbleId) }
+            } else {
+                null
+            }
+            binding.readingPageOverlay.onResizeModeChanged = if (lockedForEdit) {
+                { bubbleId -> onLockedBubbleResizeModeChanged?.invoke(bubbleId) }
             } else {
                 null
             }

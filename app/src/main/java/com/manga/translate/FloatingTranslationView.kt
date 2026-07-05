@@ -179,6 +179,7 @@ class FloatingTranslationView @JvmOverloads constructor(
     var onBubbleLongPress: ((Int) -> Unit)? = null
     var onBubbleCreated: ((RectF) -> Unit)? = null
     var onBubbleResized: ((Int, RectF) -> Unit)? = null
+    var onResizeModeChanged: ((Int?) -> Unit)? = null
 
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
@@ -699,6 +700,7 @@ class FloatingTranslationView @JvmOverloads constructor(
         resizeDragActive = false
         resizeDragBaseRect = null
         resizeDragWorkingRect.setEmpty()
+        onResizeModeChanged?.invoke(resizeModeId)
         animateResizeModeEnter()
     }
 
@@ -714,6 +716,9 @@ class FloatingTranslationView @JvmOverloads constructor(
         resizeDragBaseRect = null
         resizeDragWorkingRect.setEmpty()
         pendingResizeEntry = null
+        if (wasActive) {
+            onResizeModeChanged?.invoke(null)
+        }
         resizeModeAnimator?.cancel()
         if (animate && wasActive && resizeModeAlpha > 0f) {
             animateResizeModeExit()
