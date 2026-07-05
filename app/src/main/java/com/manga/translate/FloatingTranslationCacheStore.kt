@@ -17,6 +17,7 @@ import java.util.LinkedHashMap
 import java.util.Locale
 
 class FloatingTranslationCacheStore(context: Context) {
+    private val appContext = context.applicationContext
     private val cacheFile = File(context.cacheDir, CACHE_FILE_NAME)
     private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val textEntries =
@@ -44,8 +45,11 @@ class FloatingTranslationCacheStore(context: Context) {
         if (normalized.isBlank() || normalized.length < MIN_SIMILARITY_TEXT_LENGTH) {
             return null
         }
-        val bestEntry = textEntries.values
+        val scopePrefix = buildScopePrefix(language)
+        val bestEntry = textEntries.entries
             .asSequence()
+            .filter { (key, _) -> key.startsWith(scopePrefix) }
+            .map { (_, candidate) -> candidate }
             .filter { candidate ->
                 val lengthRatio = normalized.length.toFloat() / candidate.normalized.length.toFloat()
                 lengthRatio in MIN_SIMILARITY_LENGTH_RATIO..MAX_SIMILARITY_LENGTH_RATIO
@@ -224,7 +228,11 @@ class FloatingTranslationCacheStore(context: Context) {
     }
 
     private fun buildScopedKey(language: TranslationLanguage, rawKey: String): String {
-        return "${language.name}|$rawKey"
+        return buildScopePrefix(language) + rawKey
+    }
+
+    private fun buildScopePrefix(language: TranslationLanguage): String {
+        return PromptAssetResolver.translationTargetKey(appContext) + "|" + language.name + "|"
     }
 
     private fun buildSimilarityTextKey(text: String): String {

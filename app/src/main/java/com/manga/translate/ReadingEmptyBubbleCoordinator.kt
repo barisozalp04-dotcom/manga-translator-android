@@ -20,6 +20,8 @@ internal class ReadingEmptyBubbleCoordinator(
     private val languageKeyPrefix: String = "translation_language_"
 ) {
     private val appContext = context.applicationContext
+    private val translationTargetKey: String
+        get() = PromptAssetResolver.translationTargetKey(appContext)
 
     suspend fun process(
         imageFile: File,
@@ -42,7 +44,7 @@ internal class ReadingEmptyBubbleCoordinator(
             ocrSettings.useLocalOcr
         )
         val useLocalOcr = ocrSettings.useLocalOcr && language.supportsLocalOcr()
-        val glossary = glossaryStore.load(folder)
+        val glossary = glossaryStore.load(folder, translationTargetKey)
         val cropSource = PipelineBitmapDecoder.openCropSource(imageFile) ?: return@withContext null
         val localModelLease = localModelMemoryManager.acquire("ReadingEmptyBubble")
 
@@ -80,7 +82,7 @@ internal class ReadingEmptyBubbleCoordinator(
                 if (translated.glossaryUsed.isNotEmpty()) {
                     glossary.putAll(translated.glossaryUsed)
                     withContext(Dispatchers.IO) {
-                        glossaryStore.save(folder, glossary)
+                        glossaryStore.save(folder, glossary, translationTargetKey)
                     }
                 }
                 val translationMap = translated.bubbles.associateBy { it.id }

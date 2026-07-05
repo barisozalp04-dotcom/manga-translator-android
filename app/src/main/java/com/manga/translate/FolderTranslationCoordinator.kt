@@ -95,6 +95,25 @@ internal class FolderTranslationCoordinator(
     @Volatile
     private var resumableTask: ResumeTranslationTask? = null
 
+    private val translationTargetKey: String
+        get() = PromptAssetResolver.translationTargetKey(appContext)
+
+    private fun loadScopedGlossary(folder: File): MutableMap<String, String> {
+        return glossaryStore.load(folder, translationTargetKey).toMutableMap()
+    }
+
+    private fun saveScopedGlossary(folder: File, glossary: Map<String, String>) {
+        glossaryStore.save(folder, glossary, translationTargetKey)
+    }
+
+    private fun loadScopedExtractState(folder: File): MutableSet<String> {
+        return extractStateStore.load(folder, translationTargetKey)
+    }
+
+    private fun saveScopedExtractState(folder: File, extracted: Set<String>) {
+        extractStateStore.save(folder, extracted, translationTargetKey)
+    }
+
     private fun cleanupTranslationState() {
         activeJob = null
         TranslationCancellationRegistry.clear()
@@ -378,7 +397,7 @@ internal class FolderTranslationCoordinator(
         ) {
             var failed = false
             try {
-                val glossary = glossaryStore.load(folder).toMutableMap()
+                val glossary = loadScopedGlossary(folder)
                 val glossaryMutex = Mutex()
                 failed = executeConcurrentStandardPages(
                     pages = pendingImages,
@@ -436,7 +455,7 @@ internal class FolderTranslationCoordinator(
                     resumableTask = null
                 }
                 if (glossary.isNotEmpty()) {
-                    glossaryStore.save(folder, glossary)
+                    saveScopedGlossary(folder, glossary)
                 }
                 finalizeFolderProgress(folder, failed)
                 ui.refreshImages(folder)
@@ -519,8 +538,8 @@ internal class FolderTranslationCoordinator(
         ) {
             var failed = false
             try {
-                val glossary = glossaryStore.load(folder).toMutableMap()
-                val extractState = extractStateStore.load(folder)
+                val glossary = loadScopedGlossary(folder)
+                val extractState = loadScopedExtractState(folder)
                 val ocrResults = ArrayList<PageOcrResult>(pendingImages.size)
                 reportPreprocessProgress(
                     stage = appContext.getString(R.string.folder_preprocess_stage_ocr),
@@ -593,12 +612,12 @@ internal class FolderTranslationCoordinator(
                                             glossary[key] = value
                                         }
                                     }
-                                    glossaryStore.save(folder, glossary)
+                                    saveScopedGlossary(folder, glossary)
                                 }
                                 for (page in glossaryPages) {
                                     extractState.add(page.imageFile.name)
                                 }
-                                extractStateStore.save(folder, extractState)
+                                saveScopedExtractState(folder, extractState)
                             }
                             break
                         } catch (e: LlmRequestException) {
@@ -716,7 +735,7 @@ internal class FolderTranslationCoordinator(
         translatedImages: Int,
         totalImages: Int
     ): CollectionTaskResult {
-        val glossary = glossaryStore.load(task.folder).toMutableMap()
+        val glossary = loadScopedGlossary(task.folder)
         val glossaryMutex = Mutex()
         return try {
             val failed = executeConcurrentStandardPages(
@@ -756,7 +775,7 @@ internal class FolderTranslationCoordinator(
                 }
             )
             if (glossary.isNotEmpty()) {
-                glossaryStore.save(task.folder, glossary)
+                saveScopedGlossary(task.folder, glossary)
             }
             finalizeFolderProgress(task.folder, failed)
             if (failed) CollectionTaskResult.FAILED else CollectionTaskResult.SUCCESS
@@ -776,8 +795,8 @@ internal class FolderTranslationCoordinator(
         totalImages: Int
     ): CollectionTaskResult {
         var failed = false
-        val glossary = glossaryStore.load(task.folder).toMutableMap()
-        val extractState = extractStateStore.load(task.folder)
+        val glossary = loadScopedGlossary(task.folder)
+        val extractState = loadScopedExtractState(task.folder)
         val ocrResults = ArrayList<PageOcrResult>(task.pendingImages.size)
         for ((index, image) in task.pendingImages.withIndex()) {
             currentCoroutineContext().ensureActive()
@@ -831,12 +850,12 @@ internal class FolderTranslationCoordinator(
                                     glossary[key] = value
                                 }
                             }
-                            glossaryStore.save(task.folder, glossary)
+                            saveScopedGlossary(task.folder, glossary)
                         }
                         for (page in glossaryPages) {
                             extractState.add(page.imageFile.name)
                         }
-                        extractStateStore.save(task.folder, extractState)
+                        saveScopedExtractState(task.folder, extractState)
                     }
                     break
                 } catch (e: LlmRequestException) {
@@ -1664,7 +1683,7 @@ internal class FolderTranslationCoordinator(
         }
         if (snapshotToSave != null) {
             withContext(Dispatchers.IO) {
-                glossaryStore.save(folder, snapshotToSave)
+                saveScopedGlossary(folder, snapshotToSave)
             }
         }
     }
@@ -1699,7 +1718,7 @@ internal class FolderTranslationCoordinator(
             settingsStore.loadMainTranslationProviderPool()
         )
     ): Boolean {
-        val glossary = glossaryStore.load(folder).toMutableMap()
+        val glossary = loadScopedGlossary(folder)
         val glossaryMutex = Mutex()
         val page = try {
             translationPipeline.ocrImage(image, force, language) { }
@@ -1735,7 +1754,7 @@ internal class FolderTranslationCoordinator(
         }
         execution.result?.let { translationPipeline.saveResult(image, it) }
         if (glossary.isNotEmpty()) {
-            glossaryStore.save(folder, glossary)
+            saveScopedGlossary(folder, glossary)
         }
         withContext(Dispatchers.Main) {
             ui.refreshImages(folder)
@@ -1752,7 +1771,7 @@ internal class FolderTranslationCoordinator(
             settingsStore.loadMainTranslationProviderPool()
         )
     ): Boolean {
-        val glossary = glossaryStore.load(folder).toMutableMap()
+        val glossary = loadScopedGlossary(folder)
         val glossaryMutex = Mutex()
         val execution = try {
             executeFullPageTranslation(

@@ -223,7 +223,7 @@ class SettingsFragment : Fragment() {
         currentLanguage: TranslationLanguage,
         languages: List<TranslationLanguage> = TranslationLanguage.entries
     ) {
-        val labels = languages.map { getString(it.displayNameResId) }
+        val labels = languages.map { it.displayName(requireContext()) }
         val textColor = resolveColorAttr(R.attr.dialogTextColor)
         inputView.setAdapter(
             object : ArrayAdapter<String>(
@@ -249,7 +249,7 @@ class SettingsFragment : Fragment() {
                 }
             }
         )
-        inputView.setText(getString(currentLanguage.displayNameResId), false)
+        inputView.setText(currentLanguage.displayName(requireContext()), false)
     }
 
     private fun parseTranslationLanguage(
@@ -260,7 +260,7 @@ class SettingsFragment : Fragment() {
         val selectedLabel = inputView.text?.toString()?.trim().orEmpty()
         if (selectedLabel.isBlank()) return defaultLanguage
         return languages.firstOrNull {
-            getString(it.displayNameResId) == selectedLabel
+            it.displayName(requireContext()) == selectedLabel
         } ?: defaultLanguage
     }
 

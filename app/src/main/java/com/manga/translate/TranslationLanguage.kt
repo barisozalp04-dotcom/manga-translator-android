@@ -1,20 +1,31 @@
 package com.manga.translate
 
+import android.content.Context
+import androidx.annotation.StringRes
+
 enum class TranslationLanguage(
     val prefValue: String,
-    val displayNameResId: Int,
+    @param:StringRes val sourceNameResId: Int,
     val baiduLanguageType: String
 ) {
-    JA_TO_ZH("ja_to_zh", R.string.folder_language_ja_to_zh, "JAP"),
-    EN_TO_ZH("en_to_zh", R.string.folder_language_en_to_zh, "ENG"),
-    KO_TO_ZH("ko_to_zh", R.string.folder_language_ko_to_zh, "KOR"),
-    CHN_ENG_TO_ZH("chn_eng_to_zh", R.string.folder_language_chn_eng_to_zh, "CHN_ENG"),
-    FR_TO_ZH("fr_to_zh", R.string.folder_language_fr_to_zh, "FRE"),
-    ES_TO_ZH("es_to_zh", R.string.folder_language_es_to_zh, "SPA"),
-    PT_TO_ZH("pt_to_zh", R.string.folder_language_pt_to_zh, "POR"),
-    DE_TO_ZH("de_to_zh", R.string.folder_language_de_to_zh, "GER"),
-    IT_TO_ZH("it_to_zh", R.string.folder_language_it_to_zh, "ITA"),
-    RU_TO_ZH("ru_to_zh", R.string.folder_language_ru_to_zh, "RUS");
+    JA_TO_ZH("ja_to_zh", R.string.translation_source_japanese, "JAP"),
+    EN_TO_ZH("en_to_zh", R.string.translation_source_english, "ENG"),
+    KO_TO_ZH("ko_to_zh", R.string.translation_source_korean, "KOR"),
+    CHN_ENG_TO_ZH("chn_eng_to_zh", R.string.translation_source_mixed_chinese_english, "CHN_ENG"),
+    FR_TO_ZH("fr_to_zh", R.string.translation_source_french, "FRE"),
+    ES_TO_ZH("es_to_zh", R.string.translation_source_spanish, "SPA"),
+    PT_TO_ZH("pt_to_zh", R.string.translation_source_portuguese, "POR"),
+    DE_TO_ZH("de_to_zh", R.string.translation_source_german, "GER"),
+    IT_TO_ZH("it_to_zh", R.string.translation_source_italian, "ITA"),
+    RU_TO_ZH("ru_to_zh", R.string.translation_source_russian, "RUS");
+
+    fun displayName(context: Context): String {
+        return context.getString(
+            R.string.translation_language_pair_format,
+            context.getString(sourceNameResId),
+            PromptAssetResolver.translationTargetDisplayName(context)
+        )
+    }
 
     fun supportsLocalOcr(): Boolean {
         return when (this) {

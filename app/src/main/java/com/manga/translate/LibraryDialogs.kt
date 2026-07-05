@@ -203,7 +203,7 @@ internal class LibraryDialogs {
         currentLanguage: TranslationLanguage,
         onSelected: (TranslationLanguage) -> Unit
     ) {
-        val languageNames = languages.map { context.getString(it.displayNameResId) }.toTypedArray()
+        val languageNames = languages.map { it.displayName(context) }.toTypedArray()
         val currentIndex = languages.indexOf(currentLanguage).coerceAtLeast(0)
         showSingleChoiceDialog(context, R.string.folder_language_setting_title, languageNames, currentIndex) {
             onSelected(languages[it])
@@ -214,7 +214,12 @@ internal class LibraryDialogs {
         showSingleChoiceDialog(
             context,
             R.string.folder_language_setting_title,
-            arrayOf(context.getString(R.string.folder_language_to_zh)),
+            arrayOf(
+                context.getString(
+                    R.string.folder_language_to_target,
+                    PromptAssetResolver.translationTargetDisplayName(context)
+                )
+            ),
             0
         ) { }
     }

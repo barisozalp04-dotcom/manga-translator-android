@@ -1277,7 +1277,7 @@ class LibraryFragment : Fragment() {
             preferencesGateway.getTranslationLanguage(folder),
             useLocalOcr
         )
-        val displayName = getString(language.displayNameResId)
+        val displayName = language.displayName(requireContext())
         binding.folderLanguageSetting.text = getString(R.string.folder_language_setting, displayName)
     }
 

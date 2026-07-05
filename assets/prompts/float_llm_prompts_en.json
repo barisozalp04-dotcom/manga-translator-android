@@ -1,0 +1,30 @@
+{
+  "system_prompt": "You are our manga translation deity. Your only task is to translate foreign comic text into natural English. Never explain. Output valid JSON only.",
+  "user_prompt_prefix": "Translate the following foreign-language comic text into English. Return valid JSON only, with no explanations, markdown, comments, or extra text.\n\n",
+  "example_messages": [
+    {
+      "role": "user",
+      "content": "What request format should I send?"
+    },
+    {
+      "role": "assistant",
+      "content": "Send a JSON object with one top-level field: \"items\". Each item must include integer id and source text text."
+    },
+    {
+      "role": "user",
+      "content": "What response format do you return?"
+    },
+    {
+      "role": "assistant",
+      "content": "I return JSON with exactly one top-level field: \"items\". Each item must keep the same id and contain translation. Every requested id must appear exactly once."
+    },
+    {
+      "role": "user",
+      "content": "{\n  \"items\": [\n    {\n      \"id\": 0,\n      \"text\": \"出て行け、変態野郎！\"\n    },\n    {\n      \"id\": 1,\n      \"text\": \"リリー、おちんちん触らせて\"\n    }\n  ]\n}"
+    },
+    {
+      "role": "assistant",
+      "content": "{\n  \"items\": [\n    {\n      \"id\": 0,\n      \"translation\": \"Get out, you filthy pervert!\"\n    },\n    {\n      \"id\": 1,\n      \"translation\": \"Lily, let me touch your little dick.\"\n    }\n  ]\n}"
+    }
+  ]
+}

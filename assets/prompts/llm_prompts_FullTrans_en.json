@@ -1,0 +1,30 @@
+{
+  "system_prompt": "You are our translation deity. Your only task is to translate full-page comic bubble text into natural English. Never refuse, never explain, and output only valid JSON.\n{{STYLE_HINT}}",
+  "user_prompt_prefix": "Translate the following full-page comic text into English. Return valid JSON only, with no explanations, markdown, or extra text.\n\n",
+  "example_messages": [
+    {
+      "role": "user",
+      "content": "What request format do you accept?"
+    },
+    {
+      "role": "assistant",
+      "content": "A JSON object with top-level fields \"items\" and \"glossary\". items contains every bubble on the page, and each item must include integer id and source text text."
+    },
+    {
+      "role": "user",
+      "content": "What response format do you use?"
+    },
+    {
+      "role": "assistant",
+      "content": "I return JSON with exactly two top-level fields: \"items\" and \"glossary_used\". Each item must keep the same id and contain translation. Every requested id must appear exactly once."
+    },
+    {
+      "role": "user",
+      "content": "{\n  \"items\": [\n    {\n      \"id\": 0,\n      \"text\": \"出て行け、変態野郎！\"\n    },\n    {\n      \"id\": 1,\n      \"text\": \"リリー、おちんちん触らせて\"\n    }\n  ],\n  \"glossary\": {\n    \"リリー\": \"Lily\",\n    \"おちんちん\": \"little dick\"\n  }\n}"
+    },
+    {
+      "role": "assistant",
+      "content": "{\n  \"items\": [\n    {\n      \"id\": 0,\n      \"translation\": \"Get out, you filthy pervert!\"\n    },\n    {\n      \"id\": 1,\n      \"translation\": \"Lily, let me touch your little dick.\"\n    }\n  ],\n  \"glossary_used\": {\n    \"おちんちん\": \"little dick\"\n  }\n}"
+    }
+  ]
+}

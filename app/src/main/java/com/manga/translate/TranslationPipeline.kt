@@ -835,7 +835,7 @@ internal class TranslationPipeline(
             sourceFileSize = imageFile.length(),
             mode = mode,
             language = language.name,
-            promptAsset = promptAsset,
+            promptAsset = PromptAssetResolver.resolve(appContext, promptAsset),
             apiFormat = apiSettings.apiFormat.prefValue,
             ocrCacheMode = ocrCacheMode
         )

@@ -4,8 +4,8 @@ import org.json.JSONObject
 import java.io.File
 
 class GlossaryStore {
-    fun load(folder: File): MutableMap<String, String> {
-        val file = glossaryFileFor(folder)
+    fun load(folder: File, targetKey: String = DEFAULT_TARGET_KEY): MutableMap<String, String> {
+        val file = glossaryFileFor(folder, targetKey)
         if (!file.exists()) return mutableMapOf()
         return try {
             val json = JSONObject(file.readText())
@@ -23,12 +23,12 @@ class GlossaryStore {
         }
     }
 
-    fun save(folder: File, glossary: Map<String, String>) {
+    fun save(folder: File, glossary: Map<String, String>, targetKey: String = DEFAULT_TARGET_KEY) {
         val json = JSONObject()
         for ((key, value) in glossary) {
             json.put(key, value)
         }
-        val file = glossaryFileFor(folder)
+        val file = glossaryFileFor(folder, targetKey)
         val tmp = File(file.parentFile, "${file.name}.tmp")
         tmp.writeText(json.toString())
         if (!tmp.renameTo(file)) {
@@ -37,7 +37,16 @@ class GlossaryStore {
         }
     }
 
-    fun glossaryFileFor(folder: File): File {
-        return File(folder, "glossary.json")
+    fun glossaryFileFor(folder: File, targetKey: String = DEFAULT_TARGET_KEY): File {
+        val normalizedTarget = targetKey.trim().lowercase()
+        val fileName = when (normalizedTarget) {
+            "", DEFAULT_TARGET_KEY -> "glossary.json"
+            else -> "glossary_${normalizedTarget}.json"
+        }
+        return File(folder, fileName)
+    }
+
+    companion object {
+        private const val DEFAULT_TARGET_KEY = "zh_hans"
     }
 }
