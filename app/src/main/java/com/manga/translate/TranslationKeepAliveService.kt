@@ -7,6 +7,8 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.media.AudioAttributes
+import android.media.RingtoneManager
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
@@ -264,6 +266,7 @@ class TranslationKeepAliveService : Service() {
         private const val CHANNEL_ID = "translation_keepalive"
         private const val ALERT_CHANNEL_ID = "translation_alerts"
         private const val RESULT_CHANNEL_ID = "translation_results"
+        private const val SUCCESS_RESULT_CHANNEL_ID = "translation_success_results"
         private const val NOTIFICATION_ID = 1001
         private const val ALERT_NOTIFICATION_ID = 1002
         private const val RESULT_NOTIFICATION_ID = 1003
@@ -515,10 +518,12 @@ class TranslationKeepAliveService : Service() {
         ) {
             val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             ensureResultChannel(context, manager)
+            ensureSuccessResultChannel(context, manager)
             val pendingIntent = buildOpenLibraryPendingIntent(
                 context = context,
                 requestCode = RESULT_NOTIFICATION_REQUEST_CODE
             )
+            val isSuccess = !isError && !isCanceled
             val icon = when {
                 isError -> android.R.drawable.stat_notify_error
                 isCanceled -> android.R.drawable.ic_menu_close_clear_cancel
@@ -532,7 +537,10 @@ class TranslationKeepAliveService : Service() {
                 isError -> NotificationCompat.PRIORITY_HIGH
                 else -> NotificationCompat.PRIORITY_DEFAULT
             }
-            val notification = NotificationCompat.Builder(context, RESULT_CHANNEL_ID)
+            val notification = NotificationCompat.Builder(
+                context,
+                if (isSuccess) SUCCESS_RESULT_CHANNEL_ID else RESULT_CHANNEL_ID
+            )
                 .setSmallIcon(icon)
                 .setContentTitle(resultTitle)
                 .setContentText(context.getString(R.string.translation_result_message, taskLabel))
@@ -545,6 +553,11 @@ class TranslationKeepAliveService : Service() {
                 .setCategory(category)
                 .setAutoCancel(true)
                 .setContentIntent(pendingIntent)
+                .apply {
+                    if (isSuccess && Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+                        setDefaults(Notification.DEFAULT_SOUND)
+                    }
+                }
                 .build()
             manager.notify(RESULT_NOTIFICATION_ID, notification)
         }
@@ -603,6 +616,24 @@ class TranslationKeepAliveService : Service() {
                     context.getString(R.string.translation_result_channel),
                     NotificationManager.IMPORTANCE_DEFAULT
                 )
+                channel.setSound(null, null)
+                manager.createNotificationChannel(channel)
+            }
+        }
+
+        private fun ensureSuccessResultChannel(context: Context, manager: NotificationManager) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                val channel = NotificationChannel(
+                    SUCCESS_RESULT_CHANNEL_ID,
+                    context.getString(R.string.translation_success_result_channel),
+                    NotificationManager.IMPORTANCE_DEFAULT
+                )
+                val soundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+                val audioAttributes = AudioAttributes.Builder()
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                    .setUsage(AudioAttributes.USAGE_NOTIFICATION)
+                    .build()
+                channel.setSound(soundUri, audioAttributes)
                 manager.createNotificationChannel(channel)
             }
         }

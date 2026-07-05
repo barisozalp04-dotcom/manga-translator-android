@@ -502,6 +502,7 @@
     <string name="translation_canceling">正在取消翻譯…</string>
     <string name="translation_canceled">已取消翻譯</string>
     <string name="translation_result_channel">翻譯完成提醒</string>
+    <string name="translation_success_result_channel">翻譯成功提醒</string>
     <string name="translation_result_message">%1$s 已結束，點此返回漫畫庫查看結果</string>
     <string name="translation_result_task_fallback_label">翻譯任務</string>
     <string name="translation_result_batch_task_label">%1$d 個資料夾的翻譯任務</string>
