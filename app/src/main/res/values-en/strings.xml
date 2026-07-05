@@ -27,7 +27,7 @@
     <string name="api_retry_count_hint">API Maximum number of retries (1–50)</string>
     <string name="floating_api_timeout_hint">Floating translation API timeout (seconds, 30–1200)</string>
     <string name="max_concurrency_hint">AI API Number of concurrent calls (1–200)</string>
-    <string name="api_settings_note_openai">Example URL: https://api.siliconflow.cn/v1 or https://open.bigmodel.cn/api/paas/v4 (the app will automatically append /chat/completions, and /models when fetching the model list)</string>
+    <string name="api_settings_note_openai">Example URL: https://api.siliconflow.cn/v1 or https://open.bigmodel.cn/api/paas/v4 (the app will automatically append /chat/completions)</string>
     <string name="api_settings_note_gemini">Example URL: https://generativelanguage.googleapis.com/v1beta</string>
     <string name="api_url_required">Please fill in the API address first</string>
     <string name="missing_api_settings">Please fill in the API address and Key in the settings first</string>

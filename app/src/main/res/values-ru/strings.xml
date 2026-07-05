@@ -27,7 +27,7 @@
     <string name="api_retry_count_hint">API Максимальное количество повторов (1–50)</string>
     <string name="floating_api_timeout_hint">Тайм-аут трансляции API при наведении (секунды, 30–1200)</string>
     <string name="max_concurrency_hint">AI API Количество одновременных вызовов (1–200)</string>
-    <string name="api_settings_note_openai">Пример URL: https://api.siliconflow.cn/v1 или https://open.bigmodel.cn/api/paas/v4 (приложение автоматически добавит /chat/completions, а при получении списка моделей также /models)</string>
+    <string name="api_settings_note_openai">Пример URL: https://api.siliconflow.cn/v1 или https://open.bigmodel.cn/api/paas/v4 (приложение автоматически добавит /chat/completions)</string>
     <string name="api_settings_note_gemini">Пример URL: https://generativelanguage.googleapis.com/v1beta</string>
     <string name="api_url_required">Пожалуйста, сначала заполните адрес API</string>
     <string name="missing_api_settings">Пожалуйста, сначала введите адрес API и Key в настройках.</string>
