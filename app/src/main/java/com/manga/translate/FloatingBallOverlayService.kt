@@ -6,13 +6,14 @@ import android.app.NotificationManager
 import android.app.Service
 import android.content.Intent
 import android.content.pm.ServiceInfo
-import android.content.res.ColorStateList
 import android.view.ContextThemeWrapper
 import android.graphics.Bitmap
 import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.PixelFormat
+import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.StateListDrawable
 import android.media.projection.MediaProjectionManager
 import android.os.Build
 import android.os.Handler
@@ -24,13 +25,12 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
 import android.view.WindowManager
-import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.widget.AppCompatButton
-import androidx.appcompat.widget.AppCompatImageView
+import androidx.appcompat.widget.AppCompatTextView
 import androidx.core.app.NotificationCompat
 import androidx.core.content.getSystemService
 import androidx.core.view.isVisible
@@ -52,7 +52,7 @@ import kotlin.math.max
 import kotlin.math.min
 
 class FloatingBallOverlayService : Service() {
-    private class FloatingBallImageView(context: android.content.Context) : AppCompatImageView(context) {
+    private class FloatingBallView(context: android.content.Context) : AppCompatTextView(context) {
         var onPerformClick: (() -> Unit)? = null
 
         override fun performClick(): Boolean {
@@ -287,17 +287,21 @@ class FloatingBallOverlayService : Service() {
             }
             visibility = View.GONE
         }
-        val floatingBall = FloatingBallImageView(this).apply {
-            scaleType = ImageView.ScaleType.CENTER_INSIDE
-            setImageResource(R.drawable.ic_translate_overlay)
-            imageTintList = ColorStateList.valueOf(0xFFFFFFFF.toInt())
+        val floatingBall = FloatingBallView(this).apply {
+            text = "译"
+            textSize = 26f
+            setTextColor(0xFFFFFFFF.toInt())
+            setTypeface(typeface, Typeface.BOLD)
+            gravity = Gravity.CENTER
+            includeFontPadding = false
+            setShadowLayer(4f * density, 0f, 1f * density, 0x66000000)
             background = createFloatingBallBackground(pressed = false)
             elevation = 10f * density
             setPadding(
-                (14f * density).toInt(),
-                (14f * density).toInt(),
-                (14f * density).toInt(),
-                (14f * density).toInt()
+                (10f * density).toInt(),
+                (10f * density).toInt(),
+                (10f * density).toInt(),
+                (10f * density).toInt()
             )
             contentDescription = getString(R.string.floating_service_message)
         }
@@ -574,7 +578,7 @@ class FloatingBallOverlayService : Service() {
     }
 
     private fun updateFloatingBallPressedState(
-        target: AppCompatImageView,
+        target: FloatingBallView,
         pressed: Boolean
     ) {
         target.isPressed = pressed
@@ -593,6 +597,28 @@ class FloatingBallOverlayService : Service() {
             elevation = 6f * density
             minimumWidth = 0
             minWidth = 0
+            background = createMenuButtonBackground()
+            setTextColor(0xFF000000.toInt())
+        }
+    }
+
+    private fun createMenuButtonBackground(): StateListDrawable {
+        val density = resources.displayMetrics.density
+        val cornerRadius = 24f * density
+        val strokeWidth = (1f * density).toInt().coerceAtLeast(1)
+        val normal = GradientDrawable().apply {
+            this.cornerRadius = cornerRadius
+            setColor(0xFFFFFFFF.toInt())
+            setStroke(strokeWidth, 0xFFE0E0E0.toInt())
+        }
+        val pressed = GradientDrawable().apply {
+            this.cornerRadius = cornerRadius
+            setColor(0xFFE8E8E8.toInt())
+            setStroke(strokeWidth, 0xFFD6D6D6.toInt())
+        }
+        return StateListDrawable().apply {
+            addState(intArrayOf(android.R.attr.state_pressed), pressed)
+            addState(intArrayOf(), normal)
         }
     }
 
@@ -1361,7 +1387,7 @@ class FloatingBallOverlayService : Service() {
 
 
     private fun attachBallGesture(
-        target: FloatingBallImageView,
+        target: FloatingBallView,
         menuPanel: View,
         params: WindowManager.LayoutParams
     ) {
