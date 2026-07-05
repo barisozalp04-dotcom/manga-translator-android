@@ -353,6 +353,11 @@ class ReadingFragment : Fragment() {
         if (::webtoonAdapter.isInitialized) {
             webtoonAdapter.clearRuntimeCaches()
         }
+        binding.readingImage.setImageDrawable(null)
+        binding.readingImage.setRegionSource(null)
+        currentBitmap?.recycleSafely()
+        currentDecodedImage = null
+        currentBitmap = null
         binding.readingWebtoonList.adapter = null
         _binding = null
     }
@@ -381,6 +386,7 @@ class ReadingFragment : Fragment() {
             binding.readingImage.setImageDrawable(null)
             displayedImagePath = null
             displayedPageIndex = null
+            currentBitmap?.recycleSafely()
             currentDecodedImage = null
             currentBitmap = null
             currentImageWidth = 0
@@ -457,6 +463,7 @@ class ReadingFragment : Fragment() {
             } else {
                 binding.readingImage.setRegionSource(null)
                 binding.readingImage.setImageDrawable(null)
+                currentBitmap?.recycleSafely()
                 currentDecodedImage = null
                 currentBitmap = null
                 currentImageWidth = 0
@@ -513,6 +520,7 @@ class ReadingFragment : Fragment() {
         hideResizePanel()
         currentImageFile = null
         currentTranslation = null
+        currentBitmap?.recycleSafely()
         currentDecodedImage = null
         currentBitmap = null
         currentImageWidth = 0

@@ -327,7 +327,7 @@ class ReadingRegionImageView @JvmOverloads constructor(
 
         fun tileCacheMaxKb(): Int {
             val runtimeMaxKb = (Runtime.getRuntime().maxMemory() / 1024L).coerceAtLeast(1L)
-            return (runtimeMaxKb / 10L).toInt().coerceIn(24 * 1024, 128 * 1024)
+            return (runtimeMaxKb / 20L).toInt().coerceIn(12 * 1024, 64 * 1024)
         }
     }
 }

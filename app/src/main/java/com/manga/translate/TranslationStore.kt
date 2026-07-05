@@ -20,7 +20,7 @@ class TranslationStore {
         replay = 0,
         extraBufferCapacity = 64
     )
-    private val loadCache = object : LruCache<String, CacheEntry>(64) {}
+    private val loadCache = object : LruCache<String, CacheEntry>(computeLoadCacheSize()) {}
 
     val updates: SharedFlow<String> = updatesFlow.asSharedFlow()
 
@@ -205,8 +205,18 @@ class TranslationStore {
     }
 
     fun translationFileFor(imageFile: File): File {
-        val name = imageFile.nameWithoutExtension + ".json"
-        return File(imageFile.parentFile, name)
+        val parent = imageFile.parentFile ?: File(".")
+        return File(parent, "${imageFile.nameWithoutExtension}.json")
+    }
+
+    private fun computeLoadCacheSize(): Int {
+        val maxMemoryMb = Runtime.getRuntime().maxMemory() / (1024L * 1024L)
+        return when {
+            maxMemoryMb >= 512 -> 64
+            maxMemoryMb >= 256 -> 48
+            maxMemoryMb >= 128 -> 32
+            else -> 16
+        }
     }
 
     private fun parseMetadata(json: JSONObject?): TranslationMetadata {

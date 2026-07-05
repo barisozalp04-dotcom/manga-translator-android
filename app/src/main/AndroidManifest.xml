@@ -27,13 +27,14 @@
     <application
         android:name=".MangaTranslateApp"
         android:allowBackup="false"
-        android:label="MT 阅读器"
         android:icon="@mipmap/ic_launcher"
+        android:label="MT 阅读器"
+        android:largeHeap="true"
         android:localeConfig="@xml/locales_config"
         android:roundIcon="@mipmap/ic_launcher"
         android:supportsRtl="true"
-        android:usesCleartextTraffic="true"
-        android:theme="@style/Theme.MangaTranslator">
+        android:theme="@style/Theme.MangaTranslator"
+        android:usesCleartextTraffic="true">
         <service
             android:name=".TranslationKeepAliveService"
             android:exported="false"

@@ -17,6 +17,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -68,12 +69,21 @@ class WebtoonReadingAdapter(
         minAreaPerCharSp = 48f,
         useHorizontalText = true
     )
-    private val rememberedPageHeights = mutableMapOf<String, Int>()
-    private val sourceSizeCache = mutableMapOf<String, Size>()
+    private val runtimeCacheLimit = computeRuntimeCacheLimit()
+    private val rememberedPageHeights = LruMap<String, Int>(runtimeCacheLimit)
+    private val sourceSizeCache = LruMap<String, Size>(runtimeCacheLimit)
+    private val translationCache = LruMap<String, TranslationResult?>(runtimeCacheLimit)
     private val boundHolders = mutableMapOf<String, MutableSet<WebtoonPageViewHolder>>()
-    private val translationCache = mutableMapOf<String, TranslationResult?>()
     private val translationLoadLock = Any()
     private val translationLoadJobs = mutableMapOf<String, Deferred<TranslationResult?>>()
+
+    private class LruMap<K, V>(private val maxSize: Int) :
+        LinkedHashMap<K, V>(maxSize, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<K, V>?): Boolean {
+            return size > maxSize
+        }
+    }
+
     private var editModeEnabled = false
     private var lockedPagePath: String? = null
     private var lockedPageTranslation: TranslationResult? = null
@@ -287,7 +297,12 @@ class WebtoonReadingAdapter(
     private fun pruneSourceSizeCache(images: List<File>) {
         if (sourceSizeCache.isEmpty()) return
         val activePaths = images.mapTo(hashSetOf()) { it.absolutePath }
-        sourceSizeCache.keys.retainAll(activePaths)
+        val iterator = sourceSizeCache.keys.iterator()
+        while (iterator.hasNext()) {
+            if (iterator.next() !in activePaths) {
+                iterator.remove()
+            }
+        }
     }
 
     private suspend fun loadTranslationShared(imageFile: File): TranslationResult? {
@@ -321,11 +336,12 @@ class WebtoonReadingAdapter(
         val uncached = images.filterNot { sourceSizeCache.containsKey(it.absolutePath) }
         if (uncached.isEmpty()) return
         sourceSizePrefetchJob = scope.launch {
+            val activePathsSnapshot = items.mapTo(hashSetOf()) { it.absolutePath }
             for (batch in uncached.chunked(SOURCE_SIZE_BATCH_SIZE)) {
-                val activePaths = items.mapTo(hashSetOf()) { it.absolutePath }
+                ensureActive()
                 val sizes = withContext(Dispatchers.IO) {
                     batch.mapNotNull { imageFile ->
-                        if (imageFile.absolutePath !in activePaths) {
+                        if (imageFile.absolutePath !in activePathsSnapshot) {
                             null
                         } else {
                             readImageSize(imageFile)?.let { imageFile.absolutePath to it }
@@ -333,15 +349,19 @@ class WebtoonReadingAdapter(
                     }
                 }
                 if (sizes.isEmpty()) continue
+                val updatedPositions = ArrayList<Int>(sizes.size)
                 sizes.forEach { (path, size) ->
-                    sourceSizeCache[path] = size
+                    sourceSizeCache.put(path, size)
+                    val position = displayItems.indexOfFirst { it.path == path }
+                    if (position >= 0) {
+                        updatedPositions.add(position)
+                    }
                 }
-                val rebuilt = buildDisplayItems(items)
-                if (rebuilt.map { it.stableKey } == displayItems.map { it.stableKey }) continue
-                onDisplayStructureChanging?.invoke()
-                displayItems = rebuilt
-                notifyDataSetChanged()
-                onDisplayStructureChanged?.invoke()
+                if (updatedPositions.isNotEmpty()) {
+                    val minPos = updatedPositions.min()
+                    val maxPos = updatedPositions.max()
+                    notifyItemRangeChanged(minPos, maxPos - minPos + 1, PAYLOAD_PLACEHOLDER_ONLY)
+                }
             }
         }
     }
@@ -380,6 +400,16 @@ class WebtoonReadingAdapter(
             result += WebtoonDisplayItem(imageFile, index)
         }
         return result
+    }
+
+    private fun computeRuntimeCacheLimit(): Int {
+        val maxMemoryMb = Runtime.getRuntime().maxMemory() / (1024L * 1024L)
+        return when {
+            maxMemoryMb >= 768 -> 80
+            maxMemoryMb >= 512 -> 60
+            maxMemoryMb >= 256 -> 40
+            else -> 25
+        }
     }
 
     inner class WebtoonPageViewHolder(
@@ -603,14 +633,15 @@ class WebtoonReadingAdapter(
             boundPath = null
             boundFile = null
             boundItem = null
+            binding.readingPageImage.setRegionSource(null)
+            binding.readingPageImage.setImageDrawable(null)
+            imageTransformController.setCurrentBitmap(null)
+            currentBitmap?.recycleSafely()
             currentDecodedImage = null
             currentBitmap = null
             currentImageWidth = 0
             currentImageHeight = 0
             currentTranslation = null
-            binding.readingPageImage.setRegionSource(null)
-            binding.readingPageImage.setImageDrawable(null)
-            imageTransformController.setCurrentBitmap(null)
             binding.readingPageOverlay.onOffsetChanged = null
             binding.readingPageOverlay.onBubbleRemove = null
             binding.readingPageOverlay.onBubbleTap = null
