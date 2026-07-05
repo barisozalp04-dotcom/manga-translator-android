@@ -72,7 +72,15 @@ android {
             keepDebugSymbols += setOf(
                 "**/libtensorflowlite_jni.so",
                 "**/libonnxruntime.so",
-                "**/libonnxruntime4j_jni.so"
+                "**/libonnxruntime4j_jni.so",
+                // avif-coder ships these native libs pre-stripped, so we package them as-is
+                // instead of letting AGP attempt another strip pass and log noisy warnings.
+                "**/libaom.so",
+                "**/libcoder.so",
+                "**/libdav1d.so",
+                "**/libde265.so",
+                "**/libheif.so",
+                "**/libx265.so"
             )
         }
     }
