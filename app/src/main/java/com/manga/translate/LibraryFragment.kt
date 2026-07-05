@@ -922,7 +922,12 @@ class LibraryFragment : Fragment() {
 
     private fun addImagesToFolder(uris: List<Uri>) {
         val folder = currentFolder ?: return
+        val wasEmpty = repository.listImages(folder).isEmpty()
         val added = repository.addImages(folder, uris)
+        if (wasEmpty && added.isNotEmpty()) {
+            preferencesGateway.autoDetectAndSetReadingMode(folder, added)
+            updateReadingModeButton(folder)
+        }
         AppLogger.log("Library", "Added ${added.size} images to ${folder.name}")
         loadImages(folder)
         loadFolders()

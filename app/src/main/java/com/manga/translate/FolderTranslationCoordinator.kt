@@ -39,6 +39,7 @@ internal class FolderTranslationCoordinator(
     private val extractStateStore: ExtractStateStore,
     private val translationStore: TranslationStore,
     private val settingsStore: SettingsStore,
+    private val preferencesGateway: LibraryPreferencesGateway,
     private val llmClient: LlmClient,
     private val ui: LibraryUiCallbacks,
     private val progressStore: TranslationProgressStore = TranslationProgressStore(),
@@ -575,7 +576,7 @@ internal class FolderTranslationCoordinator(
                     )
                 }
 
-                if (ocrResults.isNotEmpty()) {
+                if (ocrResults.isNotEmpty() && shouldApplyCrossPageBubbleMerge(folder)) {
                     val merged = CrossPageBubbleMerger.merge(ocrResults)
                     ocrResults.clear()
                     ocrResults.addAll(merged)
@@ -823,7 +824,7 @@ internal class FolderTranslationCoordinator(
             }
         }
 
-        if (ocrResults.isNotEmpty()) {
+        if (ocrResults.isNotEmpty() && shouldApplyCrossPageBubbleMerge(task.folder)) {
             val merged = CrossPageBubbleMerger.merge(ocrResults)
             ocrResults.clear()
             ocrResults.addAll(merged)
@@ -1037,7 +1038,10 @@ internal class FolderTranslationCoordinator(
             language = language,
             onPrepareProgress = onPrepareProgress
         )
-        val mergedPreparedPages = if (!useVlDirectTranslate) {
+        val mergedPreparedPages = if (
+            !useVlDirectTranslate &&
+            shouldApplyCrossPageBubbleMerge(folder)
+        ) {
             applyCrossPageBubbleMerge(preparedPages)
         } else {
             preparedPages
@@ -1122,6 +1126,10 @@ internal class FolderTranslationCoordinator(
             if (prepared == null) return@mapIndexed null
             mergedByIndex[index]?.let { prepared.copy(ocrResult = it) } ?: prepared
         }
+    }
+
+    private fun shouldApplyCrossPageBubbleMerge(folder: File): Boolean {
+        return preferencesGateway.getReadingMode(folder) == FolderReadingMode.WEBTOON_SCROLL
     }
 
     private suspend fun executePreparedStandardPages(

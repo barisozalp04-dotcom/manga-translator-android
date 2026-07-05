@@ -227,6 +227,7 @@ sourceSets["main"].assets.srcDirs("src/main/assets", "../assets")
 - 入口：`ReadingFragment.kt`
 - 状态共享：`ReadingSessionViewModel.kt`
 - 模式支持：横向阅读、条漫滚动。
+- 普通文件夹首次上传图片、压缩包/PDF 首次导入、以及合集首次导入章节时，会按图片长宽比自动识别是否更接近条漫；命中后自动把该作品的阅读方式切到 `WEBTOON_SCROLL`，否则保持普通横向阅读。
 - 气泡渲染与编辑改动通常从 `BubbleRenderer.kt`、`ReadingImageTransformController.kt`、`WebtoonReadingAdapter.kt` 入手。
 
 ### 翻译
@@ -268,6 +269,7 @@ sourceSets["main"].assets.srcDirs("src/main/assets", "../assets")
 - 当 `全文速译` 开启时，仍按原流程先 OCR 全部页面、再统一抽取译名、再执行整页翻译；此时 `译名处理` 视为固定开启，界面上禁用单独修改。
 - 当 `全文速译` 关闭且 `译名处理` 开启时，普通逐页翻译会继续沿用当前并发方案，并在页面翻译成功后把模型回传的 `glossary_used` 串行合并回 `glossary.json`。
 - 当 `全文速译` 关闭且 `译名处理` 关闭时，普通逐页翻译仍会把现有 `glossary.json` 当作上下文发送给模型，但不会提取、合并或写入新的译名；这个模式就是当前推荐的“仅复用已有译名 + 并发翻译”路径。
+- `CrossPageBubbleMerger.kt` 只在条漫阅读方式 (`WEBTOON_SCROLL`) 下参与全文速译和普通逐页翻译的预处理；普通横向阅读模式不会做跨页气泡合并。
 
 当前 OCR 相关逻辑已做第一轮收敛：
 - `OcrSharedTools.kt` 统一提供 `OcrEngineRegistry` 和 `BubbleTextRecognizer`。

@@ -2,6 +2,7 @@ package com.manga.translate
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.graphics.BitmapFactory
 import android.net.Uri
 import android.provider.DocumentsContract
 import androidx.core.content.edit
@@ -59,6 +60,10 @@ internal class LibraryPreferencesGateway(
         return FolderReadingMode.fromPref(value)
     }
 
+    fun hasStoredReadingMode(folder: File): Boolean {
+        return prefs.contains(readingModeKeyPrefix + settingsFolder(folder).absolutePath)
+    }
+
     fun setTranslationLanguage(folder: File, language: TranslationLanguage) {
         prefs.edit() {
             putString(languageKeyPrefix + settingsFolder(folder).absolutePath, language.prefValue)
@@ -75,6 +80,18 @@ internal class LibraryPreferencesGateway(
         prefs.edit() {
             putString(readingModeKeyPrefix + settingsFolder(folder).absolutePath, mode.prefValue)
         }
+    }
+
+    fun autoDetectAndSetReadingMode(folder: File, importedImages: List<File>): FolderReadingMode? {
+        if (importedImages.isEmpty()) return null
+        if (hasStoredReadingMode(folder)) return null
+        val detectedMode = detectReadingMode(importedImages)
+        setReadingMode(folder, detectedMode)
+        AppLogger.log(
+            "Library",
+            "Auto-detected reading mode for ${settingsFolder(folder).name}: ${detectedMode.prefValue}"
+        )
+        return detectedMode
     }
 
     fun migrateFolderSettings(from: File, to: File) {
@@ -171,6 +188,33 @@ internal class LibraryPreferencesGateway(
 
     private fun settingsFolder(folder: File): File = repository.resolveSettingsFolder(folder)
 
+    private fun detectReadingMode(images: List<File>): FolderReadingMode {
+        val sampledImages = images.asSequence()
+            .filter { it.exists() && it.isFile }
+            .take(READING_MODE_SAMPLE_COUNT)
+            .toList()
+        if (sampledImages.isEmpty()) return FolderReadingMode.STANDARD
+
+        val webtoonLikeCount = sampledImages.count(::isWebtoonLikeImage)
+        val requiredMatches = if (sampledImages.size == 1) 1 else (sampledImages.size + 1) / 2
+        return if (webtoonLikeCount >= requiredMatches) {
+            FolderReadingMode.WEBTOON_SCROLL
+        } else {
+            FolderReadingMode.STANDARD
+        }
+    }
+
+    private fun isWebtoonLikeImage(imageFile: File): Boolean {
+        val bounds = BitmapFactory.Options().apply {
+            inJustDecodeBounds = true
+        }
+        BitmapFactory.decodeFile(imageFile.absolutePath, bounds)
+        val width = bounds.outWidth
+        val height = bounds.outHeight
+        if (width <= 0 || height <= 0) return false
+        return height > width && height.toFloat() / width.toFloat() >= WEBTOON_ASPECT_RATIO_THRESHOLD
+    }
+
     private companion object {
         private const val importTreeKey = "ehviewer_tree_uri"
         private const val exportTreeKey = "export_tree_uri"
@@ -186,5 +230,7 @@ internal class LibraryPreferencesGateway(
             vlDirectTranslateKeyPrefix,
             readingModeKeyPrefix
         )
+        private const val READING_MODE_SAMPLE_COUNT = 6
+        private const val WEBTOON_ASPECT_RATIO_THRESHOLD = 2.4f
     }
 }

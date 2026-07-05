@@ -78,6 +78,14 @@ internal class LibraryImportExportCoordinator(
             }.getOrNull().orEmpty()
             val isPdf = displayName.substringAfterLast('.', "").lowercase() == "pdf"
             val result = if (isPdf) repository.importPdf(uri) else repository.importCbz(uri)
+            result?.folder?.let { importedFolder ->
+                if (result.importedCount > 0) {
+                    preferencesGateway.autoDetectAndSetReadingMode(
+                        importedFolder,
+                        repository.listImages(importedFolder)
+                    )
+                }
+            }
             withContext(Dispatchers.Main) {
                 when {
                     result == null -> ui.showToast(
@@ -193,6 +201,9 @@ internal class LibraryImportExportCoordinator(
         }
         scope.launch(Dispatchers.IO) {
             val added = repository.addImages(folder, images.map { it.uri })
+            if (added.isNotEmpty()) {
+                preferencesGateway.autoDetectAndSetReadingMode(folder, added)
+            }
             withContext(Dispatchers.Main) {
                 if (added.isEmpty()) {
                     folder.deleteRecursively()
@@ -222,6 +233,7 @@ internal class LibraryImportExportCoordinator(
             var importedChapters = 0
             var importedImages = 0
             var skippedChapters = 0
+            val detectionSamples = ArrayList<File>()
 
             for (source in sources) {
                 val sourceName = source.name?.trim().orEmpty()
@@ -246,8 +258,13 @@ internal class LibraryImportExportCoordinator(
                     skippedChapters += 1
                     continue
                 }
+                appendDetectionSamples(detectionSamples, added)
                 importedChapters += 1
                 importedImages += added.size
+            }
+
+            if (importedChapters > 0) {
+                preferencesGateway.autoDetectAndSetReadingMode(collection, detectionSamples)
             }
 
             withContext(Dispatchers.Main) {
@@ -321,9 +338,11 @@ internal class LibraryImportExportCoordinator(
         scope: CoroutineScope
     ) {
         scope.launch(Dispatchers.IO) {
+            val collectionWasEmpty = !collectionHasAnyImages(parentFolder)
             var importedChapters = 0
             var importedImages = 0
             var skippedChapters = 0
+            val detectionSamples = ArrayList<File>()
 
             for (source in sources) {
                 val sourceName = source.name?.trim().orEmpty()
@@ -348,8 +367,13 @@ internal class LibraryImportExportCoordinator(
                     skippedChapters += 1
                     continue
                 }
+                appendDetectionSamples(detectionSamples, added)
                 importedChapters += 1
                 importedImages += added.size
+            }
+
+            if (collectionWasEmpty && importedChapters > 0) {
+                preferencesGateway.autoDetectAndSetReadingMode(parentFolder, detectionSamples)
             }
 
             withContext(Dispatchers.Main) {
@@ -375,6 +399,18 @@ internal class LibraryImportExportCoordinator(
                 ui.refreshFolders()
             }
         }
+    }
+
+    private fun collectionHasAnyImages(collectionFolder: File): Boolean {
+        return repository.listChildFolders(collectionFolder).any { chapter ->
+            repository.listImages(chapter).isNotEmpty()
+        }
+    }
+
+    private fun appendDetectionSamples(target: MutableList<File>, added: List<File>) {
+        if (target.size >= READING_MODE_SAMPLE_LIMIT) return
+        val remaining = READING_MODE_SAMPLE_LIMIT - target.size
+        target.addAll(added.take(remaining))
     }
 
 
@@ -417,6 +453,10 @@ internal class LibraryImportExportCoordinator(
         requestExportDirectoryPermission, requestLegacyPermission,
         onExitSelectionMode, onSetExportEnabled
     )
+
+    private companion object {
+        private const val READING_MODE_SAMPLE_LIMIT = 6
+    }
 
     fun exportCollectionAfterPermission(
         uiContext: Context, collectionFolder: File,

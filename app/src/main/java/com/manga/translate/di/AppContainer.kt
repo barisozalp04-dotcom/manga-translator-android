@@ -9,6 +9,7 @@ import com.manga.translate.FloatingEmptyBubbleCoordinator
 import com.manga.translate.FloatingTranslationCacheStore
 import com.manga.translate.FolderTranslationCoordinator
 import com.manga.translate.GlossaryStore
+import com.manga.translate.LibraryPreferencesGateway
 import com.manga.translate.LibraryRepository
 import com.manga.translate.LibraryUiCallbacks
 import com.manga.translate.LocalModelMemoryManager
@@ -93,6 +94,11 @@ internal class AppContainer(private val appContext: Context) {
             extractStateStore = extractStateStore,
             translationStore = translationStore,
             settingsStore = settingsStore,
+            preferencesGateway = LibraryPreferencesGateway(
+                context = appContext,
+                prefs = libraryPrefs,
+                repository = libraryRepository
+            ),
             llmClient = llmClient,
             ui = ui,
             progressStore = translationProgressStore,
