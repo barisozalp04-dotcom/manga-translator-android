@@ -31,6 +31,10 @@ class FloatingDetectionOverlayView @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null
 ) : View(context, attrs) {
+    private companion object {
+        private const val DEFAULT_TEXT_COLOR = 0xFF111111.toInt()
+    }
+
     private val boxPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = 0xD9FFFFFF.toInt()
         style = Paint.Style.FILL
@@ -56,7 +60,7 @@ class FloatingDetectionOverlayView @JvmOverloads constructor(
         strokeWidth = resources.displayMetrics.density * 1.5f
     }
     private val textPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0xFF111111.toInt()
+        color = DEFAULT_TEXT_COLOR
         textSize = resources.displayMetrics.density * resources.configuration.fontScale * 12f
     }
     private val hardMinTextSizePx: Float
@@ -511,6 +515,7 @@ class FloatingDetectionOverlayView @JvmOverloads constructor(
 
     private fun applyBubbleOpacity() {
         boxPaint.color = Color.argb((bubbleOpacity * 255f).toInt().coerceIn(0, 255), 255, 255, 255)
+        textPaint.color = DEFAULT_TEXT_COLOR
     }
 
     private fun applyTypefaceSettings() {
@@ -558,7 +563,7 @@ class FloatingDetectionOverlayView @JvmOverloads constructor(
             return
         }
         val alpha = (bubbleOpacity * 255f).toInt().coerceIn(0, 255)
-        val color = bubbleColorCache.getOrPut(bubble.id) {
+        val bubbleFillColor = bubbleColorCache.getOrPut(bubble.id) {
             val bmp = sourceBitmap
             val sampleScaleX = if (sourceWidth > 0 && bmp != null) {
                 bmp.width.toFloat() / sourceWidth.toFloat()
@@ -578,11 +583,15 @@ class FloatingDetectionOverlayView @JvmOverloads constructor(
                 bubble.rect.bottom * sampleScaleY
             ) ?: Color.WHITE
         }
+        textPaint.color = BubbleTextColorResolver.resolveContrastingTextColor(
+            backgroundColor = bubbleFillColor,
+            darkTextColor = DEFAULT_TEXT_COLOR
+        )
         boxPaint.color = Color.argb(
             alpha,
-            Color.red(color),
-            Color.green(color),
-            Color.blue(color)
+            Color.red(bubbleFillColor),
+            Color.green(bubbleFillColor),
+            Color.blue(bubbleFillColor)
         )
     }
 

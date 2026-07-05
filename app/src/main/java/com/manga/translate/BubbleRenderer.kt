@@ -18,11 +18,15 @@ import kotlinx.coroutines.withContext
 import kotlin.math.min
 
 class BubbleRenderer(context: Context) {
+    private companion object {
+        private const val DEFAULT_TEXT_COLOR = 0xFF1B1B1B.toInt()
+    }
+
     private val appContext = context.applicationContext
     private val resources = context.resources
     private val bubbleRenderSettings = SettingsStore(appContext).loadNormalBubbleRenderSettings()
     private val textPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0xFF1B1B1B.toInt()
+        color = DEFAULT_TEXT_COLOR
         applyInitialTypefaceSettings()
     }
     private val minAreaPerCharSp = bubbleRenderSettings.minAreaPerCharSp
@@ -117,21 +121,25 @@ class BubbleRenderer(context: Context) {
             val opacityAlpha = resolveBubbleOpacityAlpha(bubble)
             val useAutoAdaptColor = bubble.source.isFreeBubble &&
                 bubbleRenderSettings.autoAdaptFreeBubbleColor
-            if (useAutoAdaptColor) {
+            val bubbleFillColor = if (useAutoAdaptColor) {
                 val sampleLeft = bubble.rect.left * scaleX
                 val sampleTop = bubble.rect.top * scaleY
                 val sampleRight = bubble.rect.right * scaleX
                 val sampleBottom = bubble.rect.bottom * scaleY
-                val sampled = BubbleColorSampler.sampleBackgroundColor(
+                BubbleColorSampler.sampleBackgroundColor(
                     output, sampleLeft, sampleTop, sampleRight, sampleBottom
-                )
-                if (sampled != null) {
-                    fillPaint.color = sampled
-                } else {
-                    fillPaint.color = Color.WHITE
-                }
+                ) ?: Color.WHITE
             } else {
-                fillPaint.color = Color.WHITE
+                Color.WHITE
+            }
+            fillPaint.color = bubbleFillColor
+            textPaint.color = if (useAutoAdaptColor) {
+                BubbleTextColorResolver.resolveContrastingTextColor(
+                    backgroundColor = bubbleFillColor,
+                    darkTextColor = DEFAULT_TEXT_COLOR
+                )
+            } else {
+                DEFAULT_TEXT_COLOR
             }
             fillPaint.alpha = opacityAlpha
             BubbleShapePaths.buildPath(

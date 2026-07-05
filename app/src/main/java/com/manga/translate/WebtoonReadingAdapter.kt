@@ -86,6 +86,7 @@ class WebtoonReadingAdapter(
     }
 
     private var editModeEnabled = false
+    private var lockedPageImageIndex: Int? = null
     private var lockedPagePath: String? = null
     private var lockedPageTranslation: TranslationResult? = null
     private var lockedPageOffsets: Map<Int, Pair<Float, Float>> = emptyMap()
@@ -155,14 +156,18 @@ class WebtoonReadingAdapter(
 
     fun updateEditSession(
         enabled: Boolean,
+        lockedImageIndex: Int?,
         lockedImagePath: String?,
         translation: TranslationResult?,
         offsets: Map<Int, Pair<Float, Float>>
     ) {
         val affectedPaths = linkedSetOf<String>()
         lockedPagePath?.let(affectedPaths::add)
+        pathForImageIndex(lockedPageImageIndex?.plus(1))?.let(affectedPaths::add)
         lockedImagePath?.let(affectedPaths::add)
+        pathForImageIndex(lockedImageIndex?.plus(1))?.let(affectedPaths::add)
         editModeEnabled = enabled
+        lockedPageImageIndex = lockedImageIndex
         lockedPagePath = lockedImagePath
         lockedPageTranslation = translation
         lockedPageOffsets = offsets.toMap()
@@ -287,12 +292,16 @@ class WebtoonReadingAdapter(
     }
 
     fun notifyTranslationChanged(imagePath: String) {
-        translationCache.remove(imagePath)
-        synchronized(translationLoadLock) {
-            translationLoadJobs.remove(imagePath)?.cancel()
+        val impactedPaths = linkedSetOf(imagePath)
+        nextPathFor(imagePath)?.let(impactedPaths::add)
+        impactedPaths.forEach { path ->
+            translationCache.remove(path)
+            synchronized(translationLoadLock) {
+                translationLoadJobs.remove(path)?.cancel()
+            }
         }
         displayItems.forEachIndexed { index, item ->
-            if (item.path != imagePath) return@forEachIndexed
+            if (item.path !in impactedPaths) return@forEachIndexed
             notifyItemChanged(index, PAYLOAD_TRANSLATION_ONLY)
         }
     }
@@ -432,6 +441,16 @@ class WebtoonReadingAdapter(
         }
     }
 
+    private fun pathForImageIndex(imageIndex: Int?): String? {
+        val resolvedIndex = imageIndex ?: return null
+        return items.getOrNull(resolvedIndex)?.absolutePath
+    }
+
+    private fun nextPathFor(imagePath: String): String? {
+        val currentIndex = displayItems.firstOrNull { it.path == imagePath }?.imageIndex ?: return null
+        return pathForImageIndex(currentIndex + 1)
+    }
+
     inner class WebtoonPageViewHolder(
         private val binding: ItemReadingWebtoonPageBinding
     ) : RecyclerView.ViewHolder(binding.root) {
@@ -454,7 +473,8 @@ class WebtoonReadingAdapter(
         private var currentBitmap: Bitmap? = null
         private var currentImageWidth: Int = 0
         private var currentImageHeight: Int = 0
-        private var currentTranslation: TranslationResult? = null
+        private var currentBaseTranslation: TranslationResult? = null
+        private var previousPageTranslation: TranslationResult? = null
         private var downX = 0f
         private var downY = 0f
         private var touchMoved = false
@@ -546,7 +566,8 @@ class WebtoonReadingAdapter(
             currentBitmap = null
             currentImageWidth = 0
             currentImageHeight = 0
-            currentTranslation = null
+            currentBaseTranslation = null
+            previousPageTranslation = null
             downX = 0f
             downY = 0f
             touchMoved = false
@@ -587,14 +608,14 @@ class WebtoonReadingAdapter(
 
         fun refreshOverlayPresentation() {
             if (!hasCurrentContent()) return
-            bindOverlay(currentTranslation)
+            bindOverlay(currentBaseTranslation)
         }
 
         fun buildSnapshot(): BoundPageSnapshot? {
             val imageFile = boundFile ?: return null
             return BoundPageSnapshot(
                 imageFile = imageFile,
-                translation = currentTranslation,
+                translation = currentBaseTranslation,
                 sourceWidth = currentImageWidth,
                 sourceHeight = currentImageHeight
             )
@@ -686,11 +707,16 @@ class WebtoonReadingAdapter(
                 }
                 val earlyTranslationJob = launch {
                     val translation = loadTranslationShared(imageFile)
+                    val previousTranslation = item.imageIndex
+                        .takeIf { it > 0 }
+                        ?.let { items.getOrNull(it - 1) }
+                        ?.let { loadTranslationShared(it) }
                     if (boundItem?.stableKey != item.stableKey) return@launch
-                    currentTranslation = translation
+                    currentBaseTranslation = translation
+                    previousPageTranslation = previousTranslation
                     if (currentImageWidth > 0 && currentImageHeight > 0) {
-                        currentTranslation = normalizeTranslation(translation)
-                        bindOverlay(currentTranslation)
+                        currentBaseTranslation = normalizeTranslation(translation)
+                        bindOverlay(currentBaseTranslation)
                     }
                 }
                 val decoded = decodedDeferred.await()
@@ -707,7 +733,7 @@ class WebtoonReadingAdapter(
                 currentBitmap = decoded.bitmap
                 currentImageWidth = decoded.sourceWidth
                 currentImageHeight = decoded.sourceHeight
-                currentTranslation = normalizeTranslation(currentTranslation)
+                currentBaseTranslation = normalizeTranslation(currentBaseTranslation)
                 updatePageHeightForImage(decoded.sourceWidth, decoded.sourceHeight)
                 binding.readingPageImage.setRegionSource(decoded.regionSource)
                 binding.readingPageImage.setImageDrawable(decoded.drawable)
@@ -720,7 +746,7 @@ class WebtoonReadingAdapter(
                     )
                     rememberedPageHeights[item.stableKey] = binding.readingPageImage.height
                     binding.readingPagePlaceholder.visibility = View.GONE
-                    bindOverlay(currentTranslation)
+                    bindOverlay(currentBaseTranslation)
                 }
             }
         }
@@ -740,7 +766,8 @@ class WebtoonReadingAdapter(
             currentBitmap = null
             currentImageWidth = 0
             currentImageHeight = 0
-            currentTranslation = null
+            currentBaseTranslation = null
+            previousPageTranslation = null
             binding.readingPageOverlay.onOffsetChanged = null
             binding.readingPageOverlay.onBubbleRemove = null
             binding.readingPageOverlay.onBubbleTap = null
@@ -835,10 +862,15 @@ class WebtoonReadingAdapter(
             updateOverlayDisplayRect(width, height)
             binding.readingPageOverlay.setContentZoomScale(imageTransformController.currentContentZoomScale())
             binding.readingPageOverlay.setSourceBitmap(currentBitmap)
+            binding.readingPageOverlay.setCurrentImageName(boundFile?.name ?: resolved.imageName)
             binding.readingPageOverlay.setTranslations(resolved)
             binding.readingPageOverlay.setOffsets(if (lockedForEdit) lockedPageOffsets else emptyMap())
             binding.readingPageOverlay.setTouchPassthroughEnabled(!lockedForEdit)
             binding.readingPageOverlay.setEditScrollThroughEnabled(lockedForEdit)
+            binding.readingPageOverlay.setEditOverflowBounds(
+                top = 0f,
+                bottom = if (lockedForEdit) currentImageHeight.toFloat() else 0f
+            )
             binding.readingPageOverlay.onOffsetChanged = if (lockedForEdit) { bubbleId, offsetX, offsetY ->
                 onLockedBubbleOffsetChanged?.invoke(bubbleId, offsetX, offsetY)
             } else {
@@ -894,15 +926,30 @@ class WebtoonReadingAdapter(
                 val imagePath = imageFile.absolutePath
                 val translation = loadTranslationShared(imageFile)
                 if (boundPath != imagePath) return@launch
-                currentTranslation = normalizeTranslation(translation)
-                bindOverlay(currentTranslation)
+                currentBaseTranslation = normalizeTranslation(translation)
+                previousPageTranslation = boundItem
+                    ?.imageIndex
+                    ?.takeIf { it > 0 }
+                    ?.let { items.getOrNull(it - 1) }
+                    ?.let { loadTranslationShared(it) }
+                bindOverlay(currentBaseTranslation)
             }
         }
 
         private fun resolveOverlayTranslation(base: TranslationResult?): TranslationResult {
             val preferred = if (isLockedEditPage()) lockedPageTranslation ?: base else base
-            return normalizeTranslation(preferred)
-                ?: TranslationResult("", currentImageWidth, currentImageHeight, emptyList())
+            val normalized = normalizeTranslation(preferred)
+            val spillBubbles = projectPreviousManualBubbles(resolveSpillSourceTranslation())
+            if (normalized == null) {
+                return TranslationResult(
+                    imageName = boundFile?.name.orEmpty(),
+                    width = currentImageWidth,
+                    height = currentImageHeight,
+                    bubbles = spillBubbles
+                )
+            }
+            if (spillBubbles.isEmpty()) return normalized
+            return normalized.copy(bubbles = normalized.bubbles + spillBubbles)
         }
 
         private fun normalizeTranslation(translation: TranslationResult?): TranslationResult? {
@@ -918,6 +965,43 @@ class WebtoonReadingAdapter(
             return editModeEnabled &&
                 boundPath != null &&
                 boundPath == lockedPagePath
+        }
+
+        private fun resolveSpillSourceTranslation(): TranslationResult? {
+            val item = boundItem ?: return null
+            val previousIndex = item.imageIndex - 1
+            if (previousIndex < 0) return null
+            return if (editModeEnabled && lockedPageImageIndex == previousIndex) {
+                lockedPageTranslation
+            } else {
+                previousPageTranslation
+            }
+        }
+
+        private fun projectPreviousManualBubbles(previous: TranslationResult?): List<BubbleTranslation> {
+            val previousTranslation = previous ?: return emptyList()
+            if (previousTranslation.height <= 0 || currentImageHeight <= 0) return emptyList()
+            val previousImageName = previousTranslation.imageName.ifBlank {
+                items.getOrNull((boundItem?.imageIndex ?: 0) - 1)?.name.orEmpty()
+            }
+            return previousTranslation.bubbles.mapNotNull { bubble ->
+                if (bubble.source != BubbleSource.MANUAL) return@mapNotNull null
+                if (bubble.resolvedOwnerImageName(previousImageName) != previousImageName) return@mapNotNull null
+                if (bubble.rect.bottom <= previousTranslation.height.toFloat()) return@mapNotNull null
+                val projected = RectF(
+                    bubble.rect.left,
+                    bubble.rect.top - previousTranslation.height.toFloat(),
+                    bubble.rect.right,
+                    bubble.rect.bottom - previousTranslation.height.toFloat()
+                )
+                if (projected.bottom <= 0f || projected.top >= currentImageHeight.toFloat()) {
+                    return@mapNotNull null
+                }
+                bubble.copy(
+                    rect = projected,
+                    ownerImageName = previousImageName
+                )
+            }
         }
 
         private fun resolveTargetWidth(): Int {

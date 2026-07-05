@@ -564,6 +564,7 @@ class ReadingFragment : Fragment() {
         webtoonLayoutManager.setLockedPositionRange(lockedAdapterRange)
         webtoonAdapter.updateEditSession(
             enabled = active,
+            lockedImageIndex = if (active) webtoonLockedPageIndex else null,
             lockedImagePath = if (active) webtoonLockedPagePath else null,
             translation = if (active) currentTranslation else null,
             offsets = if (active) webtoonEditOffsets else emptyMap()
@@ -692,8 +693,10 @@ class ReadingFragment : Fragment() {
         binding.translationOverlay.setDisplayRect(rect)
         binding.translationOverlay.setContentZoomScale(imageTransformController.currentContentZoomScale())
         binding.translationOverlay.setSourceBitmap(bitmap)
+        binding.translationOverlay.setCurrentImageName(currentImageFile?.name ?: normalized.imageName)
         binding.translationOverlay.setTranslations(normalized)
         binding.translationOverlay.setOffsets(emptyMap())
+        binding.translationOverlay.setEditOverflowBounds(0f, 0f)
         binding.translationOverlay.setEditMode(isEditMode)
         binding.translationOverlay.visibility = View.VISIBLE
     }
@@ -1208,11 +1211,19 @@ class ReadingFragment : Fragment() {
                 if (!isAdded || _binding == null || folderReadingMode != FolderReadingMode.WEBTOON_SCROLL) {
                     return@collect
                 }
-                if (isVisibleWebtoonPath(path)) {
+                val nextPath = resolveNextImagePath(path)
+                if (isVisibleWebtoonPath(path) || (nextPath != null && isVisibleWebtoonPath(nextPath))) {
                     webtoonAdapter.notifyTranslationChanged(path)
                 }
             }
         }
+    }
+
+    private fun resolveNextImagePath(path: String): String? {
+        val images = readingSessionViewModel.images.value.orEmpty()
+        val index = images.indexOfFirst { it.absolutePath == path }
+        if (index < 0) return null
+        return images.getOrNull(index + 1)?.absolutePath
     }
 
     private fun refreshVisibleWebtoonTranslations() {
@@ -1659,7 +1670,13 @@ class ReadingFragment : Fragment() {
         binding.translationOverlay.setCreateBubbleMode(false)
         val translation = currentTranslation ?: return
         val nextId = (translation.bubbles.maxOfOrNull { it.id } ?: -1) + 1
-        val newBubble = BubbleTranslation.pending(nextId, RectF(rect), "", BubbleSource.MANUAL)
+        val newBubble = BubbleTranslation.pending(
+            nextId,
+            RectF(rect),
+            "",
+            BubbleSource.MANUAL,
+            ownerImageName = currentImageFile?.name
+        )
         val updated = translation.copy(bubbles = translation.bubbles + newBubble)
         currentTranslation = updated
         renderAndMaybePersistCurrentTranslation()
@@ -1726,9 +1743,14 @@ class ReadingFragment : Fragment() {
             left -= right - imageWidth
             right = imageWidth
         }
-        if (bottom > imageHeight) {
-            top -= bottom - imageHeight
-            bottom = imageHeight
+        val maxBottom = if (isWebtoonEditSessionActive()) {
+            imageHeight * 2f
+        } else {
+            imageHeight
+        }
+        if (bottom > maxBottom) {
+            top -= bottom - maxBottom
+            bottom = maxBottom
         }
         if (left < 0f) left = 0f
         if (top < 0f) top = 0f
@@ -1761,7 +1783,7 @@ class ReadingFragment : Fragment() {
             val imageCenter = lockedHolder?.computeVisibleCenterImagePoint()
             if (imageCenter != null) {
                 left = (imageCenter.first - bubbleWidth / 2f).coerceIn(0f, width - bubbleWidth)
-                top = (imageCenter.second - bubbleHeight / 2f).coerceIn(0f, height - bubbleHeight)
+                top = (imageCenter.second - bubbleHeight / 2f).coerceIn(0f, height * 2f - bubbleHeight)
             } else {
                 left = (width - bubbleWidth) / 2f
                 top = (height - bubbleHeight) / 2f
@@ -1772,7 +1794,13 @@ class ReadingFragment : Fragment() {
         }
         val rect = RectF(left, top, left + bubbleWidth, top + bubbleHeight)
         val nextId = (translation.bubbles.maxOfOrNull { it.id } ?: -1) + 1
-        val newBubble = BubbleTranslation.pending(nextId, rect, "", BubbleSource.MANUAL)
+        val newBubble = BubbleTranslation.pending(
+            nextId,
+            rect,
+            "",
+            BubbleSource.MANUAL,
+            ownerImageName = currentImageFile?.name
+        )
         val updated = translation.copy(bubbles = translation.bubbles + newBubble)
         currentTranslation = updated
         renderAndMaybePersistCurrentTranslation()

@@ -115,9 +115,19 @@ data class BubbleTranslation(
         BubbleTranslationState.PENDING
     },
     val source: BubbleSource = BubbleSource.UNKNOWN,
-    val maskContour: FloatArray? = null
+    val maskContour: FloatArray? = null,
+    val ownerImageName: String? = null
 ) {
     fun supportsResizeEditing(): Boolean = maskContour == null
+
+    fun resolvedOwnerImageName(defaultImageName: String): String {
+        return ownerImageName?.trim().orEmpty().ifBlank { defaultImageName }
+    }
+
+    fun isOwnedBy(imageName: String?): Boolean {
+        if (imageName.isNullOrBlank()) return true
+        return resolvedOwnerImageName(imageName) == imageName
+    }
 
     val text: String
         get() = when {
@@ -191,7 +201,8 @@ data class BubbleTranslation(
             rect: RectF,
             originalText: String = "",
             source: BubbleSource = BubbleSource.UNKNOWN,
-            maskContour: FloatArray? = null
+            maskContour: FloatArray? = null,
+            ownerImageName: String? = null
         ): BubbleTranslation {
             return BubbleTranslation(
                 id = id,
@@ -200,7 +211,8 @@ data class BubbleTranslation(
                 translatedText = "",
                 translationState = BubbleTranslationState.PENDING,
                 source = source,
-                maskContour = maskContour
+                maskContour = maskContour,
+                ownerImageName = ownerImageName
             )
         }
 
@@ -210,7 +222,8 @@ data class BubbleTranslation(
             translatedText: String,
             source: BubbleSource = BubbleSource.UNKNOWN,
             maskContour: FloatArray? = null,
-            originalText: String = ""
+            originalText: String = "",
+            ownerImageName: String? = null
         ): BubbleTranslation {
             return BubbleTranslation(
                 id = id,
@@ -223,7 +236,8 @@ data class BubbleTranslation(
                     BubbleTranslationState.PENDING
                 },
                 source = source,
-                maskContour = maskContour
+                maskContour = maskContour,
+                ownerImageName = ownerImageName
             )
         }
     }

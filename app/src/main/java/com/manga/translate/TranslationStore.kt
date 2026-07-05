@@ -85,6 +85,7 @@ class TranslationStore {
                 val maskContour = if (maskContourJson != null && maskContourJson.length() >= 6) {
                     FloatArray(maskContourJson.length()) { i -> maskContourJson.optDouble(i).toFloat() }
                 } else null
+                val ownerImageName = item.optString("ownerImageName", "").ifBlank { null }
                 val bubble = if (
                     item.has("originalText") ||
                     item.has("translatedText") ||
@@ -97,7 +98,8 @@ class TranslationStore {
                         translatedText = translatedText,
                         translationState = translationState,
                         source = source,
-                        maskContour = maskContour
+                        maskContour = maskContour,
+                        ownerImageName = ownerImageName
                     )
                 } else {
                     val legacyText = item.optString("text", "")
@@ -106,7 +108,8 @@ class TranslationStore {
                         rect = rect,
                         translatedText = legacyText,
                         source = source,
-                        maskContour = maskContour
+                        maskContour = maskContour,
+                        ownerImageName = ownerImageName
                     )
                 }
                 bubbles.add(bubble)
@@ -176,6 +179,9 @@ class TranslationStore {
                 .put("translatedText", bubble.translatedText)
                 .put("translationState", bubble.translationState.jsonValue)
                 .put("source", bubble.source.jsonValue)
+            bubble.ownerImageName?.takeIf { it.isNotBlank() }?.let {
+                item.put("ownerImageName", it)
+            }
             if (bubble.maskContour != null) {
                 val contourArr = JSONArray()
                 for (v in bubble.maskContour) contourArr.put(v.toDouble())

@@ -2,6 +2,8 @@ package com.manga.translate
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.graphics.RectF
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -57,11 +59,26 @@ internal class ReadingEmptyBubbleCoordinator(
                     return@withContext null
                 }
                 for (bubble in targets) {
-                    val text = ocrBubble(cropSource, bubble.rect, language, useLocalOcr).trim()
+                    val text = ocrBubble(
+                        imageFile = imageFile,
+                        folder = folder,
+                        cropSource = cropSource,
+                        bubble = bubble,
+                        language = language,
+                        useLocalOcr = useLocalOcr
+                    ).trim()
                     if (text.length <= 2) {
                         removedIds.add(bubble.id)
                     } else {
-                        candidates.add(OcrBubble(bubble.id, bubble.rect, text, bubble.source))
+                        candidates.add(
+                            OcrBubble(
+                                bubble.id,
+                                bubble.rect,
+                                text,
+                                bubble.source,
+                                bubble.maskContour
+                            )
+                        )
                     }
                 }
 
@@ -135,11 +152,29 @@ internal class ReadingEmptyBubbleCoordinator(
     }
 
     private suspend fun ocrBubble(
+        imageFile: File,
+        folder: File,
         cropSource: BitmapCropSource,
-        rect: RectF,
+        bubble: BubbleTranslation,
         language: TranslationLanguage,
         useLocalOcr: Boolean
     ): String {
+        val rect = bubble.rect
+        if (bubble.source == BubbleSource.MANUAL && rect.bottom > cropSource.height) {
+            val stitched = decodeCrossPageManualBubbleCrop(imageFile, folder, cropSource, rect)
+            if (stitched != null) {
+                return try {
+                    bubbleTextRecognizer.recognizeCrop(
+                        crop = stitched,
+                        language = language,
+                        useLocalOcr = useLocalOcr,
+                        logTag = "Reading"
+                    ).textOrEmpty()
+                } finally {
+                    stitched.recycleSafely()
+                }
+            }
+        }
         return bubbleTextRecognizer.recognizeRegion(
             cropSource = cropSource,
             rect = rect,
@@ -147,6 +182,67 @@ internal class ReadingEmptyBubbleCoordinator(
             useLocalOcr = useLocalOcr,
             logTag = "Reading"
         ).textOrEmpty()
+    }
+
+    private suspend fun decodeCrossPageManualBubbleCrop(
+        imageFile: File,
+        folder: File,
+        currentCropSource: BitmapCropSource,
+        rect: RectF
+    ): Bitmap? {
+        val images = repository.listImages(folder)
+        val currentIndex = images.indexOfFirst { it.absolutePath == imageFile.absolutePath }
+        if (currentIndex < 0) return null
+        val nextFile = images.getOrNull(currentIndex + 1) ?: return null
+        val overflowHeight = rect.bottom - currentCropSource.height.toFloat()
+        if (overflowHeight <= 0f) return null
+        val targetWidth = rect.width().toInt().coerceAtLeast(1)
+        val targetHeight = rect.height().toInt().coerceAtLeast(1)
+        val stitched = Bitmap.createBitmap(targetWidth, targetHeight, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(stitched)
+
+        val currentRect = PipelineBitmapDecoder.clampRect(
+            RectF(rect.left, rect.top.coerceAtLeast(0f), rect.right, currentCropSource.height.toFloat()),
+            currentCropSource.width,
+            currentCropSource.height
+        ) ?: run {
+            stitched.recycleSafely()
+            return null
+        }
+        val currentBitmap = currentCropSource.decodeRegion(currentRect, maxEdge = 4096) ?: run {
+            stitched.recycleSafely()
+            return null
+        }
+        try {
+            canvas.drawBitmap(currentBitmap, 0f, (currentRect.top - rect.top).coerceAtLeast(0f), null)
+        } finally {
+            currentBitmap.recycleSafely()
+        }
+
+        val nextCropSource = PipelineBitmapDecoder.openCropSource(nextFile) ?: run {
+            stitched.recycleSafely()
+            return null
+        }
+        nextCropSource.use { nextSource ->
+            val nextRect = PipelineBitmapDecoder.clampRect(
+                RectF(rect.left, 0f, rect.right, overflowHeight),
+                nextSource.width,
+                nextSource.height
+            ) ?: run {
+                stitched.recycleSafely()
+                return null
+            }
+            val nextBitmap = nextSource.decodeRegion(nextRect, maxEdge = 4096) ?: run {
+                stitched.recycleSafely()
+                return null
+            }
+            try {
+                canvas.drawBitmap(nextBitmap, 0f, (currentCropSource.height.toFloat() - rect.top).coerceAtLeast(0f), null)
+            } finally {
+                nextBitmap.recycleSafely()
+            }
+        }
+        return stitched
     }
 }
 
