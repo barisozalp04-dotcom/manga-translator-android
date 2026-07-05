@@ -9,6 +9,7 @@
         android:id="@+id/reading_webtoon_list"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
+        android:clipChildren="false"
         android:clipToPadding="false"
         android:paddingBottom="16dp"
         android:scrollbars="none"

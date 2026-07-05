@@ -556,6 +556,12 @@ internal class FolderTranslationCoordinator(
                     )
                 }
 
+                if (ocrResults.isNotEmpty()) {
+                    val merged = CrossPageBubbleMerger.merge(ocrResults)
+                    ocrResults.clear()
+                    ocrResults.addAll(merged)
+                }
+
                 val glossaryPages = ocrResults.filterNot {
                     translationPipeline.hasValidTranslation(
                         imageFile = it.imageFile,
@@ -798,6 +804,12 @@ internal class FolderTranslationCoordinator(
             }
         }
 
+        if (ocrResults.isNotEmpty()) {
+            val merged = CrossPageBubbleMerger.merge(ocrResults)
+            ocrResults.clear()
+            ocrResults.addAll(merged)
+        }
+
         val glossaryPages = ocrResults.filterNot {
             translationPipeline.hasValidTranslation(
                 imageFile = it.imageFile,
@@ -999,28 +1011,62 @@ internal class FolderTranslationCoordinator(
         onPrepareProgress: suspend (processed: Int, total: Int, imageName: String) -> Unit,
         onCountUpdated: suspend (Int) -> Unit
     ): Boolean {
-        val maxConcurrency = settingsStore.loadMaxConcurrency()
-        val apiSemaphore = Semaphore(maxConcurrency)
-        val translatedCount = AtomicInteger(0)
-        val preparedCount = AtomicInteger(0)
-        val hasFailures = AtomicBoolean(false)
-        val requestFailed = AtomicBoolean(false)
-        val requestException = AtomicReference<LlmRequestException?>(null)
-        val scheduler = WeightedTranslationProviderScheduler(settingsStore.loadMainTranslationProviderPool())
+        val preparedPages = prepareStandardPagesConcurrent(
+            pages = pages,
+            force = force,
+            useVlDirectTranslate = useVlDirectTranslate,
+            language = language,
+            onPrepareProgress = onPrepareProgress
+        )
+        val mergedPreparedPages = if (!useVlDirectTranslate) {
+            applyCrossPageBubbleMerge(preparedPages)
+        } else {
+            preparedPages
+        }
+        return executePreparedStandardPages(
+            pages = pages,
+            preparedPages = mergedPreparedPages,
+            folder = folder,
+            force = force,
+            glossaryProcessingEnabled = glossaryProcessingEnabled,
+            useVlDirectTranslate = useVlDirectTranslate,
+            language = language,
+            glossary = glossary,
+            glossaryMutex = glossaryMutex,
+            onCountUpdated = onCountUpdated
+        )
+    }
+
+    private suspend fun prepareStandardPagesConcurrent(
+        pages: List<File>,
+        force: Boolean,
+        useVlDirectTranslate: Boolean,
+        language: TranslationLanguage,
+        onPrepareProgress: suspend (processed: Int, total: Int, imageName: String) -> Unit
+    ): List<PreparedStandardPage?> {
+        if (useVlDirectTranslate) {
+            onPrepareProgress(pages.size, pages.size, "")
+            return pages.map { PreparedStandardPage(image = it, ocrResult = null) }
+        }
+        if (pages.isEmpty()) {
+            onPrepareProgress(0, 0, "")
+            return emptyList()
+        }
         onPrepareProgress(0, pages.size, "")
-
+        val maxConcurrency = settingsStore.loadMaxConcurrency().coerceAtLeast(1)
+        val semaphore = Semaphore(maxConcurrency)
+        val prepared = ArrayList<PreparedStandardPage?>(pages.size)
+        repeat(pages.size) { prepared.add(null) }
         supervisorScope {
-            val tasks = pages.map { image ->
+            val tasks = pages.mapIndexed { index, image ->
                 async {
-                    apiSemaphore.withPermit {
+                    semaphore.withPermit {
                         currentCoroutineContext().ensureActive()
-
-                        // —— Phase 1: Prepare (OCR) ——
-                        val prepared = try {
+                        val result = try {
                             prepareStandardPageForTranslation(
                                 image = image,
                                 force = force,
-                                useVlDirectTranslate = useVlDirectTranslate,
+                                useVlDirectTranslate = false,
                                 language = language
                             )
                         } catch (e: CancellationException) {
@@ -1029,8 +1075,62 @@ internal class FolderTranslationCoordinator(
                             AppLogger.log("Library", "Prepare standard page failed for ${image.name}", e)
                             null
                         }
-                        val currentPrepared = preparedCount.incrementAndGet()
+                        prepared[index] = result
+                        val currentPrepared = prepared.count { it != null }
                         onPrepareProgress(currentPrepared, pages.size, image.name)
+                    }
+                }
+            }
+            tasks.awaitAll()
+        }
+        return prepared
+    }
+
+    private fun applyCrossPageBubbleMerge(
+        preparedPages: List<PreparedStandardPage?>
+    ): List<PreparedStandardPage?> {
+        val indexedOcr = preparedPages.mapIndexed { index, prepared ->
+            index to prepared?.ocrResult
+        }
+        val validPairs = indexedOcr.filter { it.second != null }
+        if (validPairs.size < 2) return preparedPages
+        val merged = CrossPageBubbleMerger.merge(validPairs.map { it.second!! })
+        val mergedByIndex = mutableMapOf<Int, PageOcrResult>()
+        validPairs.forEachIndexed { mergeIndex, (originalIndex, _) ->
+            mergedByIndex[originalIndex] = merged[mergeIndex]
+        }
+        return preparedPages.mapIndexed { index, prepared ->
+            if (prepared == null) return@mapIndexed null
+            mergedByIndex[index]?.let { prepared.copy(ocrResult = it) } ?: prepared
+        }
+    }
+
+    private suspend fun executePreparedStandardPages(
+        pages: List<File>,
+        preparedPages: List<PreparedStandardPage?>,
+        folder: File,
+        force: Boolean,
+        glossaryProcessingEnabled: Boolean,
+        useVlDirectTranslate: Boolean,
+        language: TranslationLanguage,
+        glossary: MutableMap<String, String>,
+        glossaryMutex: Mutex,
+        onCountUpdated: suspend (Int) -> Unit
+    ): Boolean {
+        val maxConcurrency = settingsStore.loadMaxConcurrency()
+        val apiSemaphore = Semaphore(maxConcurrency)
+        val translatedCount = AtomicInteger(0)
+        val hasFailures = AtomicBoolean(false)
+        val requestFailed = AtomicBoolean(false)
+        val requestException = AtomicReference<LlmRequestException?>(null)
+        val scheduler = WeightedTranslationProviderScheduler(settingsStore.loadMainTranslationProviderPool())
+
+        supervisorScope {
+            val tasks = pages.mapIndexed { index, image ->
+                val prepared = preparedPages.getOrNull(index)
+                async {
+                    apiSemaphore.withPermit {
+                        currentCoroutineContext().ensureActive()
 
                         if (prepared == null) {
                             hasFailures.set(true)
@@ -1041,7 +1141,6 @@ internal class FolderTranslationCoordinator(
                             progressStore.update(folder, image.name, PageProgressStatus.OCR_DONE)
                         }
 
-                        // —— Phase 2: Translate ——
                         if (requestFailed.get()) {
                             markPageAborted(folder, image, hasFailures, requestException)
                             return@withPermit
