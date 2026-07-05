@@ -11,6 +11,8 @@ enum class TranslationLanguage(
     JA_TO_ZH("ja_to_zh", R.string.translation_source_japanese, "JAP"),
     EN_TO_ZH("en_to_zh", R.string.translation_source_english, "ENG"),
     KO_TO_ZH("ko_to_zh", R.string.translation_source_korean, "KOR"),
+    ZH_HANS_TO_TARGET("zh_hans_to_target", R.string.translation_source_simplified_chinese, "CHN_ENG"),
+    ZH_HANT_TO_TARGET("zh_hant_to_target", R.string.translation_source_traditional_chinese, "CHN_ENG"),
     CHN_ENG_TO_ZH("chn_eng_to_zh", R.string.translation_source_mixed_chinese_english, "CHN_ENG"),
     FR_TO_ZH("fr_to_zh", R.string.translation_source_french, "FRE"),
     ES_TO_ZH("es_to_zh", R.string.translation_source_spanish, "SPA"),
@@ -30,7 +32,8 @@ enum class TranslationLanguage(
     fun supportsLocalOcr(): Boolean {
         return when (this) {
             JA_TO_ZH, EN_TO_ZH, KO_TO_ZH, FR_TO_ZH, ES_TO_ZH, PT_TO_ZH, DE_TO_ZH, IT_TO_ZH -> true
-            CHN_ENG_TO_ZH, RU_TO_ZH -> false
+            ZH_HANS_TO_TARGET, ZH_HANT_TO_TARGET, CHN_ENG_TO_ZH -> true
+            RU_TO_ZH -> false
         }
     }
 

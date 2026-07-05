@@ -135,7 +135,7 @@ export PATH=$PATH:$ANDROID_HOME/platform-tools
 - `FloatingBubbleTranslationCoordinator.kt`：悬浮窗气泡翻译协调，负责悬浮窗特有的缓存与回退策略。
 - `OcrSharedTools.kt`：OCR 共享工具模块，集中放 OCR 引擎注册、区域识别、裁剪、行识别和 OCR 文本归一化辅助。
 - `OcrEngine.kt`：OCR 抽象接口。
-- `MangaOcr.kt`、`MangaOcrMobile.kt`、`EnglishOcr.kt`、`KoreanOcr.kt`：当前启用的本地 OCR 实现。日文支持 `MangaOcr` 与 `MangaOcr Mobile`，默认走后者；`PP-OCR` 已移除。
+- `MangaOcr.kt`、`MangaOcrMobile.kt`、`EnglishOcr.kt`、`KoreanOcr.kt`：当前启用的本地 OCR 实现。日文支持 `MangaOcr` 与 `MangaOcr Mobile`，默认走后者；英文/拉丁语系以及简体中文、繁体中文、中英混合当前统一走 `PP-OCRv6_small_rec`；`PP-OCR` 已移除。
 - `EnglishLineDetector.kt`：英/韩行检测模型封装。
 
 ### 检测与模型支持

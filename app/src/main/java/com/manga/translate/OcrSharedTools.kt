@@ -164,14 +164,16 @@ class BubbleTextRecognizer(
             ) {
                 JapaneseLocalOcrEngine.MANGA_OCR_MOBILE -> engineRegistry.getMangaOcrMobile(logTag)
             }
-            TranslationLanguage.EN_TO_ZH -> engineRegistry.getPpOcrV6SmallRec(logTag)
+            TranslationLanguage.EN_TO_ZH,
+            TranslationLanguage.ZH_HANS_TO_TARGET,
+            TranslationLanguage.ZH_HANT_TO_TARGET,
+            TranslationLanguage.CHN_ENG_TO_ZH -> engineRegistry.getPpOcrV6SmallRec(logTag)
             TranslationLanguage.KO_TO_ZH -> engineRegistry.getKoreanOcr(logTag)
             TranslationLanguage.FR_TO_ZH,
             TranslationLanguage.ES_TO_ZH,
             TranslationLanguage.PT_TO_ZH,
             TranslationLanguage.DE_TO_ZH,
             TranslationLanguage.IT_TO_ZH -> engineRegistry.getPpOcrV6SmallRec(logTag)
-            TranslationLanguage.CHN_ENG_TO_ZH,
             TranslationLanguage.RU_TO_ZH -> null
         }
     }
@@ -200,6 +202,8 @@ class BubbleTextRecognizer(
             }
 
             TranslationLanguage.JA_TO_ZH,
+            TranslationLanguage.ZH_HANS_TO_TARGET,
+            TranslationLanguage.ZH_HANT_TO_TARGET,
             TranslationLanguage.CHN_ENG_TO_ZH,
             TranslationLanguage.RU_TO_ZH -> emptyList()
         }
@@ -285,6 +289,16 @@ class BubbleTextRecognizer(
                 }
             }
 
+            TranslationLanguage.ZH_HANS_TO_TARGET,
+            TranslationLanguage.ZH_HANT_TO_TARGET,
+            TranslationLanguage.CHN_ENG_TO_ZH -> {
+                val engine = engineRegistry.getPpOcrV6SmallRec(logTag)
+                    ?: return OcrRecognitionResult.Failure(
+                        IllegalStateException("PP-OCRv6_small_rec engine unavailable")
+                    )
+                engine.recognize(crop).trim()
+            }
+
             TranslationLanguage.KO_TO_ZH -> {
                 val engine = engineRegistry.getKoreanOcr(logTag)
                     ?: return OcrRecognitionResult.Failure(
@@ -303,7 +317,6 @@ class BubbleTextRecognizer(
                 }
             }
 
-            TranslationLanguage.CHN_ENG_TO_ZH,
             TranslationLanguage.RU_TO_ZH -> return OcrRecognitionResult.Failure(
                 IllegalStateException("Local OCR unsupported for ${language.name}")
             )

@@ -892,13 +892,15 @@ internal class TranslationPipeline(
                     JapaneseLocalOcrEngine.MANGA_OCR_MOBILE -> "local_ja_mangaocr_mobile"
                 }
                 TranslationLanguage.EN_TO_ZH,
+                TranslationLanguage.ZH_HANS_TO_TARGET,
+                TranslationLanguage.ZH_HANT_TO_TARGET,
+                TranslationLanguage.CHN_ENG_TO_ZH,
                 TranslationLanguage.FR_TO_ZH,
                 TranslationLanguage.ES_TO_ZH,
                 TranslationLanguage.PT_TO_ZH,
                 TranslationLanguage.DE_TO_ZH,
                 TranslationLanguage.IT_TO_ZH -> "local_ppocrv6_small_rec"
                 TranslationLanguage.KO_TO_ZH -> "local_ko"
-                TranslationLanguage.CHN_ENG_TO_ZH,
                 TranslationLanguage.RU_TO_ZH -> "api"
             }
         }

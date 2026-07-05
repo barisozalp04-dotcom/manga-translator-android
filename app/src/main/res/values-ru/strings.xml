@@ -354,6 +354,8 @@
     <string name="translation_source_japanese">Японский</string>
     <string name="translation_source_english">Английский</string>
     <string name="translation_source_korean">Корейский</string>
+    <string name="translation_source_simplified_chinese">Упрощенный китайский</string>
+    <string name="translation_source_traditional_chinese">Традиционный китайский</string>
     <string name="translation_source_mixed_chinese_english">Смешанный китайский и английский</string>
     <string name="translation_source_french">Французский</string>
     <string name="translation_source_spanish">Испанский</string>
