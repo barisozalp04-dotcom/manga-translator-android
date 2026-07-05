@@ -467,6 +467,25 @@ class WebtoonReadingAdapter(
             get() = boundPath
 
         /**
+         * Computes the image-local point that corresponds to the current visible center
+         * of this page within the RecyclerView.
+         * Returns null if the view is not laid out or no image content is available.
+         */
+        fun computeVisibleCenterImagePoint(): Pair<Float, Float>? {
+            if (!hasCurrentContent() || currentImageWidth <= 0 || currentImageHeight <= 0) return null
+            val recyclerView = binding.root.parent as? RecyclerView ?: return null
+            val recyclerLeft = recyclerView.paddingLeft.toFloat()
+            val recyclerRight = (recyclerView.width - recyclerView.paddingRight).toFloat()
+            val recyclerTop = recyclerView.paddingTop.toFloat()
+            val recyclerBottom = (recyclerView.height - recyclerView.paddingBottom).toFloat()
+            if (recyclerRight <= recyclerLeft || recyclerBottom <= recyclerTop) return null
+            val recyclerCenterX = (recyclerLeft + recyclerRight) / 2f
+            val recyclerCenterY = (recyclerTop + recyclerBottom) / 2f
+            return recyclerPointToImagePoint(recyclerCenterX, recyclerCenterY)
+                ?: computeVisibleCenterY()?.let { currentImageWidth / 2f to it }
+        }
+
+        /**
          * Computes the image-local Y coordinate that corresponds to the current visible
          * vertical center of this page within the RecyclerView.
          * Returns null if the view is not laid out or no image content is available.

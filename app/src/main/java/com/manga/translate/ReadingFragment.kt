@@ -927,6 +927,7 @@ class ReadingFragment : Fragment() {
                     webtoonPreparingEdit = true
                     try {
                         val targetIndex = resolveLockedWebtoonIndex() ?: return@launch
+                        val entryAnchor = captureWebtoonScrollAnchor()
                         val prepared = prepareWebtoonEditSession(targetIndex)
                         if (!prepared || !isAdded || _binding == null) return@launch
                         setEditMode(true)
@@ -939,7 +940,11 @@ class ReadingFragment : Fragment() {
                             val adapterPosition = webtoonAdapter.adapterPositionForImageIndex(targetIndex)
                                 .takeIf { it != RecyclerView.NO_POSITION }
                                 ?: targetIndex
-                            webtoonLayoutManager.scrollToPositionWithOffset(adapterPosition, 0)
+                            val targetOffset = entryAnchor
+                                ?.takeIf { it.imageIndex == targetIndex }
+                                ?.topOffset
+                                ?: 0
+                            webtoonLayoutManager.scrollToPositionWithOffset(adapterPosition, targetOffset)
                             updateWebtoonPageInfo()
                             persistWebtoonProgress()
                             binding.readingWebtoonList.post {
@@ -1607,6 +1612,22 @@ class ReadingFragment : Fragment() {
         saveTranslationToDisk(translation)
     }
 
+    private fun shouldDeferEditPersistence(): Boolean {
+        return isEditMode
+    }
+
+    private fun renderAndMaybePersistCurrentTranslation() {
+        renderCurrentTranslation()
+        if (shouldDeferEditPersistence()) return
+        if (folderReadingMode == FolderReadingMode.WEBTOON_SCROLL) {
+            pendingWebtoonScrollAnchor = captureWebtoonScrollAnchor()
+        }
+        saveCurrentTranslation()
+        if (folderReadingMode == FolderReadingMode.WEBTOON_SCROLL) {
+            restorePendingWebtoonScrollAnchor()
+        }
+    }
+
     private fun saveTranslationToDisk(translation: TranslationResult) {
         val imageFile = currentImageFile ?: return
         translationStore.save(imageFile, translation)
@@ -1641,35 +1662,30 @@ class ReadingFragment : Fragment() {
         val newBubble = BubbleTranslation.pending(nextId, RectF(rect), "", BubbleSource.MANUAL)
         val updated = translation.copy(bubbles = translation.bubbles + newBubble)
         currentTranslation = updated
-        if (folderReadingMode == FolderReadingMode.WEBTOON_SCROLL) {
-            pendingWebtoonScrollAnchor = captureWebtoonScrollAnchor()
-        }
-        renderCurrentTranslation()
-        saveCurrentTranslation()
-        if (folderReadingMode == FolderReadingMode.WEBTOON_SCROLL) {
-            restorePendingWebtoonScrollAnchor()
-        }
+        renderAndMaybePersistCurrentTranslation()
     }
 
     private fun handleBubbleResized(bubbleId: Int, newRect: RectF) {
         val translation = currentTranslation ?: return
+        val offsets = currentOverlayOffsets()
+        val offset = offsets[bubbleId] ?: (0f to 0f)
+        val materializedRect = RectF(newRect).apply {
+            offset(offset.first, offset.second)
+        }
         val updatedBubbles = translation.bubbles.map { bubble ->
             if (bubble.id == bubbleId) {
-                bubble.copy(rect = RectF(newRect))
+                bubble.copy(rect = RectF(materializedRect))
             } else {
                 bubble
             }
         }
         val updated = translation.copy(bubbles = updatedBubbles)
         currentTranslation = updated
-        if (folderReadingMode == FolderReadingMode.WEBTOON_SCROLL) {
-            pendingWebtoonScrollAnchor = captureWebtoonScrollAnchor()
+        if (offset != (0f to 0f)) {
+            offsets.remove(bubbleId)
+            applyOverlayOffsets(offsets)
         }
-        renderCurrentTranslation()
-        saveCurrentTranslation()
-        if (folderReadingMode == FolderReadingMode.WEBTOON_SCROLL) {
-            restorePendingWebtoonScrollAnchor()
-        }
+        renderAndMaybePersistCurrentTranslation()
     }
 
     private fun adjustSelectedBubbleSize(deltaPercent: Int) {
@@ -1678,13 +1694,18 @@ class ReadingFragment : Fragment() {
         val bubbleId = currentResizeModeBubbleId() ?: return
 
         val bubble = translation.bubbles.firstOrNull { it.id == bubbleId } ?: return
+        val offsets = currentOverlayOffsets()
+        val offset = offsets[bubbleId] ?: (0f to 0f)
+        val visualRect = RectF(bubble.rect).apply {
+            offset(offset.first, offset.second)
+        }
         val scale = 1f + deltaPercent / 100f
         if (scale <= 0f) return
 
-        val centerX = bubble.rect.centerX()
-        val centerY = bubble.rect.centerY()
-        val newWidth = (bubble.rect.width() * scale).coerceAtLeast(8f)
-        val newHeight = (bubble.rect.height() * scale).coerceAtLeast(8f)
+        val centerX = visualRect.centerX()
+        val centerY = visualRect.centerY()
+        val newWidth = (visualRect.width() * scale).coerceAtLeast(8f)
+        val newHeight = (visualRect.height() * scale).coerceAtLeast(8f)
 
         var left = centerX - newWidth / 2f
         var top = centerY - newHeight / 2f
@@ -1717,8 +1738,11 @@ class ReadingFragment : Fragment() {
             if (current.id == bubbleId) current.copy(rect = updatedRect) else current
         }
         currentTranslation = translation.copy(bubbles = updatedBubbles)
-        renderCurrentTranslation()
-        saveCurrentTranslation()
+        if (offset != (0f to 0f)) {
+            offsets.remove(bubbleId)
+            applyOverlayOffsets(offsets)
+        }
+        renderAndMaybePersistCurrentTranslation()
     }
 
     private fun addNewBubble() {
@@ -1734,10 +1758,10 @@ class ReadingFragment : Fragment() {
         val top: Float
         if (folderReadingMode == FolderReadingMode.WEBTOON_SCROLL) {
             val lockedHolder = findLockedWebtoonHolder()
-            val imageCenter = lockedHolder?.computeVisibleCenterY()
+            val imageCenter = lockedHolder?.computeVisibleCenterImagePoint()
             if (imageCenter != null) {
-                left = ((width - bubbleWidth) / 2f).coerceIn(0f, width - bubbleWidth)
-                top = (imageCenter - bubbleHeight / 2f).coerceIn(0f, height - bubbleHeight)
+                left = (imageCenter.first - bubbleWidth / 2f).coerceIn(0f, width - bubbleWidth)
+                top = (imageCenter.second - bubbleHeight / 2f).coerceIn(0f, height - bubbleHeight)
             } else {
                 left = (width - bubbleWidth) / 2f
                 top = (height - bubbleHeight) / 2f
@@ -1751,14 +1775,7 @@ class ReadingFragment : Fragment() {
         val newBubble = BubbleTranslation.pending(nextId, rect, "", BubbleSource.MANUAL)
         val updated = translation.copy(bubbles = translation.bubbles + newBubble)
         currentTranslation = updated
-        if (folderReadingMode == FolderReadingMode.WEBTOON_SCROLL) {
-            pendingWebtoonScrollAnchor = captureWebtoonScrollAnchor()
-        }
-        renderCurrentTranslation()
-        saveCurrentTranslation()
-        if (folderReadingMode == FolderReadingMode.WEBTOON_SCROLL) {
-            restorePendingWebtoonScrollAnchor()
-        }
+        renderAndMaybePersistCurrentTranslation()
         enterBubbleResizeMode(nextId)
     }
 
