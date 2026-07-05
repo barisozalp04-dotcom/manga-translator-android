@@ -1,5 +1,6 @@
 <resources>
     <!-- Global / Pipeline -->
+    <string name="app_name">MT 閱讀器</string>
     <string name="preview_image">檢測預覽</string>
     <string name="detecting_bubbles">氣泡檢測中…</string>
     <string name="translating_bubbles">翻譯中…</string>
@@ -49,6 +50,8 @@
     <string name="language_follow_system">跟隨系統</string>
     <string name="language_simplified_chinese">簡體中文</string>
     <string name="language_traditional_chinese">繁體中文</string>
+    <string name="language_english">英語</string>
+    <string name="language_russian">俄語</string>
     <string name="reading_display_button">閱讀設定</string>
     <string name="reading_display_title">閱讀顯示</string>
     <string name="reading_display_format">閱讀顯示：%1$s</string>

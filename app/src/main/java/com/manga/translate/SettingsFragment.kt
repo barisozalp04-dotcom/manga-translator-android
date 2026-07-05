@@ -615,7 +615,7 @@ class SettingsFragment : Fragment() {
         ) { dialog, selected ->
             settingsStore.saveAppLanguage(selected)
             updateLanguageButton(selected)
-            AppCompatDelegate.setApplicationLocales(selected.toLocales())
+            AppCompatDelegate.setApplicationLocales(selected.resolveApplicationLocales())
             AppLogger.log("Settings", "App language set to ${selected.prefValue}")
             dialog.dismiss()
         }

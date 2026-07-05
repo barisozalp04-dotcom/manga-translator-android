@@ -16,6 +16,7 @@ class MangaTranslateApp : Application() {
         AppLogger.init(this)
         registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
             override fun onActivityStarted(activity: Activity) {
+                syncAppLocales()
                 if (startedActivities.incrementAndGet() == 1) {
                     appContainer.localModelMemoryManager.setAppInForeground(true)
                 }
@@ -35,8 +36,8 @@ class MangaTranslateApp : Application() {
             override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) = Unit
             override fun onActivityDestroyed(activity: Activity) = Unit
         })
+        syncAppLocales()
         val settingsStore = appContainer.settingsStore
-        AppCompatDelegate.setApplicationLocales(settingsStore.loadAppLanguage().toLocales())
         val themeMode = settingsStore.loadThemeMode()
         AppCompatDelegate.setDefaultNightMode(themeMode.nightMode)
         val crashStateStore = appContainer.crashStateStore
@@ -56,5 +57,13 @@ class MangaTranslateApp : Application() {
                 taskPersistence.clear()
             }
         }
+    }
+
+    private fun syncAppLocales() {
+        val resolvedLocales = appContainer.settingsStore.loadAppLanguage().resolveApplicationLocales()
+        if (AppCompatDelegate.getApplicationLocales().toLanguageTags() == resolvedLocales.toLanguageTags()) {
+            return
+        }
+        AppCompatDelegate.setApplicationLocales(resolvedLocales)
     }
 }

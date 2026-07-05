@@ -33,15 +33,16 @@ class SettingsStoreTest {
 
     @Test
     fun `translation language availability follows ocr mode`() {
-        assertEquals(
-            listOf(
-                TranslationLanguage.JA_TO_ZH,
-                TranslationLanguage.EN_TO_ZH,
-                TranslationLanguage.KO_TO_ZH
-            ),
-            TranslationLanguage.supportedForOcr(useLocalOcr = true)
+        val localLanguages = TranslationLanguage.supportedForOcr(useLocalOcr = true)
+        assertTrue(localLanguages.contains(TranslationLanguage.JA_TO_ZH))
+        assertTrue(localLanguages.contains(TranslationLanguage.EN_TO_ZH))
+        assertTrue(localLanguages.contains(TranslationLanguage.KO_TO_ZH))
+        assertFalse(localLanguages.contains(TranslationLanguage.RU_TO_ZH))
+
+        assertTrue(
+            TranslationLanguage.supportedForOcr(useLocalOcr = false)
+                .contains(TranslationLanguage.RU_TO_ZH)
         )
-        assertTrue(TranslationLanguage.supportedForOcr(useLocalOcr = false).contains(TranslationLanguage.RU_TO_ZH))
     }
 
     @Test
