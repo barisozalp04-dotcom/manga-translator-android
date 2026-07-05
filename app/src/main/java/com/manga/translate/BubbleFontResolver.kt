@@ -87,6 +87,27 @@ object BubbleFontResolver {
         }
     }
 
+    fun resolveTypefaceSignature(
+        context: Context,
+        font: BubbleFont,
+        customFileName: String? = null
+    ): String {
+        return when (font) {
+            BubbleFont.SYSTEM_DEFAULT -> "system_default"
+            BubbleFont.CUSTOM_FILE -> {
+                val target = resolveCustomFileTarget(context, customFileName)
+                when {
+                    target?.file != null -> {
+                        val file = target.file
+                        "file:${file.absolutePath}:${file.lastModified()}:${file.length()}"
+                    }
+                    target?.assetPath != null -> "asset:${target.assetPath}"
+                    else -> "custom_file:missing"
+                }
+            }
+        }
+    }
+
     suspend fun ensureTypeface(
         context: Context,
         font: BubbleFont,

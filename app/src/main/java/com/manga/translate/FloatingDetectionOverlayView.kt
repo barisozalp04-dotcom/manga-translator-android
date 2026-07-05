@@ -87,6 +87,7 @@ class FloatingDetectionOverlayView @JvmOverloads constructor(
     private val viewScope = CoroutineScope(Dispatchers.Main + viewJob)
     private var typefaceLoadJob: Job? = null
     private var cachedTypeface: Typeface? = null
+    private var cachedTypefaceSignature: String? = null
     private var editMode = false
     private var createBubbleMode = false
     private val touchSlop = 3f * resources.displayMetrics.density
@@ -181,17 +182,28 @@ class FloatingDetectionOverlayView @JvmOverloads constructor(
     }
 
     fun setFloatingBubbleRenderSettings(settings: FloatingBubbleRenderSettings) {
-        val settingsChanged = bubbleRenderSettings != settings
+        val previousSettings = bubbleRenderSettings
+        val settingsChanged = previousSettings != settings
+        val nextTypefaceSignature = BubbleFontResolver.resolveTypefaceSignature(
+            context.applicationContext,
+            settings.font,
+            settings.customFontFileName
+        )
+        val typefaceSourceChanged = cachedTypefaceSignature != nextTypefaceSignature
+        if (!settingsChanged && !typefaceSourceChanged) return
         bubbleRenderSettings = settings
-        // Uploaded font files may be replaced in place, so invalidate the cached Typeface
-        // even when the persisted file name itself did not change.
-        cachedTypeface = null
+        if (typefaceSourceChanged) {
+            cachedTypeface = null
+        }
+        cachedTypefaceSignature = nextTypefaceSignature
         bubbleOpacity = settings.opacityPercent / 100f
         if (settingsChanged) {
             bubbleColorCache.clear()
         }
         applyTypefaceSettings()
-        loadTypefaceAsync()
+        if (typefaceSourceChanged || cachedTypeface == null) {
+            loadTypefaceAsync()
+        }
         applyBubbleOpacity()
         invalidate()
     }
@@ -517,6 +529,11 @@ class FloatingDetectionOverlayView @JvmOverloads constructor(
         val font = bubbleRenderSettings.font
         val url = bubbleRenderSettings.customFontUrl
         val customFileName = bubbleRenderSettings.customFontFileName
+        val signature = BubbleFontResolver.resolveTypefaceSignature(
+            context.applicationContext,
+            font,
+            customFileName
+        )
         typefaceLoadJob?.cancel()
         typefaceLoadJob = viewScope.launch {
             val resolved = withContext(Dispatchers.IO) {
@@ -529,6 +546,7 @@ class FloatingDetectionOverlayView @JvmOverloads constructor(
                 )
             }
             cachedTypeface = resolved
+            cachedTypefaceSignature = signature
             applyTypefaceSettings()
             invalidate()
         }
