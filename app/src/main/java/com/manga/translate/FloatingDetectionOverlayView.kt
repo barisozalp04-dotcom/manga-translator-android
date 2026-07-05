@@ -7,6 +7,7 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RectF
+import android.graphics.Typeface
 import android.text.Layout
 import android.text.StaticLayout
 import android.text.TextPaint
@@ -16,6 +17,11 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
 import androidx.core.graphics.withTranslation
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
@@ -76,6 +82,8 @@ class FloatingDetectionOverlayView @JvmOverloads constructor(
     private var bubbleOpacity = bubbleRenderSettings.opacityPercent / 100f
     private var sourceBitmap: Bitmap? = null
     private val bubbleColorCache = mutableMapOf<Int, Int>()
+    private var typefaceLoadJob: Job? = null
+    private var cachedTypeface: Typeface? = null
     private var editMode = false
     private var createBubbleMode = false
     private val touchSlop = 3f * resources.displayMetrics.density
@@ -107,6 +115,8 @@ class FloatingDetectionOverlayView @JvmOverloads constructor(
     var onCreateBubbleTouchActiveChanged: ((Boolean) -> Unit)? = null
 
     init {
+        applyTypefaceSettings()
+        loadTypefaceAsync()
         applyBubbleOpacity()
     }
 
@@ -172,6 +182,8 @@ class FloatingDetectionOverlayView @JvmOverloads constructor(
         bubbleRenderSettings = settings
         bubbleOpacity = settings.opacityPercent / 100f
         bubbleColorCache.clear()
+        applyTypefaceSettings()
+        loadTypefaceAsync()
         applyBubbleOpacity()
         invalidate()
     }
@@ -479,6 +491,29 @@ class FloatingDetectionOverlayView @JvmOverloads constructor(
 
     private fun applyBubbleOpacity() {
         boxPaint.color = Color.argb((bubbleOpacity * 255f).toInt().coerceIn(0, 255), 255, 255, 255)
+    }
+
+    private fun applyTypefaceSettings() {
+        val baseTypeface = cachedTypeface ?: BubbleFontResolver.resolveTypeface(
+            context.applicationContext,
+            bubbleRenderSettings.font
+        )
+        val style = if (bubbleRenderSettings.isBold) Typeface.BOLD else Typeface.NORMAL
+        textPaint.typeface = Typeface.create(baseTypeface, style)
+    }
+
+    private fun loadTypefaceAsync() {
+        val font = bubbleRenderSettings.font
+        val url = bubbleRenderSettings.customFontUrl
+        typefaceLoadJob?.cancel()
+        typefaceLoadJob = (context as? CoroutineScope)?.launch {
+            val resolved = withContext(Dispatchers.IO) {
+                BubbleFontResolver.ensureTypeface(context.applicationContext, font, url)
+            }
+            cachedTypeface = resolved
+            applyTypefaceSettings()
+            invalidate()
+        }
     }
 
     private fun applyBubbleFillColor(bubble: BubbleTranslation) {

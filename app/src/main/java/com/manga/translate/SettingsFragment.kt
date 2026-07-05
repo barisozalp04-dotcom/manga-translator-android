@@ -285,6 +285,53 @@ class SettingsFragment : Fragment() {
         } ?: defaultShape
     }
 
+    private fun setupBubbleFontDropdown(
+        inputView: MaterialAutoCompleteTextView,
+        currentFont: BubbleFont
+    ) {
+        val fonts = BubbleFont.entries
+        val labels = fonts.map { getString(it.labelRes) }
+        val textColor = resolveColorAttr(R.attr.dialogTextColor)
+        inputView.setAdapter(
+            object : ArrayAdapter<String>(
+                requireContext(),
+                android.R.layout.simple_list_item_1,
+                labels
+            ) {
+                private fun applyThemeTextColor(view: View): View {
+                    (view as? TextView)?.setTextColor(textColor)
+                    return view
+                }
+
+                override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
+                    return applyThemeTextColor(super.getView(position, convertView, parent))
+                }
+
+                override fun getDropDownView(
+                    position: Int,
+                    convertView: View?,
+                    parent: ViewGroup
+                ): View {
+                    return applyThemeTextColor(super.getDropDownView(position, convertView, parent))
+                }
+            }
+        )
+        inputView.threshold = 0
+        inputView.setOnClickListener { inputView.showDropDown() }
+        inputView.setText(getString(currentFont.labelRes), false)
+    }
+
+    private fun parseBubbleFont(
+        inputView: MaterialAutoCompleteTextView,
+        defaultFont: BubbleFont
+    ): BubbleFont {
+        val selectedLabel = inputView.text?.toString()?.trim().orEmpty()
+        if (selectedLabel.isBlank()) return defaultFont
+        return BubbleFont.entries.firstOrNull {
+            getString(it.labelRes) == selectedLabel
+        } ?: defaultFont
+    }
+
     private fun resolveColorAttr(attrRes: Int): Int {
         val typedValue = android.util.TypedValue()
         requireContext().theme.resolveAttribute(attrRes, typedValue, true)
@@ -771,10 +818,27 @@ class SettingsFragment : Fragment() {
         )
         dialogBinding.normalBubbleHorizontalTextSwitch.isChecked = currentSettings.useHorizontalText
         dialogBinding.normalBubbleFreeAutoAdaptColorSwitch.isChecked = currentSettings.autoAdaptFreeBubbleColor
+        setupBubbleFontDropdown(dialogBinding.normalBubbleFontInput, currentSettings.font)
+        dialogBinding.normalBubbleCustomFontUrlInput.setText(currentSettings.customFontUrl)
+        dialogBinding.normalBubbleCustomFontFileInput.setText(currentSettings.customFontFileName)
+        dialogBinding.normalBubbleFontBoldSwitch.isChecked = currentSettings.isBold
+        val updateNormalCustomInputs = { font: BubbleFont ->
+            val showUrl = font == BubbleFont.CUSTOM_URL
+            val showFile = font == BubbleFont.CUSTOM_FILE
+            dialogBinding.normalBubbleCustomFontUrlLayout.visibility =
+                if (showUrl) View.VISIBLE else View.GONE
+            dialogBinding.normalBubbleCustomFontFileLayout.visibility =
+                if (showFile) View.VISIBLE else View.GONE
+        }
+        updateNormalCustomInputs(currentSettings.font)
+        dialogBinding.normalBubbleFontInput.setOnItemClickListener { _, _, position, _ ->
+            updateNormalCustomInputs(BubbleFont.entries[position])
+        }
         AlertDialog.Builder(requireContext())
             .setTitle(R.string.normal_bubble_render_settings_title)
             .setView(dialogBinding.root)
             .setPositiveButton(android.R.string.ok) { _, _ ->
+                val selectedFont = parseBubbleFont(dialogBinding.normalBubbleFontInput, currentSettings.font)
                 val updated = NormalBubbleRenderSettings(
                     shrinkPercent = parseIntInput(
                         dialogBinding.normalBubbleShrinkPercentInput.text?.toString()
@@ -790,7 +854,11 @@ class SettingsFragment : Fragment() {
                     ) ?: currentSettings.freeBubbleOpacityPercent,
                     minAreaPerCharSp = 16f + dialogBinding.normalBubbleMinAreaSeekbar.progress * 2.4f,
                     useHorizontalText = dialogBinding.normalBubbleHorizontalTextSwitch.isChecked,
-                    autoAdaptFreeBubbleColor = dialogBinding.normalBubbleFreeAutoAdaptColorSwitch.isChecked
+                    autoAdaptFreeBubbleColor = dialogBinding.normalBubbleFreeAutoAdaptColorSwitch.isChecked,
+                    font = selectedFont,
+                    customFontUrl = dialogBinding.normalBubbleCustomFontUrlInput.text?.toString()?.trim().orEmpty(),
+                    customFontFileName = dialogBinding.normalBubbleCustomFontFileInput.text?.toString()?.trim().orEmpty(),
+                    isBold = dialogBinding.normalBubbleFontBoldSwitch.isChecked
                 )
                 settingsStore.saveNormalBubbleRenderSettings(updated)
                 updateNormalBubbleRenderSettingsButton()
@@ -829,10 +897,27 @@ class SettingsFragment : Fragment() {
                 override fun onStopTrackingTouch(seekBar: SeekBar?) {}
             }
         )
+        setupBubbleFontDropdown(dialogBinding.floatingBubbleFontInput, currentSettings.font)
+        dialogBinding.floatingBubbleCustomFontUrlInput.setText(currentSettings.customFontUrl)
+        dialogBinding.floatingBubbleCustomFontFileInput.setText(currentSettings.customFontFileName)
+        dialogBinding.floatingBubbleFontBoldSwitch.isChecked = currentSettings.isBold
+        val updateFloatingCustomInputs = { font: BubbleFont ->
+            val showUrl = font == BubbleFont.CUSTOM_URL
+            val showFile = font == BubbleFont.CUSTOM_FILE
+            dialogBinding.floatingBubbleCustomFontUrlLayout.visibility =
+                if (showUrl) View.VISIBLE else View.GONE
+            dialogBinding.floatingBubbleCustomFontFileLayout.visibility =
+                if (showFile) View.VISIBLE else View.GONE
+        }
+        updateFloatingCustomInputs(currentSettings.font)
+        dialogBinding.floatingBubbleFontInput.setOnItemClickListener { _, _, position, _ ->
+            updateFloatingCustomInputs(BubbleFont.entries[position])
+        }
         AlertDialog.Builder(requireContext())
             .setTitle(R.string.floating_bubble_render_settings_title)
             .setView(dialogBinding.root)
             .setPositiveButton(android.R.string.ok) { _, _ ->
+                val selectedFont = parseBubbleFont(dialogBinding.floatingBubbleFontInput, currentSettings.font)
                 val updated = FloatingBubbleRenderSettings(
                     sizeAdjustPercent = parseIntInput(
                         dialogBinding.floatingBubbleSizeAdjustPercentInput.text?.toString()
@@ -846,7 +931,11 @@ class SettingsFragment : Fragment() {
                     ),
                     useHorizontalText = dialogBinding.floatingBubbleHorizontalTextSwitch.isChecked,
                     minAreaPerCharSp = 16f + dialogBinding.floatingBubbleMinAreaSeekbar.progress * 2.4f,
-                    autoAdaptBubbleColor = dialogBinding.floatingBubbleAutoAdaptColorSwitch.isChecked
+                    autoAdaptBubbleColor = dialogBinding.floatingBubbleAutoAdaptColorSwitch.isChecked,
+                    font = selectedFont,
+                    customFontUrl = dialogBinding.floatingBubbleCustomFontUrlInput.text?.toString()?.trim().orEmpty(),
+                    customFontFileName = dialogBinding.floatingBubbleCustomFontFileInput.text?.toString()?.trim().orEmpty(),
+                    isBold = dialogBinding.floatingBubbleFontBoldSwitch.isChecked
                 )
                 settingsStore.saveFloatingBubbleRenderSettings(updated)
                 updateFloatingBubbleRenderSettingsButton()
@@ -1389,6 +1478,20 @@ class SettingsFragment : Fragment() {
                 updateMultiProviderSchedulingButton(emptyList())
                 AppLogger.log("Settings", "Multi-provider scheduling cleared")
                 dialog.dismiss()
+            }
+
+            // Limit dialog height so the ScrollView can actually scroll when many providers are added.
+            val window = dialog.window
+            if (window != null) {
+                val metrics = resources.displayMetrics
+                val maxHeight = (metrics.heightPixels * 0.85).toInt()
+                dialogBinding.root.measure(
+                    View.MeasureSpec.makeMeasureSpec(metrics.widthPixels, View.MeasureSpec.EXACTLY),
+                    View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
+                )
+                val desiredHeight = dialogBinding.root.measuredHeight
+                val finalHeight = desiredHeight.coerceAtMost(maxHeight)
+                window.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, finalHeight)
             }
         }
         dialog.show()

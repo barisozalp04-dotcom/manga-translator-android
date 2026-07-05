@@ -48,7 +48,13 @@ internal class RenderSettingsStore(
             autoAdaptFreeBubbleColor = storage.prefs.getBoolean(
                 SettingsStore.KEY_NORMAL_FREE_BUBBLE_AUTO_ADAPT_COLOR,
                 SettingsStore.DEFAULT_NORMAL_FREE_BUBBLE_AUTO_ADAPT_COLOR
-            )
+            ),
+            font = BubbleFont.fromPref(
+                storage.prefs.getString(SettingsStore.KEY_NORMAL_BUBBLE_FONT, null)
+            ),
+            customFontUrl = storage.prefs.getString(SettingsStore.KEY_NORMAL_BUBBLE_CUSTOM_FONT_URL, "") ?: "",
+            customFontFileName = storage.prefs.getString(SettingsStore.KEY_NORMAL_BUBBLE_CUSTOM_FONT_FILE, "") ?: "",
+            isBold = storage.prefs.getBoolean(SettingsStore.KEY_NORMAL_BUBBLE_FONT_BOLD, false)
         )
     }
 
@@ -61,7 +67,11 @@ internal class RenderSettingsStore(
                 SettingsStore.KEY_NORMAL_FREE_BUBBLE_SHRINK_PERCENT,
                 SettingsStore.KEY_NORMAL_FREE_BUBBLE_OPACITY_PERCENT,
                 SettingsStore.KEY_NORMAL_FREE_BUBBLE_AUTO_ADAPT_COLOR,
-                SettingsStore.KEY_HORIZONTAL_TEXT
+                SettingsStore.KEY_HORIZONTAL_TEXT,
+                SettingsStore.KEY_NORMAL_BUBBLE_FONT,
+                SettingsStore.KEY_NORMAL_BUBBLE_CUSTOM_FONT_URL,
+                SettingsStore.KEY_NORMAL_BUBBLE_CUSTOM_FONT_FILE,
+                SettingsStore.KEY_NORMAL_BUBBLE_FONT_BOLD
             )
         ) {
             putInt(
@@ -104,6 +114,10 @@ internal class RenderSettingsStore(
                     SettingsStore.KEY_NORMAL_FREE_BUBBLE_AUTO_ADAPT_COLOR,
                     settings.autoAdaptFreeBubbleColor
                 )
+                .putString(SettingsStore.KEY_NORMAL_BUBBLE_FONT, settings.font.prefValue)
+                .putString(SettingsStore.KEY_NORMAL_BUBBLE_CUSTOM_FONT_URL, settings.customFontUrl)
+                .putString(SettingsStore.KEY_NORMAL_BUBBLE_CUSTOM_FONT_FILE, settings.customFontFileName)
+                .putBoolean(SettingsStore.KEY_NORMAL_BUBBLE_FONT_BOLD, settings.isBold)
         }
     }
 
@@ -143,7 +157,13 @@ internal class RenderSettingsStore(
             autoAdaptBubbleColor = storage.prefs.getBoolean(
                 SettingsStore.KEY_FLOATING_BUBBLE_AUTO_ADAPT_COLOR,
                 SettingsStore.DEFAULT_FLOATING_BUBBLE_AUTO_ADAPT_COLOR
-            )
+            ),
+            font = BubbleFont.fromPref(
+                storage.prefs.getString(SettingsStore.KEY_FLOATING_BUBBLE_FONT, null)
+            ),
+            customFontUrl = storage.prefs.getString(SettingsStore.KEY_FLOATING_BUBBLE_CUSTOM_FONT_URL, "") ?: "",
+            customFontFileName = storage.prefs.getString(SettingsStore.KEY_FLOATING_BUBBLE_CUSTOM_FONT_FILE, "") ?: "",
+            isBold = storage.prefs.getBoolean(SettingsStore.KEY_FLOATING_BUBBLE_FONT_BOLD, false)
         )
     }
 
@@ -155,7 +175,11 @@ internal class RenderSettingsStore(
                 SettingsStore.KEY_FLOATING_BUBBLE_SHAPE,
                 SettingsStore.KEY_FLOATING_BUBBLE_HORIZONTAL_TEXT,
                 SettingsStore.KEY_FLOATING_BUBBLE_MIN_AREA_PER_CHAR_SP,
-                SettingsStore.KEY_FLOATING_BUBBLE_AUTO_ADAPT_COLOR
+                SettingsStore.KEY_FLOATING_BUBBLE_AUTO_ADAPT_COLOR,
+                SettingsStore.KEY_FLOATING_BUBBLE_FONT,
+                SettingsStore.KEY_FLOATING_BUBBLE_CUSTOM_FONT_URL,
+                SettingsStore.KEY_FLOATING_BUBBLE_CUSTOM_FONT_FILE,
+                SettingsStore.KEY_FLOATING_BUBBLE_FONT_BOLD
             )
         ) {
             putInt(
@@ -188,6 +212,10 @@ internal class RenderSettingsStore(
                     SettingsStore.KEY_FLOATING_BUBBLE_AUTO_ADAPT_COLOR,
                     settings.autoAdaptBubbleColor
                 )
+                .putString(SettingsStore.KEY_FLOATING_BUBBLE_FONT, settings.font.prefValue)
+                .putString(SettingsStore.KEY_FLOATING_BUBBLE_CUSTOM_FONT_URL, settings.customFontUrl)
+                .putString(SettingsStore.KEY_FLOATING_BUBBLE_CUSTOM_FONT_FILE, settings.customFontFileName)
+                .putBoolean(SettingsStore.KEY_FLOATING_BUBBLE_FONT_BOLD, settings.isBold)
         }
     }
 

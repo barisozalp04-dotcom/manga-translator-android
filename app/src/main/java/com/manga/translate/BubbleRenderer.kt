@@ -7,18 +7,23 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RectF
+import android.graphics.Typeface
 import android.text.Layout
 import android.text.StaticLayout
 import android.text.TextPaint
 import android.util.TypedValue
 import androidx.core.graphics.withTranslation
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlin.math.min
 
 class BubbleRenderer(context: Context) {
+    private val appContext = context.applicationContext
     private val resources = context.resources
-    private val bubbleRenderSettings = SettingsStore(context.applicationContext).loadNormalBubbleRenderSettings()
+    private val bubbleRenderSettings = SettingsStore(appContext).loadNormalBubbleRenderSettings()
     private val textPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
         color = 0xFF1B1B1B.toInt()
+        applyInitialTypefaceSettings()
     }
     private val minAreaPerCharSp = bubbleRenderSettings.minAreaPerCharSp
     private val hardMinTextSizePx = TypedValue.applyDimension(
@@ -44,6 +49,7 @@ class BubbleRenderer(context: Context) {
         translation: TranslationResult,
         verticalLayoutEnabled: Boolean
     ): Bitmap {
+        ensureTypefaceAsync()
         return ImageProcessingGuards.withRenderPermit(
             width = source.width,
             height = source.height,
@@ -60,6 +66,24 @@ class BubbleRenderer(context: Context) {
                 throw e
             }
         }
+    }
+
+    private fun applyInitialTypefaceSettings() {
+        val typeface = BubbleFontResolver.resolveTypeface(appContext, bubbleRenderSettings.font)
+        val style = if (bubbleRenderSettings.isBold) Typeface.BOLD else Typeface.NORMAL
+        textPaint.typeface = Typeface.create(typeface, style)
+    }
+
+    private suspend fun ensureTypefaceAsync() {
+        val typeface = withContext(Dispatchers.IO) {
+            BubbleFontResolver.ensureTypeface(
+                appContext,
+                bubbleRenderSettings.font,
+                bubbleRenderSettings.customFontUrl
+            )
+        }
+        val style = if (bubbleRenderSettings.isBold) Typeface.BOLD else Typeface.NORMAL
+        textPaint.typeface = Typeface.create(typeface, style)
     }
 
     private fun renderInternal(
