@@ -21,6 +21,7 @@ import androidx.annotation.StringRes
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.core.view.isGone
+import androidx.core.view.doOnLayout
 import androidx.core.content.FileProvider
 import kotlin.math.roundToInt
 import androidx.core.content.ContextCompat
@@ -1452,6 +1453,9 @@ class SettingsFragment : Fragment() {
             dialogBinding.multiProviderSchedulingContainer.addView(rowBinding.root)
             updateRowVisualState(rowBinding)
             refreshRowTitles()
+            dialogBinding.multiProviderSchedulingScroll.post {
+                dialogBinding.multiProviderSchedulingScroll.fullScroll(View.FOCUS_DOWN)
+            }
         }
 
         if (existing.isEmpty()) {
@@ -1519,24 +1523,36 @@ class SettingsFragment : Fragment() {
                 AppLogger.log("Settings", "Multi-provider scheduling cleared")
                 dialog.dismiss()
             }
-
-            // Limit dialog height so the ScrollView can actually scroll when many providers are added.
-            val window = dialog.window
-            if (window != null) {
-                val visibleFrame = android.graphics.Rect()
-                window.decorView.getWindowVisibleDisplayFrame(visibleFrame)
-                val availableHeight = visibleFrame.height().takeIf { it > 0 } ?: resources.displayMetrics.heightPixels
-                val maxHeight = (availableHeight * 0.85).toInt()
-                dialogBinding.root.measure(
-                    View.MeasureSpec.makeMeasureSpec(visibleFrame.width().takeIf { it > 0 } ?: resources.displayMetrics.widthPixels, View.MeasureSpec.EXACTLY),
-                    View.MeasureSpec.makeMeasureSpec(maxHeight, View.MeasureSpec.AT_MOST)
-                )
-                val finalHeight = dialogBinding.root.measuredHeight
-                    .coerceAtLeast((200 * resources.displayMetrics.density).toInt())
-                window.setLayout(ViewGroup.LayoutParams.WRAP_CONTENT, finalHeight)
+            dialogBinding.root.doOnLayout {
+                constrainMultiProviderDialogScroll(dialog, dialogBinding)
             }
         }
         dialog.show()
+    }
+
+    private fun constrainMultiProviderDialogScroll(
+        dialog: AlertDialog,
+        dialogBinding: DialogMultiProviderSchedulingBinding
+    ) {
+        val window = dialog.window ?: return
+        val visibleFrame = android.graphics.Rect()
+        window.decorView.getWindowVisibleDisplayFrame(visibleFrame)
+        val availableHeight = visibleFrame.height().takeIf { it > 0 }
+            ?: resources.displayMetrics.heightPixels
+        val maxDialogHeight = (availableHeight * 0.85f).roundToInt()
+        val scrollView = dialogBinding.multiProviderSchedulingScroll
+        val rootHeight = dialogBinding.root.height.takeIf { it > 0 } ?: return
+        val fixedHeight = (rootHeight - scrollView.height).coerceAtLeast(0)
+        val minScrollHeight = (160 * resources.displayMetrics.density).roundToInt()
+        val maxScrollHeight = (maxDialogHeight - fixedHeight).coerceAtLeast(minScrollHeight)
+        val contentHeight = scrollView.getChildAt(0)?.measuredHeight ?: scrollView.height
+        val targetScrollHeight = contentHeight.coerceAtMost(maxScrollHeight)
+        if (scrollView.layoutParams.height != targetScrollHeight) {
+            scrollView.layoutParams = scrollView.layoutParams.apply {
+                height = targetScrollHeight
+            }
+            scrollView.requestLayout()
+        }
     }
 
     private fun showTranslationStyleDialog() {
