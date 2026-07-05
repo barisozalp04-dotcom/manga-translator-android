@@ -63,6 +63,7 @@ class LibraryFragment : Fragment() {
     private var folderDetailContentBaseTopPadding: Int = 0
     private var isChapterSelectionMode: Boolean = false
     private var isLibrarySelectionMode: Boolean = false
+    private var pendingFloatingTranslateLanguage: TranslationLanguage? = null
     private val modelErrorController by lazy(LazyThreadSafetyMode.NONE) {
         ModelErrorDialogController(this, dialogs)
     }
@@ -276,7 +277,7 @@ class LibraryFragment : Fragment() {
     ) {
         if (!isAdded) return@registerForActivityResult
         if (canDrawOverlays()) {
-            launchScreenCapturePermissionRequest()
+            showFloatingTranslateLanguageDialog()
             return@registerForActivityResult
         }
         showOverlayPermissionFailedDialog()
@@ -288,9 +289,15 @@ class LibraryFragment : Fragment() {
         if (!isAdded) return@registerForActivityResult
         val data = result.data
         if (result.resultCode == android.app.Activity.RESULT_OK && data != null) {
-            showFloatingTranslateLanguageDialog(result.resultCode, data)
+            startFloatingTranslateEntry(
+                resultCode = result.resultCode,
+                resultData = data,
+                language = pendingFloatingTranslateLanguage ?: defaultFloatingTranslateLanguage()
+            )
+            pendingFloatingTranslateLanguage = null
             return@registerForActivityResult
         }
+        pendingFloatingTranslateLanguage = null
         showScreenCapturePermissionFailedDialog()
     }
 
@@ -444,7 +451,7 @@ class LibraryFragment : Fragment() {
 
     private fun handleFloatingTranslateClick() {
         if (canDrawOverlays()) {
-            launchScreenCapturePermissionRequest()
+            showFloatingTranslateLanguageDialog()
             return
         }
         AlertDialog.Builder(requireContext())
@@ -463,12 +470,14 @@ class LibraryFragment : Fragment() {
         requestOverlayPermission.launch(intent)
     }
 
-    private fun launchScreenCapturePermissionRequest() {
+    private fun launchScreenCapturePermissionRequest(language: TranslationLanguage) {
         val manager = requireContext().getSystemService(MediaProjectionManager::class.java)
         if (manager == null) {
+            pendingFloatingTranslateLanguage = null
             showScreenCapturePermissionFailedDialog()
             return
         }
+        pendingFloatingTranslateLanguage = language
         AlertDialog.Builder(requireContext())
             .setTitle(getString(R.string.screen_capture_permission_required_title))
             .setMessage(getString(R.string.screen_capture_permission_required_message))
@@ -497,20 +506,25 @@ class LibraryFragment : Fragment() {
             .showWithScrollableMessage()
     }
 
-    private fun showFloatingTranslateLanguageDialog(resultCode: Int, resultData: Intent) {
+    private fun showFloatingTranslateLanguageDialog() {
         val ocrSettings = settingsStore.loadOcrApiSettings()
         val supportedLanguages = TranslationLanguage.supportedForOcr(ocrSettings.useLocalOcr)
-        val currentLanguage = TranslationLanguage.resolveForOcr(
-            TranslationLanguage.JA_TO_ZH,
-            ocrSettings.useLocalOcr
-        )
+        val currentLanguage = pendingFloatingTranslateLanguage
+            ?: defaultFloatingTranslateLanguage()
         dialogs.showLanguageSettingDialog(
             context = requireContext(),
             languages = supportedLanguages,
             currentLanguage = currentLanguage
         ) { selectedLanguage ->
-            startFloatingTranslateEntry(resultCode, resultData, selectedLanguage)
+            launchScreenCapturePermissionRequest(selectedLanguage)
         }
+    }
+
+    private fun defaultFloatingTranslateLanguage(): TranslationLanguage {
+        return TranslationLanguage.resolveForOcr(
+            TranslationLanguage.JA_TO_ZH,
+            settingsStore.loadOcrApiSettings().useLocalOcr
+        )
     }
 
     private fun startFloatingTranslateEntry(
