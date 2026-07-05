@@ -276,9 +276,14 @@ class FloatingTranslationView @JvmOverloads constructor(
     }
 
     fun setNormalBubbleRenderSettings(settings: NormalBubbleRenderSettings) {
-        if (bubbleRenderSettings == settings) return
+        val settingsChanged = bubbleRenderSettings != settings
         bubbleRenderSettings = settings
-        bubbleColorCache.clear()
+        // The uploaded font file can change on disk without changing the saved file name.
+        // Always drop the cached Typeface so the normal reading overlay can pick up the latest file.
+        cachedTypeface = null
+        if (settingsChanged) {
+            bubbleColorCache.clear()
+        }
         applyTypefaceSettings()
         loadTypefaceAsync()
         invalidate()

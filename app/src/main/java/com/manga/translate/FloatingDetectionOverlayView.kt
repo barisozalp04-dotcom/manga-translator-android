@@ -181,10 +181,15 @@ class FloatingDetectionOverlayView @JvmOverloads constructor(
     }
 
     fun setFloatingBubbleRenderSettings(settings: FloatingBubbleRenderSettings) {
-        if (bubbleRenderSettings == settings) return
+        val settingsChanged = bubbleRenderSettings != settings
         bubbleRenderSettings = settings
+        // Uploaded font files may be replaced in place, so invalidate the cached Typeface
+        // even when the persisted file name itself did not change.
+        cachedTypeface = null
         bubbleOpacity = settings.opacityPercent / 100f
-        bubbleColorCache.clear()
+        if (settingsChanged) {
+            bubbleColorCache.clear()
+        }
         applyTypefaceSettings()
         loadTypefaceAsync()
         applyBubbleOpacity()
