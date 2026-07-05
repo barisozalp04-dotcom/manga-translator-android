@@ -14,7 +14,9 @@
 
 一般来说：
 
-* API 地址通常是服务商提供的接口地址，有些兼容 OpenAI 的服务也可以填写以 `/v1` 结尾的地址
+* API 地址通常是服务商提供的接口地址；兼容 OpenAI 的服务通常可直接填写以 `/v1` 结尾的地址，或填写服务商给出的上级接口地址
+* 软件会自动补全 OpenAI 兼容接口的 `/chat/completions`
+* 点击「获取模型列表」时，软件会自动补全 OpenAI 兼容接口的 `/models`
 * API Key 就是服务商后台生成的密钥
 * 模型名称就是你实际要调用的模型 ID
 
@@ -83,5 +85,5 @@ https://platform.deepseek.com/api_keys
 
 填写建议：
 
-* API 地址可填写填写 `https://api.deepseek.com/v1`
+* API 地址可填写 `https://api.deepseek.com/v1`
 * 模型名称推荐填写 `deepseek-v4-flash`

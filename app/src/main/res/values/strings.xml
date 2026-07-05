@@ -31,7 +31,7 @@
     <string name="api_retry_count_hint">API 最大重试次数 (1–50)</string>
     <string name="floating_api_timeout_hint">悬浮翻译 API 超时 (秒, 30–1200)</string>
     <string name="max_concurrency_hint">AI API 调用并发数 (1–200)</string>
-    <string name="api_settings_note_openai">示例 URL：https://api.siliconflow.cn/v1 或 https://open.bigmodel.cn/api/paas/v4/chat/completions（填写后会自动补全 /chat/completions）</string>
+    <string name="api_settings_note_openai">示例 URL：https://api.siliconflow.cn/v1 或 https://open.bigmodel.cn/api/paas/v4（填写后会自动补全 /chat/completions；获取模型列表时会自动补全 /models）</string>
     <string name="api_settings_note_gemini">示例 URL：https://generativelanguage.googleapis.com/v1beta</string>
     <string name="api_url_required">请先填写 API 地址</string>
     <string name="missing_api_settings">请先在设置中填写 API 地址与 Key</string>
