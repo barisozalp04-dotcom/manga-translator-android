@@ -469,6 +469,7 @@
     <string name="translation_canceling">Отмена перевода…</string>
     <string name="translation_canceled">Перевод отменен</string>
     <string name="translation_result_channel">Перевод завершен</string>
+    <string name="translation_success_result_channel">Перевод выполнен успешно</string>
     <string name="translation_result_message">%1$s завершился. Нажмите здесь, чтобы вернуться в библиотеку комиксов и просмотреть результаты.</string>
     <string name="translation_result_task_fallback_label">Задачи перевода</string>
     <string name="translation_result_batch_task_label">Задачи перевода для папок %1$d</string>

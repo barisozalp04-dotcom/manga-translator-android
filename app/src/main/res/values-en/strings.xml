@@ -469,6 +469,7 @@ Long press the floating ball: pop up menu</string>
     <string name="translation_canceling">Canceling Translation…</string>
     <string name="translation_canceled">Translation Canceled</string>
     <string name="translation_result_channel">Translation Finished</string>
+    <string name="translation_success_result_channel">Translation Success</string>
     <string name="translation_result_message">%1$s has ended, click here to return to the comic library to view the results</string>
     <string name="translation_result_task_fallback_label">Translation tasks</string>
     <string name="translation_result_batch_task_label">Translation tasks for %1$d folders</string>
