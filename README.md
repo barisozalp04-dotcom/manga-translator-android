@@ -12,25 +12,26 @@
 
 
 ## 主要功能 ✨
-- 日译中，英译中
+- 支持日、英、韩、法、西、葡、德、意、俄等多种源语言翻译为中文，以及中文翻译为英文或俄文
 - 屏幕翻译：支持悬浮窗翻译，在任意界面识别并翻译当前屏幕内容
 - 漫画库管理：新建文件夹、批量导入图片、漫画文件夹导入，支持CBZ、ZIP、PDF导入导出
 - 翻译流程：气泡检测 + OCR（支持 OpenAI 兼容 / 百度 AI）+ LLM 翻译，支持标准模式与全文速译
-- 阅读体验：翻译覆盖层、翻译气泡位置可拖动、阅读进度自动保存
+- 阅读体验：翻译覆盖层、翻译气泡位置可拖动、阅读进度自动保存；新增取消键与加减号微调，条漫与普通阅读缩放同步
+- 字体设置：支持自定义气泡字体、字体加粗，普通气泡框与悬浮窗气泡框共用一套字体配置
 - 译名表与缓存：按文件夹维护 glossary.json，自动累积固定译名
+- 后台翻译通知：文件夹/批量翻译完成后发送带声音的高优先级系统通知，点击回到漫画库
 - 更新与日志：启动检查更新，翻译期间前台服务与日志查看
 - 多供应商负载：支持配置多个翻译供应商，按权重自动均衡负载
+- 条漫/长图：自动判断作品是否更接近条漫并切换阅读方式，长图/条漫模式下支持跨页气泡合并
 
 ## 支持的翻译语言 🌐
-- 源语言：日文、英文
-- 目标语言：中文
-  - 简体中文
-  - 繁体中文
-- 当前文件夹的翻译语言可在漫画库中单独设置为：
-  - 日文 → 中文
-  - 英文 → 中文
-  - 韩文 → 中文
-- 软件界面切换为繁体中文时，会优先使用繁体提示词，翻译结果也会优先输出繁体中文
+- 目标语言由软件界面语言决定：
+  - 简体中文界面 → 简体中文
+  - 繁体中文界面 → 繁体中文
+  - 英文界面 → 英文
+  - 俄文界面 → 俄文
+- 当前文件夹的源语言可在漫画库中单独设置，支持：日文、英文、韩文、简体中文、繁体中文、中英混合、法文、西班牙文、葡萄牙文、德文、意大利文、俄文
+- 软件界面切换为繁体中文时，会优先使用繁体提示词
 
 ## 快速使用 🚀
 1. 在漫画库中新建文件夹并导入图片
@@ -42,7 +43,7 @@
 *全文速译建议：页数较多时分批上传翻译，或在设置中提高 API 超时。*
 
 ## 常见问题 ❓
-- 翻译失败或结果为空：确认 API 地址以 `/v1` 结尾，模型名与供应商一致，且网络可达；若使用百度 AI OCR，请确认 API Key 与 Secret Key 填写正确
+- 翻译失败或结果为空：确认 API 地址填写的是服务商给出的 OpenAI 兼容上级地址（例如 `https://api.deepseek.com/v1`、`https://open.bigmodel.cn/api/paas/v4`），软件会自动补全 `/chat/completions`；模型名须与供应商一致且网络可达；若使用百度 AI OCR，请确认 API Key 与 Secret Key 填写正确
 - 翻译顺序错乱：请先对图片按阅读顺序重命名
 - 怎么获取AI：具体获取方法可以去搜索一下
 
@@ -66,7 +67,7 @@
 - JDK 17.0.17+
 - Kotlin 2.0.0+
 - Gradle 8.11.1+
-- Android SDK: platform 35, build-tools 35.0.0
+- Android SDK: platform 36, build-tools 36.0.0
 
 ### 构建命令
 ```bash
@@ -80,7 +81,7 @@
 - `models/ocr/manga_ocr/encoder_model.onnx`、`models/ocr/manga_ocr/decoder_model.onnx`（日文 OCR：MangaOcr，可在设置中切换）
 - `models/ocr/manga_ocr/generation_config.json`、`models/ocr/manga_ocr/preprocessor_config.json`、`models/ocr/manga_ocr/tokenizer.json`、`models/ocr/manga_ocr/special_tokens_map.json`
 - `models/ocr/manga_ocr_mobile/encoder.tflite`、`models/ocr/manga_ocr_mobile/decoder.tflite` 及 tokenizer/config（当前默认日文 OCR：MangaOcr Mobile）
-- `models/ocr/en_PP-OCRv6_rec_mobile_infer.onnx`（英文 OCR）
+- `models/ocr/PP-OCRv6_small_rec.onnx`（英文/中文/中英混合 OCR）
 - `models/ocr/korean_PP-OCRv3_rec_infer.onnx`（韩文 OCR）
 - `models/text_detection/ysgyolo_1.2_OS1.0.onnx`（文本补检 + 文字蒙版）
 - `models/detection/PP-OCRv6_det_mobile_infer.onnx`（英文行检测）

@@ -11,25 +11,26 @@ Tutorial: [Simplified Chinese Tutorial](./Tutorial/简中教程.md)
 | ![Original](./Tutorial/FirePunch.webp) | ![Translated](./Tutorial/translated.webp) |
 
 ## Key Features ✨
-- Japanese to Chinese, English to Chinese
+- Translate Japanese, English, Korean, French, Spanish, Portuguese, German, Italian, Russian and more into Chinese, or translate Chinese into English/Russian
 - Screen translation: supports floating-window translation to recognize and translate manga text from any screen
 - Manga library management: create folders, import images in batch, import manga folders, and support CBZ, ZIP, and PDF import/export
 - Translation pipeline: speech bubble detection + OCR (supports OpenAI-compatible / Baidu AI) + LLM translation, with both standard mode and full-text fast translation
-- Reading experience: translation overlay, draggable translated bubbles, and automatic reading progress saving
+- Reading experience: translation overlay, draggable translated bubbles, and automatic reading progress saving; new cancel button and +/- fine-tune controls, synchronized zoom between webtoon and normal reading
+- Font settings: custom bubble fonts and bold style are supported; normal bubbles and floating-window bubbles share the same font configuration
 - Glossary and cache: maintain `glossary.json` per folder and automatically accumulate consistent name translations
+- Background translation notification: sends an audible high-priority system notification when folder/batch translation finishes; tapping it returns to the library
 - Updates and logs: check for updates on launch, foreground service during translation, and in-app log viewing
 - Multi-provider load balancing: configure multiple translation providers and balance requests automatically by weight
+- Webtoon/long-image support: automatically detect whether a work is closer to webtoon layout and switch reading mode; cross-page bubble merging is supported in webtoon/long-image mode
 
 ## Supported Translation Languages 🌐
-- Source languages: Japanese, English
-- Target language: Chinese
-  - Simplified Chinese
-  - Traditional Chinese
-- The translation language for each current folder can also be set independently in the library as:
-  - Japanese -> Chinese
-  - English -> Chinese
-  - Korean -> Chinese
-- When the app UI is switched to Traditional Chinese, it will prioritize Traditional Chinese prompts and output Traditional Chinese translation results by default
+- Target language is determined by the app UI language:
+  - Simplified Chinese UI -> Simplified Chinese
+  - Traditional Chinese UI -> Traditional Chinese
+  - English UI -> English
+  - Russian UI -> Russian
+- Source language for each folder can be set independently in the library and supports: Japanese, English, Korean, Simplified Chinese, Traditional Chinese, Chinese-English mixed, French, Spanish, Portuguese, German, Italian, Russian
+- When the app UI is switched to Traditional Chinese, it will prioritize Traditional Chinese prompts
 
 ## Quick Start 🚀
 1. Create a folder in the manga library and import images
@@ -41,7 +42,7 @@ Tutorial: [Simplified Chinese Tutorial](./Tutorial/简中教程.md)
 *For full-text fast translation, it is recommended to upload and translate in batches for large folders, or increase the API timeout in Settings.*
 
 ## FAQ ❓
-- Translation fails or returns empty results: make sure the API URL ends with `/v1`, the model name matches the provider, and the network is reachable. If using Baidu AI OCR, verify that both the API Key and Secret Key are correct
+- Translation fails or returns empty results: make sure the API URL is the OpenAI-compatible base URL provided by the service (for example, `https://api.deepseek.com/v1` or `https://open.bigmodel.cn/api/paas/v4`); the app will auto-append `/chat/completions`. The model name must match the provider and the network must be reachable. If using Baidu AI OCR, verify that both the API Key and Secret Key are correct
 - Translation order is incorrect: rename images first so they match the reading order
 - How do I get an AI API: please search for a suitable provider based on your needs
 
@@ -64,7 +65,7 @@ Join the QQ group for questions and discussion: `1080302768`
 - JDK 17.0.17+
 - Kotlin 2.0.0+
 - Gradle 8.11.1+
-- Android SDK: platform 35, build-tools 35.0.0
+- Android SDK: platform 36, build-tools 36.0.0
 
 ### Build Commands
 ```bash
@@ -78,7 +79,7 @@ Place the following model files into the corresponding subdirectories under `ass
 - `models/ocr/manga_ocr/encoder_model.onnx`, `models/ocr/manga_ocr/decoder_model.onnx` (Japanese OCR: MangaOcr, switchable in Settings)
 - `models/ocr/manga_ocr/generation_config.json`, `models/ocr/manga_ocr/preprocessor_config.json`, `models/ocr/manga_ocr/tokenizer.json`, `models/ocr/manga_ocr/special_tokens_map.json`
 - `models/ocr/manga_ocr_mobile/encoder.tflite`, `models/ocr/manga_ocr_mobile/decoder.tflite` and tokenizer/config files (currently the default Japanese OCR: MangaOcr Mobile)
-- `models/ocr/en_PP-OCRv6_rec_mobile_infer.onnx` (English OCR)
+- `models/ocr/PP-OCRv6_small_rec.onnx` (English/Chinese/mixed OCR)
 - `models/ocr/korean_PP-OCRv3_rec_infer.onnx` (Korean OCR)
 - `models/text_detection/ysgyolo_1.2_OS1.0.onnx` (supplementary text detection + text masking)
 - `models/detection/PP-OCRv6_det_mobile_infer.onnx` (English line detection)

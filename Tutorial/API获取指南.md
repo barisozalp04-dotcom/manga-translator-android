@@ -14,8 +14,8 @@
 
 一般来说：
 
-* API 地址通常是服务商提供的接口地址；兼容 OpenAI 的服务通常可直接填写以 `/v1` 结尾的地址，或填写服务商给出的上级接口地址
-* 软件会自动补全 OpenAI 兼容接口的 `/chat/completions`
+* API 地址通常是服务商提供的接口地址；兼容 OpenAI 的服务填写服务商给出的上级接口地址即可，例如 `https://api.deepseek.com/v1`、`https://open.bigmodel.cn/api/paas/v4`
+* 软件会自动补全 OpenAI 兼容接口的 `/chat/completions`，若地址已以 `/chat/completions` 结尾则原样使用
 * 点击「获取模型列表」时，软件会自动补全 OpenAI 兼容接口的 `/models`
 * API Key 就是服务商后台生成的密钥
 * 模型名称就是你实际要调用的模型 ID
