@@ -264,10 +264,7 @@ class TranslationStore {
             return true
         }
         return actual.version == expected.version &&
-            actual.mode == expected.mode &&
-            actual.language == expected.language &&
-            actual.promptAsset == expected.promptAsset &&
-            actual.ocrCacheMode == expected.ocrCacheMode
+            actual.language == expected.language
     }
 
     private fun isLegacyTranslationMetadata(metadata: TranslationMetadata): Boolean {
