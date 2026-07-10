@@ -27,7 +27,7 @@ class BubbleRenderer(context: Context) {
     private val bubbleRenderSettings = SettingsStore(appContext).loadNormalBubbleRenderSettings()
     private val textPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
         color = DEFAULT_TEXT_COLOR
-        applyInitialTypefaceSettings()
+        applyInitialTypefaceSettings(this)
     }
     private val minAreaPerCharSp = bubbleRenderSettings.minAreaPerCharSp
     private val hardMinTextSizePx = TypedValue.applyDimension(
@@ -72,7 +72,7 @@ class BubbleRenderer(context: Context) {
         }
     }
 
-    private fun applyInitialTypefaceSettings() {
+    private fun applyInitialTypefaceSettings(paint: TextPaint) {
         val typeface = BubbleFontResolver.resolveTypeface(
             appContext,
             bubbleRenderSettings.font,
@@ -81,7 +81,7 @@ class BubbleRenderer(context: Context) {
             tag = "normal"
         )
         val style = if (bubbleRenderSettings.isBold) Typeface.BOLD else Typeface.NORMAL
-        textPaint.typeface = Typeface.create(typeface, style)
+        paint.typeface = Typeface.create(typeface, style)
     }
 
     private suspend fun ensureTypefaceAsync() {
