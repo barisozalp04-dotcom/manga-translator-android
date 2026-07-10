@@ -3,6 +3,9 @@ package com.manga.translate
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.RectF
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
@@ -30,6 +33,11 @@ internal data class BubblePriorityCandidate(
     val confidence: Float,
     val hasMaskContour: Boolean,
     val area: Float
+)
+
+private data class DeduplicatedBubbleGroup(
+    val detection: BubbleDetection,
+    val suppressionRect: RectF
 )
 
 internal fun shouldUseLongImageTiling(pageWidth: Int, pageHeight: Int): Boolean {
@@ -100,6 +108,49 @@ internal fun remapTileMaskContourToPage(
         index += 2
     }
     return result
+}
+
+internal fun buildTileBubbleSuppressionMasks(
+    bubbleRects: List<RectF>,
+    tile: DetectionTile,
+    tileBitmapWidth: Int,
+    tileBitmapHeight: Int
+): List<TextSuppressionMask> {
+    if (bubbleRects.isEmpty() || tileBitmapWidth <= 0 || tileBitmapHeight <= 0 || tile.height <= 0) {
+        return emptyList()
+    }
+    val scaleX = tileBitmapWidth / tile.width.toFloat().coerceAtLeast(1f)
+    val scaleY = tileBitmapHeight / tile.height.toFloat().coerceAtLeast(1f)
+    val masks = ArrayList<TextSuppressionMask>(bubbleRects.size)
+    for (rect in bubbleRects) {
+        val intersectionLeft = max(0f, rect.left)
+        val intersectionTop = max(tile.top.toFloat(), rect.top)
+        val intersectionRight = min(tile.width.toFloat(), rect.right)
+        val intersectionBottom = min(tile.bottom.toFloat(), rect.bottom)
+        if (intersectionRight <= intersectionLeft || intersectionBottom <= intersectionTop) continue
+
+        val localRect = RectF(
+            rect.left * scaleX,
+            (rect.top - tile.top) * scaleY,
+            rect.right * scaleX,
+            (rect.bottom - tile.top) * scaleY
+        )
+        val pad = max(
+            TranslationCoreDefaults.PageRegionMaskExpandMin,
+            max(1f, localRect.height()) * TranslationCoreDefaults.PageRegionMaskExpandRatio
+        )
+        masks.add(
+            TextSuppressionMask.Rect(
+                RectF(
+                    (localRect.left - pad).coerceIn(0f, tileBitmapWidth.toFloat()),
+                    (localRect.top - pad).coerceIn(0f, tileBitmapHeight.toFloat()),
+                    (localRect.right + pad).coerceIn(0f, tileBitmapWidth.toFloat()),
+                    (localRect.bottom + pad).coerceIn(0f, tileBitmapHeight.toFloat())
+                )
+            )
+        )
+    }
+    return masks
 }
 
 internal fun choosePreferredBubbleCandidateIndex(
@@ -173,6 +224,8 @@ internal class PageRegionDetector(
         }
         return try {
             detectTiledLongImage(cropSource, pageWidth, pageHeight, logTag)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             AppLogger.log(logTag, "Long-image tiled detection failed; returning empty result", e)
             buildDetectionResult(
@@ -221,58 +274,75 @@ internal class PageRegionDetector(
             )
         }
         val bubbleDetections = ArrayList<BubbleDetection>()
-        val textRects = ArrayList<RectF>()
-        var failedTileCount = 0
+        var bubbleFailedTileCount = 0
         for ((index, tile) in tiles.withIndex()) {
-            val tileTag = "$logTag[tile ${index + 1}/${tiles.size}]"
+            currentCoroutineContext().ensureActive()
+            val tileTag = "$logTag[bubble tile ${index + 1}/${tiles.size}]"
             val tileBitmap = try {
                 cropSource.decodeRegion(tile.toRectF(), maxEdge = DETECTION_MAX_EDGE)
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
-                failedTileCount++
-                AppLogger.log(tileTag, "Long-image tile decode failed; skipping tile", e)
-                null
-            } ?: run {
-                failedTileCount++
+                bubbleFailedTileCount++
+                AppLogger.log(tileTag, "Long-image bubble tile decode failed; skipping tile", e)
+                continue
+            }
+            if (tileBitmap == null) {
+                bubbleFailedTileCount++
                 AppLogger.log(tileTag, "Long-image tile decode returned null; skipping tile")
                 continue
             }
             try {
-                val tileResult = detectSingleBitmap(
-                    bitmap = tileBitmap,
-                    logTag = tileTag,
-                    detectionMode = PageRegionDetectionMode.TILED_LONG
-                ) ?: run {
-                    failedTileCount++
-                    AppLogger.log(tileTag, "Long-image tile detection returned null; skipping tile")
+                val localDetections = detectBubbleDetections(tileBitmap, tileTag) ?: run {
+                    bubbleFailedTileCount++
+                    AppLogger.log(tileTag, "Long-image bubble detection returned null; skipping tile")
                     continue
                 }
-                val mapped = remapTileResultToPage(tileResult, tile, pageWidth, pageHeight)
-                bubbleDetections.addAll(mapped.bubbleDetections)
-                textRects.addAll(mapped.textRects)
+                bubbleDetections.addAll(
+                    remapTileBubbleDetectionsToPage(
+                        detections = localDetections,
+                        tileBitmapWidth = tileBitmap.width,
+                        tileBitmapHeight = tileBitmap.height,
+                        tile = tile,
+                        pageWidth = pageWidth,
+                        pageHeight = pageHeight
+                    )
+                )
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
-                failedTileCount++
-                AppLogger.log(tileTag, "Long-image tile detection failed; skipping tile", e)
+                bubbleFailedTileCount++
+                AppLogger.log(tileTag, "Long-image bubble detection failed; skipping tile", e)
             } finally {
                 tileBitmap.recycleSafely()
             }
         }
-        if (failedTileCount > 0) {
+        if (bubbleFailedTileCount > 0) {
             AppLogger.log(
                 logTag,
-                "Skipped $failedTileCount/${tiles.size} long-image detection tiles"
+                "Skipped $bubbleFailedTileCount/${tiles.size} long-image bubble tiles"
             )
         }
-        val deduplicatedBubbles = filterLongImageBubbleDetections(
+        val deduplicatedGroups = filterLongImageBubbleGroups(
             deduplicateBubbleDetections(bubbleDetections),
             pageWidth,
             pageHeight,
             logTag
         )
+        val deduplicatedBubbles = deduplicatedGroups.map { it.detection }
+        val suppressionBubbleRects = deduplicatedGroups.map { it.suppressionRect }
+        val textRects = detectLongImageTextRects(
+            cropSource = cropSource,
+            tiles = tiles,
+            suppressionBubbleRects = suppressionBubbleRects,
+            logTag = logTag
+        )
         val longFilteredTextRects = filterLongImageRects(textRects, pageWidth, pageHeight, logTag)
         val filteredTextRects = filterOverlapping(
             textRects = longFilteredTextRects,
             bubbleRects = deduplicatedBubbles.map { it.rect },
-            threshold = TEXT_IOU_THRESHOLD
+            threshold = TEXT_IOU_THRESHOLD,
+            includeSameBubbleCheck = true
         )
         val mergedTextRects = RectGeometryDeduplicator.mergeSupplementRects(
             filteredTextRects,
@@ -292,17 +362,69 @@ internal class PageRegionDetector(
         )
     }
 
+    private suspend fun detectLongImageTextRects(
+        cropSource: BitmapCropSource,
+        tiles: List<DetectionTile>,
+        suppressionBubbleRects: List<RectF>,
+        logTag: String
+    ): List<RectF> {
+        val detector = getTextDetector(logTag) ?: return emptyList()
+        val textRects = ArrayList<RectF>()
+        var failedTileCount = 0
+        for ((index, tile) in tiles.withIndex()) {
+            currentCoroutineContext().ensureActive()
+            val tileTag = "$logTag[text tile ${index + 1}/${tiles.size}]"
+            val tileBitmap = try {
+                cropSource.decodeRegion(tile.toRectF(), maxEdge = DETECTION_MAX_EDGE)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                failedTileCount++
+                AppLogger.log(tileTag, "Long-image text tile decode failed; skipping tile", e)
+                continue
+            }
+            if (tileBitmap == null) {
+                failedTileCount++
+                AppLogger.log(tileTag, "Long-image text tile decode returned null; skipping tile")
+                continue
+            }
+            try {
+                val masks = buildTileBubbleSuppressionMasks(
+                    bubbleRects = suppressionBubbleRects,
+                    tile = tile,
+                    tileBitmapWidth = tileBitmap.width,
+                    tileBitmapHeight = tileBitmap.height
+                )
+                val localTextRects = detector.detect(tileBitmap, masks)
+                textRects.addAll(
+                    remapTileRectsToPage(
+                        rects = localTextRects,
+                        tileBitmapWidth = tileBitmap.width,
+                        tileBitmapHeight = tileBitmap.height,
+                        tile = tile
+                    )
+                )
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                failedTileCount++
+                AppLogger.log(tileTag, "Long-image text detection failed; skipping tile", e)
+            } finally {
+                tileBitmap.recycleSafely()
+            }
+        }
+        if (failedTileCount > 0) {
+            AppLogger.log(logTag, "Skipped $failedTileCount/${tiles.size} long-image text tiles")
+        }
+        return textRects
+    }
+
     private fun detectSingleBitmap(
         bitmap: Bitmap,
         logTag: String,
         detectionMode: PageRegionDetectionMode
     ): PageRegionDetectionResult? {
-        val bubbleDetector = getBubbleDetector(logTag) ?: return null
-        val detections = filterTinyBubbleDetections(
-            detections = bubbleDetector.detect(bitmap),
-            bitmap = bitmap,
-            logTag = logTag
-        )
+        val detections = detectBubbleDetections(bitmap, logTag) ?: return null
         val textRects = detectSupplementTextRects(bitmap, detections, detectionMode)
         if (textRects.isNotEmpty()) {
             AppLogger.log(logTag, "Supplemented ${textRects.size} text boxes")
@@ -313,6 +435,15 @@ internal class PageRegionDetector(
             detections = detections,
             textRects = textRects,
             detectionMode = detectionMode
+        )
+    }
+
+    private fun detectBubbleDetections(bitmap: Bitmap, logTag: String): List<BubbleDetection>? {
+        val detector = getBubbleDetector(logTag) ?: return null
+        return filterTinyBubbleDetections(
+            detections = detector.detect(bitmap),
+            bitmap = bitmap,
+            logTag = logTag
         )
     }
 
@@ -335,45 +466,53 @@ internal class PageRegionDetector(
         )
     }
 
-    private fun remapTileResultToPage(
-        tileResult: PageRegionDetectionResult,
+    private fun remapTileBubbleDetectionsToPage(
+        detections: List<BubbleDetection>,
+        tileBitmapWidth: Int,
+        tileBitmapHeight: Int,
         tile: DetectionTile,
         pageWidth: Int,
         pageHeight: Int
-    ): PageRegionDetectionResult {
-        val scaleX = tile.width / tileResult.width.toFloat().coerceAtLeast(1f)
-        val scaleY = tile.height / tileResult.height.toFloat().coerceAtLeast(1f)
-        return PageRegionDetectionResult(
-            width = pageWidth,
-            height = pageHeight,
-            bubbleDetections = tileResult.bubbleDetections.map { detection ->
-                detection.copy(
-                    rect = detection.rect.scaleBy(scaleX, scaleY).offsetBy(0f, tile.top.toFloat()),
-                    maskContour = detection.maskContour?.let {
-                        remapTileMaskContourToPage(
-                            contour = it,
-                            tileTop = tile.top,
-                            tileHeight = tile.height,
-                            pageWidth = pageWidth,
-                            pageHeight = pageHeight
-                        )
-                    }
-                )
-            },
-            textRects = tileResult.textRects.map { rect ->
-                rect.scaleBy(scaleX, scaleY).offsetBy(0f, tile.top.toFloat())
-            },
-            regions = emptyList(),
-            detectionMode = PageRegionDetectionMode.TILED_LONG
-        )
+    ): List<BubbleDetection> {
+        val scaleX = tile.width / tileBitmapWidth.toFloat().coerceAtLeast(1f)
+        val scaleY = tile.height / tileBitmapHeight.toFloat().coerceAtLeast(1f)
+        return detections.map { detection ->
+            detection.copy(
+                rect = detection.rect.scaleBy(scaleX, scaleY).offsetBy(0f, tile.top.toFloat()),
+                maskContour = detection.maskContour?.let {
+                    remapTileMaskContourToPage(
+                        contour = it,
+                        tileTop = tile.top,
+                        tileHeight = tile.height,
+                        pageWidth = pageWidth,
+                        pageHeight = pageHeight
+                    )
+                }
+            )
+        }
+    }
+
+    private fun remapTileRectsToPage(
+        rects: List<RectF>,
+        tileBitmapWidth: Int,
+        tileBitmapHeight: Int,
+        tile: DetectionTile
+    ): List<RectF> {
+        val scaleX = tile.width / tileBitmapWidth.toFloat().coerceAtLeast(1f)
+        val scaleY = tile.height / tileBitmapHeight.toFloat().coerceAtLeast(1f)
+        return rects.map { rect ->
+            rect.scaleBy(scaleX, scaleY).offsetBy(0f, tile.top.toFloat())
+        }
     }
 
     private fun deduplicateBubbleDetections(
         detections: List<BubbleDetection>
-    ): List<BubbleDetection> {
-        if (detections.size <= 1) return detections
+    ): List<DeduplicatedBubbleGroup> {
+        if (detections.size <= 1) {
+            return detections.map { DeduplicatedBubbleGroup(it, RectF(it.rect)) }
+        }
         val visited = BooleanArray(detections.size)
-        val result = ArrayList<BubbleDetection>(detections.size)
+        val result = ArrayList<DeduplicatedBubbleGroup>(detections.size)
         for (start in detections.indices) {
             if (visited[start]) continue
             val queue = ArrayDeque<Int>()
@@ -398,7 +537,24 @@ internal class PageRegionDetector(
                 )
             }
             val bestOffset = choosePreferredBubbleCandidateIndex(candidates).coerceAtLeast(0)
-            result.add(detections[component[bestOffset]])
+            val firstRect = detections[component.first()].rect
+            var left = firstRect.left
+            var top = firstRect.top
+            var right = firstRect.right
+            var bottom = firstRect.bottom
+            for (offset in 1 until component.size) {
+                val rect = detections[component[offset]].rect
+                left = min(left, rect.left)
+                top = min(top, rect.top)
+                right = max(right, rect.right)
+                bottom = max(bottom, rect.bottom)
+            }
+            result.add(
+                DeduplicatedBubbleGroup(
+                    detection = detections[component[bestOffset]],
+                    suppressionRect = RectF(left, top, right, bottom)
+                )
+            )
         }
         return result
     }
@@ -517,14 +673,19 @@ internal class PageRegionDetector(
     private fun filterOverlapping(
         textRects: List<RectF>,
         bubbleRects: List<RectF>,
-        threshold: Float
+        threshold: Float,
+        includeSameBubbleCheck: Boolean = false
     ): List<RectF> {
         if (bubbleRects.isEmpty()) return textRects
         val filtered = ArrayList<RectF>(textRects.size)
         for (rect in textRects) {
             var overlapped = false
             for (bubble in bubbleRects) {
-                if (iou(rect, bubble) >= threshold || contains(bubble, rect)) {
+                if (
+                    iou(rect, bubble) >= threshold ||
+                    contains(bubble, rect) ||
+                    (includeSameBubbleCheck && shouldTreatRectsAsSameBubbleForDedup(rect, bubble))
+                ) {
                     overlapped = true
                     break
                 }
@@ -553,16 +714,18 @@ internal class PageRegionDetector(
         return filtered
     }
 
-    private fun filterLongImageBubbleDetections(
-        detections: List<BubbleDetection>,
+    private fun filterLongImageBubbleGroups(
+        groups: List<DeduplicatedBubbleGroup>,
         pageWidth: Int,
         pageHeight: Int,
         logTag: String
-    ): List<BubbleDetection> {
-        if (detections.isEmpty()) return detections
-        val filtered = detections.filterNot { shouldFilterLongImageRegion(it.rect, pageWidth, pageHeight) }
+    ): List<DeduplicatedBubbleGroup> {
+        if (groups.isEmpty()) return groups
+        val filtered = groups.filterNot {
+            shouldFilterLongImageRegion(it.detection.rect, pageWidth, pageHeight)
+        }
         logLongImageRegionFilter(
-            removedCount = detections.size - filtered.size,
+            removedCount = groups.size - filtered.size,
             keptCount = filtered.size,
             label = "bubble",
             logTag = logTag

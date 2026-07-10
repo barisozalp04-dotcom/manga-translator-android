@@ -278,6 +278,7 @@ sourceSets["main"].assets.srcDirs("src/main/assets", "../assets")
 
 当前页面区域检测链路也已独立成公共模块：
 - `PageRegionDetector.kt` 负责“先检测气泡，再 mask bubble 区域，再补充文本框，再做 overlap/filter，最后产出统一 region 列表”。
+- 长图分块检测采用整页两阶段流程：先完成所有重叠 tile 的气泡检测与整页去重，再把全局气泡矩形映射回每个 tile 作为文本检测 suppression mask，避免相邻 tile 漏检气泡后重复补出游离气泡。
 - `TranslationPipeline.kt` 现在主要保留缓存判断、OCR 调用、落盘和翻译编排，不再直接维护检测细节。
 - 如果后续要调整 bubble mask、supplement text box、去重阈值、`BubbleSource` 或 `maskContour` 的组装逻辑，优先修改 `PageRegionDetector.kt`。
 

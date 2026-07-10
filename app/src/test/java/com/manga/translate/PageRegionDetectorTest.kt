@@ -130,6 +130,48 @@ class PageRegionDetectorTest {
     }
 
     @Test
+    fun `global bubble creates suppression masks in every overlapping tile`() {
+        val tiles = planLongImageDetectionTiles(pageWidth = 1000, pageHeight = 7000)
+        val bubble = RectF(200f, 1900f, 700f, 2100f)
+
+        val firstMasks = buildTileBubbleSuppressionMasks(
+            bubbleRects = listOf(bubble),
+            tile = tiles[0],
+            tileBitmapWidth = 1000,
+            tileBitmapHeight = tiles[0].height
+        )
+        val secondMasks = buildTileBubbleSuppressionMasks(
+            bubbleRects = listOf(bubble),
+            tile = tiles[1],
+            tileBitmapWidth = 500,
+            tileBitmapHeight = tiles[1].height / 2
+        )
+
+        assertEquals(1, firstMasks.size)
+        assertEquals(1, secondMasks.size)
+        val firstRect = (firstMasks.single() as TextSuppressionMask.Rect).rect
+        val secondRect = (secondMasks.single() as TextSuppressionMask.Rect).rect
+        assertTrue(firstRect.top < 1900f)
+        assertTrue(firstRect.bottom > 2100f)
+        assertTrue(secondRect.top < (1900f - tiles[1].top) / 2f)
+        assertTrue(secondRect.bottom > (2100f - tiles[1].top) / 2f)
+    }
+
+    @Test
+    fun `global bubble outside tile does not create suppression mask`() {
+        val tile = planLongImageDetectionTiles(pageWidth = 1000, pageHeight = 7000).last()
+
+        val masks = buildTileBubbleSuppressionMasks(
+            bubbleRects = listOf(RectF(200f, 100f, 700f, 300f)),
+            tile = tile,
+            tileBitmapWidth = 1000,
+            tileBitmapHeight = tile.height
+        )
+
+        assertTrue(masks.isEmpty())
+    }
+
+    @Test
     fun `bubble priority prefers higher confidence when gap exceeds threshold`() {
         val best = choosePreferredBubbleCandidateIndex(
             listOf(
@@ -182,6 +224,6 @@ class PageRegionDetectorTest {
     @Test
     fun `detection strategy tag switches between full and tiled modes`() {
         assertEquals("det_full_v1", buildDetectionStrategyTag(pageWidth = 1600, pageHeight = 3000))
-        assertEquals("det_tiled_long_v2", buildDetectionStrategyTag(pageWidth = 1000, pageHeight = 4096))
+        assertEquals("det_tiled_long_v3", buildDetectionStrategyTag(pageWidth = 1000, pageHeight = 4096))
     }
 }
