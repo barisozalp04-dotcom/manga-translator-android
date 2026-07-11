@@ -328,6 +328,14 @@ Long press the floating ball: pop up menu</string>
     <string name="folder_collection_meta">%1$d chapters · %2$d pictures</string>
     <string name="folder_delete">Delete</string>
     <string name="folder_rename">Rename</string>
+    <string name="folder_more_actions">More folder actions</string>
+    <string name="folder_edit_tags">Edit Tags</string>
+    <string name="folder_edit_tags_hint">Translated and Untranslated are built-in tags and cannot be removed. Use the close icon to remove a custom tag.</string>
+    <string name="folder_tag_name_hint">New tag name</string>
+    <string name="folder_tag_add">Add</string>
+    <string name="folder_tag_reserved">This name is reserved for a built-in tag</string>
+    <string name="folder_filter_active">Filter: %1$s  ×</string>
+    <string name="folder_filter_empty">No manga folders have this tag</string>
     <string name="folder_move">Move</string>
     <string name="folder_move_title">Select a collection to move to</string>
     <string name="folder_move_failed">Move failed, please try again later</string>

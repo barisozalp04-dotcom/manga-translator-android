@@ -4,6 +4,9 @@ import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
+import android.widget.TextView
+import androidx.appcompat.widget.PopupMenu
+import androidx.core.content.ContextCompat
 import androidx.core.view.isVisible
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.ListAdapter
@@ -16,6 +19,10 @@ class LibraryFolderAdapter(
     private val onDelete: (FolderItem) -> Unit,
     private val onRename: (FolderItem) -> Unit,
     private val onMove: (FolderItem) -> Unit,
+    private val onEditTags: ((FolderItem) -> Unit)? = null,
+    private val onTagClick: ((String) -> Unit)? = null,
+    private val onStatusClick: ((FolderStatus) -> Unit)? = null,
+    private val showOverflowMenu: Boolean = false,
     private val onSelectionChanged: (() -> Unit)? = null,
     private val onItemLongPress: ((FolderItem) -> Unit)? = null
 ) : ListAdapter<FolderItem, LibraryFolderAdapter.FolderViewHolder>(DiffCallback) {
@@ -118,6 +125,10 @@ class LibraryFolderAdapter(
             onDelete = onDelete,
             onRename = onRename,
             onMove = onMove,
+            onEditTags = onEditTags,
+            onTagClick = onTagClick,
+            onStatusClick = onStatusClick,
+            showOverflowMenu = showOverflowMenu,
             onToggleAction = ::toggleActionPosition,
             onItemLongPress = onItemLongPress,
             onToggleSelection = ::toggleSelectionAndNotify
@@ -140,6 +151,10 @@ class LibraryFolderAdapter(
         private val onDelete: (FolderItem) -> Unit,
         private val onRename: (FolderItem) -> Unit,
         private val onMove: (FolderItem) -> Unit,
+        private val onEditTags: ((FolderItem) -> Unit)?,
+        private val onTagClick: ((String) -> Unit)?,
+        private val onStatusClick: ((FolderStatus) -> Unit)?,
+        private val showOverflowMenu: Boolean,
         private val onToggleAction: (Int) -> Unit,
         private val onItemLongPress: ((FolderItem) -> Unit)?,
         private val onToggleSelection: (File) -> Unit
@@ -154,6 +169,12 @@ class LibraryFolderAdapter(
             }
             binding.folderStatus.setText(item.status.labelRes)
             binding.folderStatus.isVisible = item.imageCount > 0 || item.status == FolderStatus.UNTRANSLATED
+            binding.folderStatus.isClickable = onStatusClick != null
+            binding.folderStatus.isFocusable = onStatusClick != null
+            binding.folderStatus.setOnClickListener {
+                onStatusClick?.invoke(item.status)
+            }
+            bindCustomTags(item.customTags)
             binding.folderCheck.visibility = if (selectionMode) View.VISIBLE else View.GONE
             binding.folderCheck.setOnCheckedChangeListener(null)
             binding.folderCheck.isChecked = selected
@@ -161,6 +182,7 @@ class LibraryFolderAdapter(
                 onToggleSelection(item.folder)
             }
             binding.folderActions.visibility = if (showActions && !selectionMode) View.VISIBLE else View.GONE
+            binding.folderOverflow.visibility = if (showOverflowMenu && !selectionMode) View.VISIBLE else View.GONE
             binding.folderMove.visibility = if (item.isCollection) View.GONE else View.VISIBLE
             binding.root.setOnLongClickListener {
                 if (onItemLongPress != null) {
@@ -180,6 +202,45 @@ class LibraryFolderAdapter(
             binding.folderMove.setOnClickListener { onMove(item) }
             binding.folderDelete.setOnClickListener { onDelete(item) }
             binding.folderRename.setOnClickListener { onRename(item) }
+            binding.folderOverflow.setOnClickListener { anchor ->
+                PopupMenu(anchor.context, anchor).apply {
+                    menu.add(0, MENU_RENAME, 0, R.string.folder_rename)
+                    menu.add(0, MENU_DELETE, 1, R.string.folder_delete)
+                    menu.add(0, MENU_EDIT_TAGS, 2, R.string.folder_edit_tags)
+                    setOnMenuItemClickListener { menuItem ->
+                        when (menuItem.itemId) {
+                            MENU_RENAME -> onRename(item)
+                            MENU_DELETE -> onDelete(item)
+                            MENU_EDIT_TAGS -> onEditTags?.invoke(item)
+                            else -> return@setOnMenuItemClickListener false
+                        }
+                        true
+                    }
+                    show()
+                }
+            }
+        }
+
+        private fun bindCustomTags(tags: List<String>) {
+            val tagContainer = binding.folderTags
+            if (tagContainer.childCount > 1) {
+                tagContainer.removeViews(1, tagContainer.childCount - 1)
+            }
+            val context = tagContainer.context
+            tags.forEach { tag ->
+                tagContainer.addView(TextView(context).apply {
+                    text = tag
+                    setTextAppearance(R.style.Widget_MangaTranslator_BodyMuted)
+                    setTypeface(typeface, android.graphics.Typeface.BOLD)
+                    background = ContextCompat.getDrawable(context, R.drawable.bg_status_chip)
+                    val horizontal = (8 * resources.displayMetrics.density).toInt()
+                    val vertical = (2 * resources.displayMetrics.density).toInt()
+                    setPadding(horizontal, vertical, horizontal, vertical)
+                    isClickable = onTagClick != null
+                    isFocusable = onTagClick != null
+                    setOnClickListener { onTagClick?.invoke(tag) }
+                })
+            }
         }
     }
 
@@ -194,6 +255,10 @@ class LibraryFolderAdapter(
     }
 
     private companion object {
+        const val MENU_RENAME = 1
+        const val MENU_DELETE = 2
+        const val MENU_EDIT_TAGS = 3
+
         val DiffCallback = object : DiffUtil.ItemCallback<FolderItem>() {
             override fun areItemsTheSame(oldItem: FolderItem, newItem: FolderItem): Boolean {
                 return oldItem.folder.absolutePath == newItem.folder.absolutePath

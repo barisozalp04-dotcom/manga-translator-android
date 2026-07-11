@@ -2,12 +2,14 @@ package com.manga.translate
 
 import android.content.Context
 import android.content.res.ColorStateList
+import android.text.InputFilter
 import android.text.InputType
 import android.util.TypedValue
 import android.view.LayoutInflater
 import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
 import android.widget.CheckBox
+import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.RadioButton
@@ -19,7 +21,11 @@ import androidx.core.content.ContextCompat
 import androidx.core.widget.TextViewCompat
 import androidx.documentfile.provider.DocumentFile
 import com.google.android.material.textfield.TextInputEditText
+import com.google.android.material.chip.Chip
+import com.google.android.material.chip.ChipGroup
 import java.util.Locale
+
+private const val MAX_FOLDER_TAG_LENGTH = 24
 
 internal class LibraryDialogs {
     private fun formatInt(value: Int): String = String.format(Locale.getDefault(), "%d", value)
@@ -201,6 +207,105 @@ internal class LibraryDialogs {
         onConfirm: (String) -> Unit
     ) {
         showTextInputDialog(context, R.string.folder_rename, initialText = oldName, onConfirm = onConfirm)
+    }
+
+    fun showEditFolderTagsDialog(
+        context: Context,
+        statusLabel: String,
+        initialTags: Set<String>,
+        onConfirm: (Set<String>) -> Unit
+    ) {
+        val tags = initialTags.toSortedSet(String.CASE_INSENSITIVE_ORDER)
+        val container = buildDialogContainer(context)
+        val description = TextView(context).apply {
+            setText(R.string.folder_edit_tags_hint)
+            setTextAppearance(R.style.Widget_MangaTranslator_BodyMuted)
+        }
+        val tagGroup = ChipGroup(context).apply {
+            isSingleLine = false
+            chipSpacingHorizontal = dp(context, 8f)
+            chipSpacingVertical = dp(context, 6f)
+        }
+        val inputRow = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER_VERTICAL
+        }
+        val input = TextInputEditText(context).apply {
+            hint = context.getString(R.string.folder_tag_name_hint)
+            isSingleLine = true
+            imeOptions = EditorInfo.IME_ACTION_DONE
+            filters = arrayOf(InputFilter.LengthFilter(MAX_FOLDER_TAG_LENGTH))
+        }
+        applyDialogTextColors(context, input)
+        val addButton = Button(context).apply {
+            setText(R.string.folder_tag_add)
+            isAllCaps = false
+        }
+
+        fun renderTags() {
+            tagGroup.removeAllViews()
+            tagGroup.addView(Chip(context).apply {
+                text = statusLabel
+                isCheckable = false
+                isClickable = false
+            })
+            tags.forEach { tag ->
+                tagGroup.addView(Chip(context).apply {
+                    text = tag
+                    isCheckable = false
+                    isCloseIconVisible = true
+                    setOnCloseIconClickListener {
+                        tags.remove(tag)
+                        renderTags()
+                    }
+                })
+            }
+        }
+
+        fun addTag() {
+            val tag = input.text?.toString()?.trim().orEmpty()
+            when {
+                tag.isEmpty() -> return
+                tag == context.getString(R.string.image_translated) ||
+                    tag == context.getString(R.string.image_not_translated) -> {
+                    Toast.makeText(context, R.string.folder_tag_reserved, Toast.LENGTH_SHORT).show()
+                }
+                else -> {
+                    tags.add(tag)
+                    input.text?.clear()
+                    renderTags()
+                }
+            }
+        }
+
+        inputRow.addView(input, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        inputRow.addView(
+            addButton,
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { marginStart = dp(context, 8f) }
+        )
+        container.addView(description, matchWrapLayoutParams())
+        container.addView(tagGroup, matchWrapLayoutParams().apply { topMargin = dp(context, 12f) })
+        container.addView(inputRow, matchWrapLayoutParams().apply { topMargin = dp(context, 12f) })
+        addButton.setOnClickListener { addTag() }
+        input.setOnEditorActionListener { _, actionId, _ ->
+            if (actionId == EditorInfo.IME_ACTION_DONE) {
+                addTag()
+                true
+            } else {
+                false
+            }
+        }
+        renderTags()
+
+        AlertDialog.Builder(context)
+            .setTitle(R.string.folder_edit_tags)
+            .setView(container)
+            .setNegativeButton(android.R.string.cancel, null)
+            .setPositiveButton(android.R.string.ok) { _, _ -> onConfirm(tags.toSet()) }
+            .show()
     }
 
     fun showMoveFolderDialog(

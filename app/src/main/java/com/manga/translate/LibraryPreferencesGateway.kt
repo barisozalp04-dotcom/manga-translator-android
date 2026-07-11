@@ -82,6 +82,23 @@ internal class LibraryPreferencesGateway(
         }
     }
 
+    fun getFolderTags(folder: File): Set<String> {
+        return prefs.getStringSet(folderTagsKeyPrefix + folder.absolutePath, emptySet())
+            ?.toSet()
+            .orEmpty()
+    }
+
+    fun setFolderTags(folder: File, tags: Set<String>) {
+        prefs.edit {
+            val key = folderTagsKeyPrefix + folder.absolutePath
+            if (tags.isEmpty()) {
+                remove(key)
+            } else {
+                putStringSet(key, tags.toSet())
+            }
+        }
+    }
+
     fun autoDetectAndSetReadingMode(folder: File, importedImages: List<File>): FolderReadingMode? {
         if (importedImages.isEmpty()) return null
         if (hasStoredReadingMode(folder)) return null
@@ -117,6 +134,12 @@ internal class LibraryPreferencesGateway(
                 }
                 remove(oldKey)
             }
+            val oldTagsKey = folderTagsKeyPrefix + from.absolutePath
+            val oldTags = prefs.getStringSet(oldTagsKey, null)
+            if (oldTags != null) {
+                putStringSet(folderTagsKeyPrefix + to.absolutePath, oldTags.toSet())
+                remove(oldTagsKey)
+            }
         }
     }
 
@@ -127,6 +150,7 @@ internal class LibraryPreferencesGateway(
             settingsKeyPrefixes.forEach { prefix ->
                 remove(prefix + resolved.absolutePath)
             }
+            remove(folderTagsKeyPrefix + folder.absolutePath)
         }
     }
 
@@ -223,6 +247,7 @@ internal class LibraryPreferencesGateway(
         private const val languageKeyPrefix = "translation_language_"
         private const val vlDirectTranslateKeyPrefix = "vl_direct_translate_enabled_"
         private const val readingModeKeyPrefix = "reading_mode_"
+        private const val folderTagsKeyPrefix = "folder_tags_"
         private val settingsKeyPrefixes = listOf(
             fullTranslateKeyPrefix,
             glossaryProcessingKeyPrefix,

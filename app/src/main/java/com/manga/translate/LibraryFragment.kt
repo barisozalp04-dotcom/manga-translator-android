@@ -63,6 +63,7 @@ class LibraryFragment : Fragment() {
     private var folderDetailContentBaseTopPadding: Int = 0
     private var isChapterSelectionMode: Boolean = false
     private var isLibrarySelectionMode: Boolean = false
+    private var activeFolderFilter: FolderFilter? = null
     private var pendingFloatingTranslateLanguage: TranslationLanguage? = null
     private val modelErrorController by lazy(LazyThreadSafetyMode.NONE) {
         ModelErrorDialogController(this, dialogs)
@@ -78,6 +79,10 @@ class LibraryFragment : Fragment() {
         onDelete = { confirmDeleteFolder(it.folder) },
         onRename = { showRenameFolderDialog(it.folder) },
         onMove = { showMoveFolderPicker(it.folder) },
+        onEditTags = { showEditFolderTagsDialog(it) },
+        onTagClick = { applyFolderFilter(FolderFilter.CustomTag(it)) },
+        onStatusClick = { applyFolderFilter(FolderFilter.Status(it)) },
+        showOverflowMenu = true,
         onSelectionChanged = { updateLibrarySelectionActions() },
         onItemLongPress = { enterLibrarySelectionMode(it.folder) }
     )
@@ -374,9 +379,9 @@ class LibraryFragment : Fragment() {
         binding.tutorialButton.setOnClickListener { openTutorial() }
         binding.librarySelectAll.setOnClickListener { toggleSelectAllLibraryFolders() }
         binding.libraryTranslateSelected.setOnClickListener { translateSelectedLibraryFolders() }
-        binding.libraryRenameSelected.setOnClickListener { renameSelectedLibraryFolder() }
         binding.libraryDeleteSelected.setOnClickListener { confirmDeleteSelectedLibraryFolders() }
         binding.libraryCancelSelection.setOnClickListener { exitLibrarySelectionMode() }
+        binding.libraryActiveFilter.setOnClickListener { applyFolderFilter(null) }
         binding.folderBackButton.setOnClickListener { navigateBackFromDetail() }
         binding.folderAddImages.setOnClickListener { handleAddContentClick() }
         binding.folderCollectionAddChapter.setOnClickListener { handleAddContentClick() }
@@ -795,10 +800,19 @@ class LibraryFragment : Fragment() {
 
     private fun loadFolders() {
         val folders = repository.listFolders()
-        val items = folders.map(::buildFolderItem)
+        val items = folders.map(::buildFolderItem).filter { item ->
+            when (val filter = activeFolderFilter) {
+                null -> true
+                is FolderFilter.Status -> item.status == filter.status
+                is FolderFilter.CustomTag -> item.customTags.any { it == filter.tag }
+            }
+        }
         folderAdapter.submit(items)
-        binding.libraryEmpty.text = getString(R.string.folder_empty)
+        binding.libraryEmpty.text = getString(
+            if (activeFolderFilter == null) R.string.folder_empty else R.string.folder_filter_empty
+        )
         binding.libraryEmpty.visibility = if (items.isEmpty()) View.VISIBLE else View.GONE
+        updateActiveFolderFilter()
         if (isLibrarySelectionMode) {
             updateLibrarySelectionActions()
         }
@@ -1004,6 +1018,37 @@ class LibraryFragment : Fragment() {
                 refreshFolderViewsAfterMutation(folder, renamed)
             }
         }
+    }
+
+    private fun showEditFolderTagsDialog(item: FolderItem) {
+        dialogs.showEditFolderTagsDialog(
+            context = requireContext(),
+            statusLabel = getString(item.status.labelRes),
+            initialTags = item.customTags.toSet()
+        ) { tags ->
+            preferencesGateway.setFolderTags(item.folder, tags)
+            loadFolders()
+        }
+    }
+
+    private fun applyFolderFilter(filter: FolderFilter?) {
+        if (isLibrarySelectionMode) {
+            exitLibrarySelectionMode()
+        }
+        activeFolderFilter = if (activeFolderFilter == filter) null else filter
+        loadFolders()
+    }
+
+    private fun updateActiveFolderFilter() {
+        val filter = activeFolderFilter
+        binding.libraryActiveFilter.isVisible = filter != null
+        binding.libraryActiveFilter.text = filter?.let {
+            val label = when (it) {
+                is FolderFilter.Status -> getString(it.status.labelRes)
+                is FolderFilter.CustomTag -> it.tag
+            }
+            getString(R.string.folder_filter_active, label)
+        }.orEmpty()
     }
 
     private fun showMoveFolderPicker(folder: File) {
@@ -1347,7 +1392,9 @@ class LibraryFragment : Fragment() {
             imageCount = images.size,
             chapterCount = chapters.size,
             isCollection = isCollection,
-            status = resolveFolderStatus(folder, images)
+            status = resolveFolderStatus(folder, images),
+            customTags = preferencesGateway.getFolderTags(folder)
+                .sortedWith(String.CASE_INSENSITIVE_ORDER)
         )
     }
 
@@ -1427,7 +1474,6 @@ class LibraryFragment : Fragment() {
         binding.librarySelectAll.text = getString(
             if (folderAdapter.areAllSelected()) R.string.clear_all else R.string.select_all
         )
-        binding.libraryRenameSelected.visibility = if (count == 1) View.VISIBLE else View.GONE
     }
 
     private fun applyTranslationActionsEnabled(enabled: Boolean) {
@@ -1496,13 +1542,6 @@ class LibraryFragment : Fragment() {
             exitLibrarySelectionMode()
             refreshFolderViewsAfterBatchMutation(selected)
         }
-    }
-
-    private fun renameSelectedLibraryFolder() {
-        val selected = folderAdapter.getSelectedFolders()
-        if (selected.size != 1) return
-        exitLibrarySelectionMode()
-        showRenameFolderDialog(selected.first())
     }
 
     private fun handleDeleteSelectedClick() {
@@ -1584,6 +1623,11 @@ class LibraryFragment : Fragment() {
         if (selected.size != 1) return
         exitChapterSelectionMode()
         showRenameFolderDialog(selected.first())
+    }
+
+    private sealed interface FolderFilter {
+        data class Status(val status: FolderStatus) : FolderFilter
+        data class CustomTag(val tag: String) : FolderFilter
     }
 
 }

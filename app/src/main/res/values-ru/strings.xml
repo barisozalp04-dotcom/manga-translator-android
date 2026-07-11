@@ -328,6 +328,14 @@
     <string name="folder_collection_meta">%1$d глав · %2$d изображений</string>
     <string name="folder_delete">Удалить</string>
     <string name="folder_rename">Переименовать</string>
+    <string name="folder_more_actions">Дополнительные действия с папкой</string>
+    <string name="folder_edit_tags">Изменить теги</string>
+    <string name="folder_edit_tags_hint">«Переведено» и «Не переведено» являются встроенными тегами и не могут быть удалены. Пользовательский тег можно удалить значком закрытия.</string>
+    <string name="folder_tag_name_hint">Название нового тега</string>
+    <string name="folder_tag_add">Добавить</string>
+    <string name="folder_tag_reserved">Это название зарезервировано для встроенного тега</string>
+    <string name="folder_filter_active">Фильтр: %1$s  ×</string>
+    <string name="folder_filter_empty">Нет папок манги с этим тегом</string>
     <string name="folder_move">Переместить</string>
     <string name="folder_move_title">Выберите коллекцию, в которую хотите переместить</string>
     <string name="folder_move_failed">Не удалось переместить. Повторите попытку позже.</string>

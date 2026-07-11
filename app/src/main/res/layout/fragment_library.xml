@@ -172,6 +172,22 @@
                         android:text="@string/library_collection_title"
                         android:textAppearance="@style/Widget.MangaTranslator.CardTitle" />
 
+                    <TextView
+                        android:id="@+id/library_active_filter"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="10dp"
+                        android:background="@drawable/bg_status_chip"
+                        android:clickable="true"
+                        android:focusable="true"
+                        android:paddingStart="10dp"
+                        android:paddingTop="4dp"
+                        android:paddingEnd="10dp"
+                        android:paddingBottom="4dp"
+                        android:textAppearance="@style/Widget.MangaTranslator.BodyMuted"
+                        android:textStyle="bold"
+                        android:visibility="gone" />
+
                     <LinearLayout
                         android:id="@+id/library_selection_actions"
                         android:layout_width="match_parent"
@@ -192,14 +208,6 @@
                             android:layout_height="wrap_content"
                             android:layout_marginTop="8dp"
                             android:text="@string/translate_selected" />
-
-                        <Button
-                            android:id="@+id/library_rename_selected"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:layout_marginTop="8dp"
-                            android:text="@string/folder_rename"
-                            android:visibility="gone" />
 
                         <Button
                             android:id="@+id/library_delete_selected"

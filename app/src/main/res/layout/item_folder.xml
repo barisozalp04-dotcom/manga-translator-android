@@ -32,6 +32,16 @@
             android:textAppearance="@style/Widget.MangaTranslator.CardTitle"
             android:textSize="17sp" />
 
+        <ImageButton
+            android:id="@+id/folder_overflow"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/folder_more_actions"
+            android:padding="8dp"
+            android:src="@drawable/ic_more_vert"
+            android:visibility="gone" />
+
         <LinearLayout
             android:id="@+id/folder_actions"
             android:layout_width="wrap_content"
@@ -64,12 +74,15 @@
         </LinearLayout>
     </LinearLayout>
 
-    <LinearLayout
+    <com.google.android.material.chip.ChipGroup
+        android:id="@+id/folder_tags"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="8dp"
         android:gravity="center_vertical"
-        android:orientation="horizontal">
+        app:chipSpacingHorizontal="8dp"
+        app:chipSpacingVertical="6dp"
+        xmlns:app="http://schemas.android.com/apk/res-auto">
 
         <TextView
             android:id="@+id/folder_meta"
@@ -81,7 +94,6 @@
             android:id="@+id/folder_status"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginStart="8dp"
             android:background="@drawable/bg_status_chip"
             android:paddingStart="8dp"
             android:paddingTop="2dp"
@@ -89,5 +101,5 @@
             android:paddingBottom="2dp"
             android:textAppearance="@style/Widget.MangaTranslator.BodyMuted"
             android:textStyle="bold" />
-    </LinearLayout>
+    </com.google.android.material.chip.ChipGroup>
 </LinearLayout>

@@ -7,7 +7,8 @@ data class FolderItem(
     val imageCount: Int,
     val chapterCount: Int = 0,
     val isCollection: Boolean = false,
-    val status: FolderStatus = FolderStatus.UNTRANSLATED
+    val status: FolderStatus = FolderStatus.UNTRANSLATED,
+    val customTags: List<String> = emptyList()
 )
 
 data class ImageItem(

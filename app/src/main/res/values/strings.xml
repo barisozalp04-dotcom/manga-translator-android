@@ -345,6 +345,14 @@
     <string name="folder_collection_meta">%1$d 个章节 · %2$d 张图片</string>
     <string name="folder_delete">删除</string>
     <string name="folder_rename">重命名</string>
+    <string name="folder_more_actions">更多文件夹操作</string>
+    <string name="folder_edit_tags">编辑标签</string>
+    <string name="folder_edit_tags_hint">“已翻译”和“未翻译”为软件内置标签，不能删除。点击自定义标签右侧的关闭图标可将其删除。</string>
+    <string name="folder_tag_name_hint">新标签名称</string>
+    <string name="folder_tag_add">添加</string>
+    <string name="folder_tag_reserved">该名称为软件内置标签</string>
+    <string name="folder_filter_active">筛选：%1$s  ×</string>
+    <string name="folder_filter_empty">该标签下暂无漫画文件夹</string>
     <string name="folder_move">移动</string>
     <string name="folder_move_title">选择要移动到的集合</string>
     <string name="folder_move_failed">移动失败，请稍后重试</string>

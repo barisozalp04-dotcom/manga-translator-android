@@ -345,6 +345,14 @@
     <string name="folder_collection_meta">%1$d 個章節 · %2$d 張圖片</string>
     <string name="folder_delete">刪除</string>
     <string name="folder_rename">重新命名</string>
+    <string name="folder_more_actions">更多資料夾操作</string>
+    <string name="folder_edit_tags">編輯標籤</string>
+    <string name="folder_edit_tags_hint">「已翻譯」和「未翻譯」為軟體內建標籤，不能刪除。點擊自訂標籤右側的關閉圖示可將其刪除。</string>
+    <string name="folder_tag_name_hint">新標籤名稱</string>
+    <string name="folder_tag_add">新增</string>
+    <string name="folder_tag_reserved">該名稱為軟體內建標籤</string>
+    <string name="folder_filter_active">篩選：%1$s  ×</string>
+    <string name="folder_filter_empty">該標籤下暫無漫畫資料夾</string>
     <string name="folder_move">移動</string>
     <string name="folder_move_title">選擇要移動到的集合</string>
     <string name="folder_move_failed">移動失敗，請稍後重試</string>

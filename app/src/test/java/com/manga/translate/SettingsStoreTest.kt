@@ -102,4 +102,28 @@ class SettingsStoreTest {
             collection.deleteRecursively()
         }
     }
+
+    @Test
+    fun `folder tags persist migrate and clear with root folder`() {
+        val repository = LibraryRepository(context)
+        val prefs = context.getSharedPreferences("library_prefs_test", Context.MODE_PRIVATE)
+        val gateway = LibraryPreferencesGateway(context, prefs, repository)
+        val folder = repository.createFolder("tagged_${System.nanoTime()}")!!
+        var renamed: java.io.File? = null
+
+        try {
+            gateway.setFolderTags(folder, setOf("Favorite", "Unread"))
+            assertEquals(setOf("Favorite", "Unread"), gateway.getFolderTags(folder))
+
+            renamed = repository.renameFolder(folder, "renamed_${System.nanoTime()}")!!
+            gateway.migrateFolderSettings(folder, renamed)
+            assertTrue(gateway.getFolderTags(folder).isEmpty())
+            assertEquals(setOf("Favorite", "Unread"), gateway.getFolderTags(renamed))
+
+            gateway.clearFolderSettings(renamed)
+            assertTrue(gateway.getFolderTags(renamed).isEmpty())
+        } finally {
+            (renamed ?: folder).deleteRecursively()
+        }
+    }
 }

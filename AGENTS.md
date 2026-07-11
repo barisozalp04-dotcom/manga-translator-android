@@ -220,6 +220,8 @@ sourceSets["main"].assets.srcDirs("src/main/assets", "../assets")
 - 核心数据：`LibraryRepository.kt`
 - 导入导出：`LibraryImportExportCoordinator.kt`
 - 批量翻译：`LibraryFragment.kt` 发起任务，`TranslationKeepAliveService.kt` 托管后台执行，`FolderTranslationCoordinator.kt` 负责编排具体翻译流程。
+- 首页普通文件夹和文件夹集合右侧统一提供三点菜单，包含重命名、删除和编辑标签；长按仍进入批量选择，但批量栏不再提供重命名。
+- 用户标签通过 `LibraryPreferencesGateway.kt` 按文件夹路径持久化，显示样式复用 `bg_status_chip`。点击内置状态标签或用户标签会筛选首页列表，再次点击同一标签或点击当前筛选标签可清除筛选。
 
 当前库页支持普通文件夹和文件夹集合两类目录，集合用于组织子章节，不直接存放图片。
 
@@ -393,6 +395,7 @@ sourceSets["main"].assets.srcDirs("src/main/assets", "../assets")
 - 气泡框渲染配置：`normal_bubble_shrink_percent`、`normal_bubble_min_area_per_char_sp`、`horizontal_text_layout`、`floating_bubble_size_adjust_percent`、`floating_bubble_opacity_percent`、`floating_bubble_shape`、`floating_bubble_horizontal_text`、`floating_bubble_min_area_per_char_sp`
 - 全局字体配置：`bubble_font`、`bubble_custom_font_file`、`bubble_font_bold`
 - 文件夹级配置：`full_translate_enabled_<folder>`、`glossary_processing_enabled_<folder>`、`translation_language_<folder>`、`vl_direct_translate_enabled_<folder>`、`reading_mode_<folder>`
+- 漫画库用户标签：`folder_tags_<folder>`
 - 应用级配置：`app_language`、`link_source`、主题、并发、超时等
 
 ---
