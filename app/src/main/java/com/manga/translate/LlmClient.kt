@@ -1150,7 +1150,7 @@ class LlmClient(
         }
         return try {
             if (cleaned.trim().startsWith("[")) {
-                val items = parseBubbleTranslationItems(JSONArray(cleaned), requestedIds)
+                val items = parseBubbleTranslationItems(JSONArray(cleaned))
                 if (items.isEmpty()) {
                     throw LlmResponseException(LlmErrorCode.MissingTranslationItems, content)
                 }
@@ -1194,10 +1194,10 @@ class LlmClient(
         requestedIds: List<Int>
     ): List<LlmBubbleTranslationItem> {
         findBubbleTranslationItemsArray(json)?.let { array ->
-            return parseBubbleTranslationItems(array, requestedIds)
+            return parseBubbleTranslationItems(array)
         }
         val singleId = requestedIds.singleOrNull()
-        val translation = extractTranslationText(json)
+        val translation = extractStructuredTranslationText(json)
         if (singleId != null && translation.isNotBlank()) {
             return listOf(LlmBubbleTranslationItem(id = singleId, translation = translation))
         }
@@ -1217,26 +1217,15 @@ class LlmClient(
         return null
     }
 
-    private fun parseBubbleTranslationItems(
-        array: JSONArray,
-        requestedIds: List<Int>
-    ): List<LlmBubbleTranslationItem> {
+    private fun parseBubbleTranslationItems(array: JSONArray): List<LlmBubbleTranslationItem> {
         val items = ArrayList<LlmBubbleTranslationItem>(array.length())
         for (i in 0 until array.length()) {
-            val fallbackId = requestedIds.getOrNull(i)
             when (val item = array.opt(i)) {
                 is JSONObject -> {
                     val id = parseBubbleTranslationItemId(item.opt("id"))
-                        ?: parseBubbleTranslationItemId(item.opt("index"))
-                        ?: fallbackId
-                    val translation = extractTranslationText(item).trim()
+                    val translation = extractStructuredTranslationText(item).trim()
                     if (id != null) {
                         items.add(LlmBubbleTranslationItem(id = id, translation = translation))
-                    }
-                }
-                is String -> {
-                    if (fallbackId != null) {
-                        items.add(LlmBubbleTranslationItem(id = fallbackId, translation = item.trim()))
                     }
                 }
             }
@@ -1266,6 +1255,15 @@ class LlmClient(
         for (key in nestedKeys) {
             val nested = json.optJSONObject(key) ?: continue
             extractTranslationText(nested).takeIf { it.isNotBlank() }?.let { return it }
+        }
+        return ""
+    }
+
+    private fun extractStructuredTranslationText(json: JSONObject): String {
+        val translationKeys = listOf("translation", "translated_text", "translatedText")
+        for (key in translationKeys) {
+            val value = json.optString(key, "").trim()
+            if (value.isNotBlank()) return value
         }
         return ""
     }

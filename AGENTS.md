@@ -252,8 +252,8 @@ sourceSets["main"].assets.srcDirs("src/main/assets", "../assets")
 当前文本气泡翻译逻辑已做一轮收敛：
 - `TextBubbleTranslationCoordinator.kt` 是文本气泡翻译共享入口。
 - `TranslationPipeline.kt` 的普通翻译与全文翻译、`ReadingEmptyBubbleCoordinator.kt` 的阅读页空白气泡补翻、`FloatingBubbleTranslationCoordinator.kt` 的悬浮窗文本气泡翻译都复用这一入口。
-- 当前文本气泡翻译不再依赖 `<b>...</b>` 标签数量匹配，而是使用结构化 JSON 协议按 `id` 对齐。
-- 当模型返回的气泡 `id` 数量不匹配时，当前策略是：未请求的 `id` 直接丢弃，缺失或空白的 `id` 留空继续流程，不再因此弹模型错误弹窗或阻塞整页翻译。
+- 当前文本气泡翻译不再依赖 `<b>...</b>` 标签数量匹配，而是使用结构化 JSON 协议按 `id` 对齐；响应项只接受 `translation`、`translated_text` 或 `translatedText` 译文字段，不把输入侧的 `text` 字段当作译文。
+- 当模型返回重复、额外、缺失或空白的气泡 `id`，或译文与对应 OCR 原文完全相同时，按模型响应错误处理：先执行静默重试，仍失败则进入现有模型错误弹窗。该校验只约束新模型响应，不迁移或重新判定已有翻译结果。
 - 如果后续要调整文本气泡翻译的结构化 JSON 协议、按 `id` 对齐策略、glossary 回传或统一错误格式，优先修改 `TextBubbleTranslationCoordinator.kt` 和 `LlmClient.kt`。
 
 当前主文本翻译链路已接入多供应商调度：
@@ -296,15 +296,15 @@ sourceSets["main"].assets.srcDirs("src/main/assets", "../assets")
 - 共享翻译能力：`FloatingBubbleTranslationCoordinator.kt`
 - 空白气泡补翻编排：`FloatingEmptyBubbleCoordinator.kt`
 
-当前悬浮窗文本翻译链路也沿用相同容错策略：
-- 文本翻译返回缺项时，已有结果会正常显示，缺失气泡保持空白，不再因为“数量不匹配”中断整次翻译。
+当前悬浮窗文本翻译链路也沿用相同结果安全约束：
+- 新的文本翻译响应不会把 OCR 输入字段误当作译文。
 - 悬浮窗补翻会继续尝试 OCR / VL 补齐空白气泡；补完后仍为空的气泡保持留空。
 
 ### 错误弹窗
 - 通用模型错误弹窗入口：`ModelErrorDialogs.kt`
 - 页面内调用封装：`LibraryDialogs.kt`
 - 阅读页空白气泡补翻仍由 `ReadingFragment.kt` 在界面层接住 `LlmResponseException` / `LlmRequestException`，统一处理真正的模型格式错误或 API 错误。
-- “模型输出气泡数量不匹配”已降级为容错日志，不再作为模型错误弹窗来源。
+- 模型输出气泡数量不匹配、空译文或原文回显会作为模型响应错误，经静默重试后仍失败时进入模型错误弹窗。
 - 悬浮窗翻译仍由 `FloatingBallOverlayService.kt` 自己处理弹窗与 overlay window type，但数量不匹配/缺项留空不再触发模型错误弹窗。
 
 ### 设置与供应商配置
