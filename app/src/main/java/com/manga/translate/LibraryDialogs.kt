@@ -21,7 +21,6 @@ import androidx.core.content.ContextCompat
 import androidx.core.widget.TextViewCompat
 import androidx.documentfile.provider.DocumentFile
 import com.google.android.material.textfield.TextInputEditText
-import com.google.android.material.chip.Chip
 import com.google.android.material.chip.ChipGroup
 import java.util.Locale
 
@@ -142,6 +141,52 @@ internal class LibraryDialogs {
         }
     }
 
+    private fun createStatusChipView(context: Context, label: String): TextView {
+        return TextView(context).apply {
+            text = label
+            setTextAppearance(R.style.Widget_MangaTranslator_BodyMuted)
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            background = ContextCompat.getDrawable(context, R.drawable.bg_status_chip)
+            val horizontal = dp(context, 8f)
+            val vertical = dp(context, 2f)
+            setPadding(horizontal, vertical, horizontal, vertical)
+            isClickable = false
+            isFocusable = false
+        }
+    }
+
+    private fun createRemovableTagView(
+        context: Context,
+        tag: String,
+        onRemove: () -> Unit
+    ): LinearLayout {
+        val horizontal = dp(context, 8f)
+        val vertical = dp(context, 2f)
+        return LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER_VERTICAL
+            background = ContextCompat.getDrawable(context, R.drawable.bg_status_chip)
+            setPadding(horizontal, vertical, horizontal / 2, vertical)
+            addView(
+                TextView(context).apply {
+                    text = tag
+                    setTextAppearance(R.style.Widget_MangaTranslator_BodyMuted)
+                    setTypeface(typeface, android.graphics.Typeface.BOLD)
+                }
+            )
+            addView(
+                TextView(context).apply {
+                    text = "×"
+                    setTextAppearance(R.style.Widget_MangaTranslator_BodyMuted)
+                    setTypeface(typeface, android.graphics.Typeface.BOLD)
+                    val pad = dp(context, 4f)
+                    setPadding(pad, 0, pad, 0)
+                    setOnClickListener { onRemove() }
+                }
+            )
+        }
+    }
+
     private fun applyDialogTextColors(
         context: Context,
         textView: TextView,
@@ -244,21 +289,14 @@ internal class LibraryDialogs {
 
         fun renderTags() {
             tagGroup.removeAllViews()
-            tagGroup.addView(Chip(context).apply {
-                text = statusLabel
-                isCheckable = false
-                isClickable = false
-            })
+            tagGroup.addView(createStatusChipView(context, statusLabel))
             tags.forEach { tag ->
-                tagGroup.addView(Chip(context).apply {
-                    text = tag
-                    isCheckable = false
-                    isCloseIconVisible = true
-                    setOnCloseIconClickListener {
+                tagGroup.addView(
+                    createRemovableTagView(context, tag) {
                         tags.remove(tag)
                         renderTags()
                     }
-                })
+                )
             }
         }
 
