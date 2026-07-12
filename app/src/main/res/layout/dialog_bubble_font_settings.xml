@@ -17,21 +17,40 @@
             android:textColor="?attr/dialogHintTextColor"
             android:textSize="13sp" />
 
-        <androidx.appcompat.widget.SwitchCompat
-            android:id="@+id/bubble_font_use_uploaded_switch"
+        <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="14dp"
-            android:text="@string/bubble_font_use_uploaded"
-            android:textColor="?attr/dialogTextColor" />
+            android:text="@string/bubble_font_label"
+            android:textAppearance="@style/Widget.MangaTranslator.SectionLabel"
+            android:textColor="?attr/colorAccent" />
 
-        <TextView
-            android:id="@+id/bubble_font_uploaded_file_value"
+        <RadioButton
+            android:id="@+id/bubble_font_system_default_radio"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
+            android:layout_marginTop="8dp"
+            android:buttonTint="?attr/colorAccent"
+            android:text="@string/bubble_font_system_default"
             android:textColor="?attr/dialogTextColor"
             android:textSize="14sp" />
+
+        <LinearLayout
+            android:id="@+id/bubble_font_uploaded_list"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:orientation="vertical" />
+
+        <TextView
+            android:id="@+id/bubble_font_uploaded_empty"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/bubble_font_uploaded_file_empty"
+            android:textColor="?attr/dialogHintTextColor"
+            android:textSize="13sp"
+            android:visibility="gone" />
 
         <Button
             android:id="@+id/bubble_font_upload_button"

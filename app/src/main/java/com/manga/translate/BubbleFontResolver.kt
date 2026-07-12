@@ -130,15 +130,32 @@ object BubbleFontResolver {
         }
     }
 
+    fun listUploadedFonts(context: Context): List<String> {
+        val fontDir = context.getDir(CUSTOM_FONT_DIR, Context.MODE_PRIVATE)
+        return fontDir.listFiles()
+            ?.asSequence()
+            ?.filter { isUserUploadedFontFile(it) }
+            ?.map { it.name }
+            ?.sortedBy { it.lowercase() }
+            ?.toList()
+            .orEmpty()
+    }
+
+    fun deleteUploadedFont(context: Context, fileName: String): Boolean {
+        val trimmed = fileName.trim()
+        if (trimmed.isBlank()) return false
+        val fontFile = resolvePrivateFontFile(context, trimmed) ?: return false
+        if (!isUserUploadedFontFile(fontFile)) return false
+        return fontFile.delete()
+    }
+
     suspend fun importUploadedFont(
         context: Context,
         uri: Uri
     ): String = withContext(Dispatchers.IO) {
         val displayName = DocumentFile.fromSingleUri(context, uri)?.name.orEmpty()
-        val destFile = File(
-            context.getDir(CUSTOM_FONT_DIR, Context.MODE_PRIVATE),
-            sanitizeUploadedFontFileName(displayName)
-        )
+        val fontDir = context.getDir(CUSTOM_FONT_DIR, Context.MODE_PRIVATE)
+        val destFile = allocateUploadedFontFile(fontDir, displayName)
         val tempFile = File(destFile.parentFile, "${destFile.name}.tmp")
         try {
             context.contentResolver.openInputStream(uri)?.use { input ->
@@ -159,6 +176,34 @@ object BubbleFontResolver {
         } catch (e: Exception) {
             tempFile.delete()
             throw e
+        }
+    }
+
+    private fun isUserUploadedFontFile(file: File): Boolean {
+        if (!file.isFile || file.length() <= 0L) return false
+        val name = file.name
+        if (name.endsWith(".tmp", ignoreCase = true)) return false
+        if (name.endsWith(".asset", ignoreCase = true)) return false
+        if (name.startsWith("bubble_custom_font_")) return false
+        val ext = name.substringAfterLast('.', "").lowercase()
+        return ext in setOf("ttf", "otf", "ttc", "otc")
+    }
+
+    private fun allocateUploadedFontFile(fontDir: File, displayName: String): File {
+        val preferredName = sanitizeUploadedFontFileName(displayName)
+        val preferredFile = File(fontDir, preferredName)
+        if (!preferredFile.exists()) {
+            return preferredFile
+        }
+        val ext = preferredName.substringAfterLast('.', "ttf")
+        val stem = preferredName.substringBeforeLast('.', preferredName)
+        var index = 2
+        while (true) {
+            val candidate = File(fontDir, "${stem}_$index.$ext")
+            if (!candidate.exists()) {
+                return candidate
+            }
+            index += 1
         }
     }
 

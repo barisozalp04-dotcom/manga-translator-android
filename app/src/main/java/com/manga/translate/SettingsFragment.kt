@@ -40,6 +40,7 @@ import com.manga.translate.databinding.DialogNormalBubbleRenderSettingsBinding
 import com.manga.translate.databinding.FragmentSettingsBinding
 import com.manga.translate.databinding.ItemAdditionalTranslationProviderBinding
 import com.manga.translate.databinding.ItemCustomRequestParamBinding
+import com.manga.translate.databinding.ItemUploadedFontBinding
 import com.manga.translate.di.appContainer
 import com.google.android.material.textfield.MaterialAutoCompleteTextView
 import kotlinx.coroutines.CancellationException
@@ -54,7 +55,8 @@ import java.util.Locale
 class SettingsFragment : Fragment() {
     private data class ActiveBubbleFontDialogState(
         val binding: DialogBubbleFontSettingsBinding,
-        var uploadedFontFileName: String
+        var selectedFontFileName: String?,
+        var uploadedFonts: MutableList<String>
     )
 
     private var _binding: FragmentSettingsBinding? = null
@@ -87,9 +89,12 @@ class SettingsFragment : Fragment() {
                 ).show()
                 return@launch
             }
-            dialogState.uploadedFontFileName = importedFileName
-            dialogState.binding.bubbleFontUseUploadedSwitch.isChecked = true
-            updateBubbleFontDialogUploadedState(dialogState.binding, importedFileName)
+            if (!dialogState.uploadedFonts.contains(importedFileName)) {
+                dialogState.uploadedFonts.add(importedFileName)
+                dialogState.uploadedFonts.sortBy { it.lowercase(Locale.getDefault()) }
+            }
+            dialogState.selectedFontFileName = importedFileName
+            renderBubbleFontDialogList(dialogState)
             Toast.makeText(
                 requireContext(),
                 getString(R.string.bubble_font_upload_success, importedFileName),
@@ -323,21 +328,99 @@ class SettingsFragment : Fragment() {
         } ?: defaultShape
     }
 
-    private fun updateBubbleFontDialogUploadedState(
-        dialogBinding: DialogBubbleFontSettingsBinding,
-        uploadedFontFileName: String
+    private fun renderBubbleFontDialogList(dialogState: ActiveBubbleFontDialogState) {
+        val dialogBinding = dialogState.binding
+        val selectedFileName = dialogState.selectedFontFileName
+        dialogBinding.bubbleFontSystemDefaultRadio.isChecked = selectedFileName == null
+        dialogBinding.bubbleFontSystemDefaultRadio.setOnClickListener {
+            if (dialogState.selectedFontFileName != null) {
+                dialogState.selectedFontFileName = null
+                renderBubbleFontDialogList(dialogState)
+            } else {
+                dialogBinding.bubbleFontSystemDefaultRadio.isChecked = true
+            }
+        }
+
+        dialogBinding.bubbleFontUploadedList.removeAllViews()
+        val hasUploadedFonts = dialogState.uploadedFonts.isNotEmpty()
+        dialogBinding.bubbleFontUploadedEmpty.visibility =
+            if (hasUploadedFonts) View.GONE else View.VISIBLE
+
+        dialogState.uploadedFonts.forEach { fileName ->
+            val itemBinding = ItemUploadedFontBinding.inflate(
+                layoutInflater,
+                dialogBinding.bubbleFontUploadedList,
+                false
+            )
+            itemBinding.uploadedFontRadio.text = fileName
+            itemBinding.uploadedFontRadio.isChecked = fileName == selectedFileName
+            itemBinding.root.setOnClickListener {
+                if (dialogState.selectedFontFileName != fileName) {
+                    dialogState.selectedFontFileName = fileName
+                    renderBubbleFontDialogList(dialogState)
+                }
+            }
+            itemBinding.uploadedFontDeleteButton.setOnClickListener {
+                confirmDeleteUploadedFont(dialogState, fileName)
+            }
+            dialogBinding.bubbleFontUploadedList.addView(itemBinding.root)
+        }
+    }
+
+    private fun confirmDeleteUploadedFont(
+        dialogState: ActiveBubbleFontDialogState,
+        fileName: String
     ) {
-        val summaryRes = if (uploadedFontFileName.isBlank()) {
-            R.string.bubble_font_uploaded_file_empty
-        } else {
-            R.string.bubble_font_uploaded_file_value
+        AlertDialog.Builder(requireContext())
+            .setTitle(R.string.bubble_font_delete_confirm_title)
+            .setMessage(getString(R.string.bubble_font_delete_confirm_message, fileName))
+            .setPositiveButton(android.R.string.ok) { _, _ ->
+                deleteUploadedFont(dialogState, fileName)
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    private fun deleteUploadedFont(
+        dialogState: ActiveBubbleFontDialogState,
+        fileName: String
+    ) {
+        viewLifecycleOwner.lifecycleScope.launch {
+            val deleted = withContext(Dispatchers.IO) {
+                BubbleFontResolver.deleteUploadedFont(requireContext(), fileName)
+            }
+            if (!deleted) {
+                Toast.makeText(
+                    requireContext(),
+                    R.string.bubble_font_delete_failed,
+                    Toast.LENGTH_SHORT
+                ).show()
+                return@launch
+            }
+            dialogState.uploadedFonts.remove(fileName)
+            if (dialogState.selectedFontFileName == fileName) {
+                dialogState.selectedFontFileName = null
+            }
+            val savedSettings = settingsStore.loadBubbleFontSettings()
+            if (
+                savedSettings.font == BubbleFont.CUSTOM_FILE &&
+                savedSettings.customFontFileName == fileName
+            ) {
+                settingsStore.saveBubbleFontSettings(
+                    savedSettings.copy(
+                        font = BubbleFont.SYSTEM_DEFAULT,
+                        customFontFileName = ""
+                    )
+                )
+                updateBubbleFontSettingsButton()
+            }
+            renderBubbleFontDialogList(dialogState)
+            Toast.makeText(
+                requireContext(),
+                getString(R.string.bubble_font_delete_success, fileName),
+                Toast.LENGTH_SHORT
+            ).show()
         }
-        val summaryText = if (uploadedFontFileName.isBlank()) {
-            getString(summaryRes)
-        } else {
-            getString(summaryRes, uploadedFontFileName)
-        }
-        dialogBinding.bubbleFontUploadedFileValue.text = summaryText
     }
 
     private fun resolveColorAttr(attrRes: Int): Int {
@@ -816,20 +899,39 @@ class SettingsFragment : Fragment() {
     private fun showBubbleFontSettingsDialog() {
         val currentSettings = settingsStore.loadBubbleFontSettings()
         val dialogBinding = DialogBubbleFontSettingsBinding.inflate(layoutInflater)
-        dialogBinding.bubbleFontUseUploadedSwitch.isChecked =
-            currentSettings.font == BubbleFont.CUSTOM_FILE
         dialogBinding.bubbleFontBoldSwitch.isChecked = currentSettings.isBold
-        updateBubbleFontDialogUploadedState(
-            dialogBinding,
-            currentSettings.customFontFileName
-        )
         dialogBinding.bubbleFontUploadButton.setOnClickListener {
-            uploadBubbleFontLauncher.launch(arrayOf("*/*"))
+            uploadBubbleFontLauncher.launch(
+                arrayOf(
+                    "font/*",
+                    "application/x-font-ttf",
+                    "application/x-font-otf",
+                    "application/font-sfnt",
+                    "application/octet-stream",
+                    "*/*"
+                )
+            )
         }
-        activeBubbleFontDialogState = ActiveBubbleFontDialogState(
+        val uploadedFonts = BubbleFontResolver.listUploadedFonts(requireContext()).toMutableList()
+        val selectedFontFileName = when {
+            currentSettings.font != BubbleFont.CUSTOM_FILE -> null
+            currentSettings.customFontFileName.isBlank() -> null
+            else -> {
+                val selected = currentSettings.customFontFileName
+                if (!uploadedFonts.contains(selected)) {
+                    uploadedFonts.add(selected)
+                    uploadedFonts.sortBy { it.lowercase(Locale.getDefault()) }
+                }
+                selected
+            }
+        }
+        val dialogState = ActiveBubbleFontDialogState(
             binding = dialogBinding,
-            uploadedFontFileName = currentSettings.customFontFileName
+            selectedFontFileName = selectedFontFileName,
+            uploadedFonts = uploadedFonts
         )
+        activeBubbleFontDialogState = dialogState
+        renderBubbleFontDialogList(dialogState)
         val dialog = AlertDialog.Builder(requireContext())
             .setTitle(R.string.bubble_font_settings_title)
             .setView(dialogBinding.root)
@@ -841,11 +943,9 @@ class SettingsFragment : Fragment() {
         }
         dialog.show()
         dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-            val dialogState = activeBubbleFontDialogState ?: return@setOnClickListener
-            if (
-                dialogBinding.bubbleFontUseUploadedSwitch.isChecked &&
-                dialogState.uploadedFontFileName.isBlank()
-            ) {
+            val state = activeBubbleFontDialogState ?: return@setOnClickListener
+            val selectedFile = state.selectedFontFileName?.trim().orEmpty()
+            if (state.selectedFontFileName != null && selectedFile.isBlank()) {
                 Toast.makeText(
                     requireContext(),
                     R.string.bubble_font_upload_missing,
@@ -855,12 +955,12 @@ class SettingsFragment : Fragment() {
             }
             settingsStore.saveBubbleFontSettings(
                 BubbleFontSettings(
-                    font = if (dialogBinding.bubbleFontUseUploadedSwitch.isChecked) {
-                        BubbleFont.CUSTOM_FILE
-                    } else {
+                    font = if (selectedFile.isBlank()) {
                         BubbleFont.SYSTEM_DEFAULT
+                    } else {
+                        BubbleFont.CUSTOM_FILE
                     },
-                    customFontFileName = dialogState.uploadedFontFileName,
+                    customFontFileName = selectedFile,
                     isBold = dialogBinding.bubbleFontBoldSwitch.isChecked
                 )
             )
