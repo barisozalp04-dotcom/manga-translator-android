@@ -33,11 +33,12 @@ internal class TextBubbleTranslationCoordinator(
         }
 
         val translatedMap = HashMap<Int, String>(translatable.size)
+        val removedBubbleIds = LinkedHashSet<Int>()
         val cacheMisses = ArrayList<BubbleTranslation>(translatable.size)
         cacheMisses.addAll(translatable)
 
         fun merge(): List<BubbleTranslation> {
-            return bubbles.map { bubble ->
+            return bubbles.filterNot { it.id in removedBubbleIds }.map { bubble ->
                 translatedMap[bubble.id]?.let { translated ->
                     bubble.withTranslationResult(translated)
                 } ?: bubble
@@ -80,7 +81,7 @@ internal class TextBubbleTranslationCoordinator(
         val requestedIds = requestItems.map { it.id }
         val requestedIdSet = requestedIds.toSet()
         val unexpectedIds = translationById.keys.filter { it !in requestedIdSet }
-        val missingIds = requestedIds.filter { translationById[it].isNullOrBlank() }
+        val missingIds = requestedIds.filterNot { translationById.containsKey(it) }
         val sourceTextById = requestItems.associate { it.id to it.text.trim() }
         val echoedIds = requestedIds.filter { id ->
             val sourceText = normalizeForSourceEchoCheck(sourceTextById[id].orEmpty())
@@ -107,19 +108,25 @@ internal class TextBubbleTranslationCoordinator(
 
         for (source in cacheMisses) {
             val translatedText = translationById[source.id].orEmpty()
-            translatedMap[source.id] = translatedText
+            if (translatedText.isBlank()) {
+                removedBubbleIds.add(source.id)
+            } else {
+                translatedMap[source.id] = translatedText
+            }
         }
 
         return TextBubbleTranslationBatchResult(
             bubbles = merge(),
-            glossaryUsed = translated.glossaryUsed
+            glossaryUsed = translated.glossaryUsed,
+            removedBubbleIds = removedBubbleIds
         )
     }
 }
 
 internal data class TextBubbleTranslationBatchResult(
     val bubbles: List<BubbleTranslation>,
-    val glossaryUsed: Map<String, String>
+    val glossaryUsed: Map<String, String>,
+    val removedBubbleIds: Set<Int> = emptySet()
 )
 
 private fun normalizeForSourceEchoCheck(value: String): String {

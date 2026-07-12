@@ -95,7 +95,7 @@ internal class TranslationPipeline(
         }
         onProgress(appContext.getString(R.string.translating_bubbles))
         val promptAsset = STANDARD_PROMPT_ASSET
-        val translatedBubbles = try {
+        val translatedBatch = try {
             val translated = executeWithModelResponseRetries("Pipeline") {
                 textBubbleTranslationCoordinator.translateBubbles(
                     bubbles = translatable.map {
@@ -118,12 +118,12 @@ internal class TranslationPipeline(
             if (translated.glossaryUsed.isNotEmpty()) {
                 glossary.putAll(translated.glossaryUsed)
             }
-            translated.bubbles
+            translated
         } catch (e: LlmResponseException) {
             throw e.withPageName(imageFile.name)
         }
-        val translationMap = translatedBubbles.associateBy { it.id }
-        val bubbles = ocrPage.bubbles.map { bubble ->
+        val translationMap = translatedBatch.bubbles.associateBy { it.id }
+        val bubbles = ocrPage.bubbles.filterNot { it.id in translatedBatch.removedBubbleIds }.map { bubble ->
             translationMap[bubble.id] ?: BubbleTranslation.pending(
                 id = bubble.id,
                 rect = bubble.rect,
@@ -282,7 +282,7 @@ internal class TranslationPipeline(
             )
         }
         onProgress(appContext.getString(R.string.translating_bubbles))
-        val translatedBubbles = try {
+        val translatedBatch = try {
             val translated = executeWithModelResponseRetries("Pipeline") {
                 textBubbleTranslationCoordinator.translateBubbles(
                     bubbles = translatable.map {
@@ -302,12 +302,12 @@ internal class TranslationPipeline(
                     translationMode = "full_page"
                 )
             } ?: return@withContext null
-            translated.bubbles
+            translated
         } catch (e: LlmResponseException) {
             throw e.withPageName(ocrPage.imageFile.name)
         }
-        val translationMap = translatedBubbles.associateBy { it.id }
-        val bubbles = ocrPage.bubbles.map { bubble ->
+        val translationMap = translatedBatch.bubbles.associateBy { it.id }
+        val bubbles = ocrPage.bubbles.filterNot { it.id in translatedBatch.removedBubbleIds }.map { bubble ->
             translationMap[bubble.id] ?: BubbleTranslation.pending(
                 id = bubble.id,
                 rect = bubble.rect,

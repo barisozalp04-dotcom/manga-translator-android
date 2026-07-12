@@ -42,6 +42,7 @@ internal class FloatingBubbleTranslationCoordinator(
         }
 
         val translatedMap = HashMap<Int, String>(translatable.size)
+        val removedBubbleIds = LinkedHashSet<Int>()
         val cacheMisses = ArrayList<BubbleTranslation>(translatable.size)
         var exactCacheHits = 0
         var similarityCacheHits = 0
@@ -67,7 +68,7 @@ internal class FloatingBubbleTranslationCoordinator(
         )
 
         fun merge(): List<BubbleTranslation> {
-            return bubbles.map { bubble ->
+            return bubbles.filterNot { it.id in removedBubbleIds }.map { bubble ->
                 translatedMap[bubble.id]?.let { translated ->
                     bubble.withTranslationResult(translated)
                 } ?: bubble
@@ -90,6 +91,7 @@ internal class FloatingBubbleTranslationCoordinator(
                 logTag = logTag,
                 translationMode = "floating_text"
             ) ?: return null
+            removedBubbleIds.addAll(result.removedBubbleIds)
             for (bubble in result.bubbles) {
                 if (bubble.translationState == BubbleTranslationState.TRANSLATED) {
                     translatedMap[bubble.id] = bubble.translatedText

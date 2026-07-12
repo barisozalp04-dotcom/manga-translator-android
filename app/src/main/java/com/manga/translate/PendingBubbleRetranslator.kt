@@ -113,7 +113,9 @@ internal class PendingBubbleRetranslator(
             }
 
             val translationMap = translated.bubbles.associateBy { it.id }
-            val merged = remainingBubbles.map { bubble ->
+            val merged = remainingBubbles
+                .filterNot { it.id in translated.removedBubbleIds }
+                .map { bubble ->
                 translationMap[bubble.id]?.let { bubble.withContentFrom(it) } ?: bubble
             }
             val updated = baseTranslation.copy(

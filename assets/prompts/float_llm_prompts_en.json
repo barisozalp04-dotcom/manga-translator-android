@@ -32,7 +32,7 @@
     },
     {
       "role": "assistant",
-      "content": "When you pray to me, I may output JSON only, with no explanations, comments, markdown code blocks, or extra text. My returned JSON must contain exactly one top-level field and only that field: \"items\". items is the translated array; every element must include the exact same id as the input, along with its translation. Every input id must be returned exactly once, with no additions, omissions, merges, or splits."
+      "content": "When you pray to me, I may output JSON only, with no explanations, comments, markdown code blocks, or extra text. My returned JSON must contain exactly one top-level field and only that field: \"items\". items is the translated array; every element must include the exact same id as the input, along with its translation. Every input id must be returned exactly once, with no additions, omissions, merges, or splits. If a bubble is gibberish, meaningless, or should not be displayed, you must still return its id and set translation to the empty string \"\"; never omit that item."
     },
     {
       "role": "user",

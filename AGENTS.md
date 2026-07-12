@@ -257,7 +257,7 @@ sourceSets["main"].assets.srcDirs("src/main/assets", "../assets")
 - `TextBubbleTranslationCoordinator.kt` 是文本气泡翻译共享入口。
 - `TranslationPipeline.kt` 的普通翻译与全文翻译、`ReadingEmptyBubbleCoordinator.kt` 的阅读页空白气泡补翻、`FloatingBubbleTranslationCoordinator.kt` 的悬浮窗文本气泡翻译都复用这一入口。
 - 当前文本气泡翻译不再依赖 `<b>...</b>` 标签数量匹配，而是使用结构化 JSON 协议按 `id` 对齐；响应项只接受 `translation`、`translated_text` 或 `translatedText` 译文字段，不把输入侧的 `text` 字段当作译文。
-- 当模型返回重复、额外、缺失或空白的气泡 `id`，或译文与对应 OCR 原文完全相同时，按模型响应错误处理：先执行静默重试，仍失败则进入现有模型错误弹窗。该校验只约束新模型响应，不迁移或重新判定已有翻译结果。
+- 当模型返回重复、额外或缺失的气泡 `id`，或译文与对应 OCR 原文完全相同时，按模型响应错误处理：先执行静默重试，仍失败则进入现有模型错误弹窗。模型必须为无意义气泡保留 `id` 并返回空译文；软件收到完整 `id` 对应的空译文后会移除该气泡。该校验只约束新模型响应，不迁移或重新判定已有翻译结果。
 - 如果后续要调整文本气泡翻译的结构化 JSON 协议、按 `id` 对齐策略、glossary 回传或统一错误格式，优先修改 `TextBubbleTranslationCoordinator.kt` 和 `LlmClient.kt`。
 
 当前主文本翻译链路已接入多供应商调度：

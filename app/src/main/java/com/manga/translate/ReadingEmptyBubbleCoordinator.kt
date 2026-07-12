@@ -105,7 +105,9 @@ internal class ReadingEmptyBubbleCoordinator(
                     }
                 }
                 val translationMap = translated.bubbles.associateBy { it.id }
-                val merged = baseTranslation.bubbles.map { bubble ->
+                val merged = baseTranslation.bubbles
+                    .filterNot { it.id in translated.removedBubbleIds }
+                    .map { bubble ->
                     translationMap[bubble.id]?.let { bubble.withContentFrom(it) } ?: bubble
                 }
                 val updated = baseTranslation.copy(bubbles = merged)

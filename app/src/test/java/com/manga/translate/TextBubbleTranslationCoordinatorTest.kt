@@ -65,6 +65,36 @@ class TextBubbleTranslationCoordinatorTest {
     }
 
     @Test
+    fun `blank response translation removes bubble without response error`() {
+        val gateway = FakeLlmGateway(
+            LlmBubbleTranslationResult(
+                items = listOf(
+                    LlmBubbleTranslationItem(1, "译文一"),
+                    LlmBubbleTranslationItem(2, "")
+                ),
+                glossaryUsed = emptyMap()
+            )
+        )
+        val coordinator = TextBubbleTranslationCoordinator(gateway)
+
+        val result = runBlocking {
+            coordinator.translateBubbles(
+                bubbles = listOf(
+                    pendingBubble(1, "原文一"),
+                    pendingBubble(2, "无意义文本")
+                ),
+                glossary = emptyMap(),
+                promptAsset = "prompts/llm_prompts.json",
+                logTag = "Test",
+                translationMode = "standard"
+            )
+        }
+
+        assertEquals(listOf(1), result?.bubbles?.map { it.id })
+        assertEquals(setOf(2), result?.removedBubbleIds)
+    }
+
+    @Test
     fun `request items are sent top to bottom`() {
         val gateway = CapturingLlmGateway(
             LlmBubbleTranslationResult(
