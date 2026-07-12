@@ -1037,7 +1037,10 @@ class FloatingTranslationView @JvmOverloads constructor(
     private fun floatBits(value: Float): Int = java.lang.Float.floatToIntBits(value)
 
     private fun updateCullRect(canvas: Canvas) {
-        // Prefer the on-screen portion: clipBounds alone is often the full tall view.
+        // getLocalVisibleRect already accounts for parent scrolling and clipping. Canvas
+        // clip bounds can be reported in a different space by hardware-accelerated parents;
+        // intersecting the two may produce an empty rect and hide every bubble until the
+        // next matrix update.
         val pad = 64f * resources.displayMetrics.density
         if (getLocalVisibleRect(localVisibleRect)) {
             cullRect.set(
@@ -1046,13 +1049,6 @@ class FloatingTranslationView @JvmOverloads constructor(
                 localVisibleRect.right + pad,
                 localVisibleRect.bottom + pad
             )
-            val clip = canvas.clipBounds
-            if (!clip.isEmpty) {
-                cullRect.left = max(cullRect.left, clip.left.toFloat())
-                cullRect.top = max(cullRect.top, clip.top.toFloat())
-                cullRect.right = min(cullRect.right, clip.right.toFloat())
-                cullRect.bottom = min(cullRect.bottom, clip.bottom.toFloat())
-            }
             return
         }
         val clip = canvas.clipBounds
