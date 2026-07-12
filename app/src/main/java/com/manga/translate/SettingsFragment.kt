@@ -1366,7 +1366,8 @@ class SettingsFragment : Fragment() {
             try {
                 val updateInfo = UpdateChecker.fetchUpdateInfo(
                     timeoutMs = 30_000,
-                    includePreview = true
+                    includePreview = true,
+                    languageKey = UpdateChecker.resolveChangelogLanguageKey(requireContext())
                 )
                 if (!isAdded) return@launch
                 if (updateInfo == null) {

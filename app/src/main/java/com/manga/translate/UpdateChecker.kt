@@ -1,5 +1,6 @@
 package com.manga.translate
 
+import android.content.Context
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
@@ -8,6 +9,7 @@ import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
+import java.util.Locale
 
 data class UpdateInfo(
     val versionCode: Int,
@@ -41,12 +43,20 @@ object UpdateChecker {
     private val updateUrls = listOf(UPDATE_URL_GITHUB, UPDATE_URL_GITEE)
     private const val DEFAULT_TIMEOUT_MS = 15_000
 
+    private const val CHANGELOG_KEY_DEFAULT = "changelog"
+    private const val CHANGELOG_KEY_HANT = "changelog_hant"
+    private const val CHANGELOG_KEY_EN = "changelog_en"
+    private const val CHANGELOG_KEY_RU = "changelog_ru"
+
+    private val TRADITIONAL_CHINESE_REGIONS = setOf("TW", "HK", "MO")
+
     suspend fun fetchUpdateInfo(timeoutMs: Int = DEFAULT_TIMEOUT_MS): UpdateInfo? =
         fetchUpdateInfo(timeoutMs, includePreview = true)
 
     suspend fun fetchUpdateInfo(
         timeoutMs: Int = DEFAULT_TIMEOUT_MS,
-        includePreview: Boolean
+        includePreview: Boolean,
+        languageKey: String = resolveChangelogLanguageKey()
     ): UpdateInfo? =
         withContext(Dispatchers.IO) {
             val coroutineContext = currentCoroutineContext()
@@ -73,9 +83,12 @@ object UpdateChecker {
                         AppLogger.log("UpdateChecker", "[$index] $url HTTP $code: $body")
                         continue
                     }
-                    val parsed = parseUpdateInfo(body, includePreview)
+                    val parsed = parseUpdateInfo(body, includePreview, languageKey)
                     if (parsed != null) {
-                        AppLogger.log("UpdateChecker", "Loaded update info from $url")
+                        AppLogger.log(
+                            "UpdateChecker",
+                            "Loaded update info from $url (changelog language=$languageKey)"
+                        )
                         return@withContext parsed
                     }
                     AppLogger.log("UpdateChecker", "[$index] $url returned invalid update json")
@@ -89,15 +102,37 @@ object UpdateChecker {
             null
         }
 
-    private fun parseUpdateInfo(body: String, includePreview: Boolean): UpdateInfo? {
+    fun resolveChangelogLanguageKey(context: Context? = null): String {
+        val locale = runCatching {
+            context?.resources?.configuration?.locales?.get(0)
+        }.getOrNull() ?: Locale.getDefault()
+        return resolveChangelogLanguageKey(locale)
+    }
+
+    fun resolveChangelogLanguageKey(locale: Locale): String {
+        val normalizedLanguage = locale.language.lowercase(Locale.ROOT)
+        return when {
+            normalizedLanguage == "en" -> "en"
+            normalizedLanguage == "ru" -> "ru"
+            !normalizedLanguage.equals(Locale.CHINESE.language, ignoreCase = true) -> "zh_hans"
+            isTraditionalChineseLocale(locale) -> "zh_hant"
+            else -> "zh_hans"
+        }
+    }
+
+    private fun parseUpdateInfo(
+        body: String,
+        includePreview: Boolean,
+        languageKey: String
+    ): UpdateInfo? {
         return try {
             val normalizedBody = normalizeUpdateJson(body)
             if (normalizedBody != body) {
                 AppLogger.log("UpdateChecker", "Normalized update json before parsing")
             }
             val json = JSONObject(normalizedBody)
-            val history = buildHistory(json)
-            val latest = buildLatest(json) ?: return null
+            val history = buildHistory(json, languageKey)
+            val latest = buildLatest(json, languageKey) ?: return null
             val selected = selectUpdateInfo(latest, history, includePreview) ?: latest
             if (selected.versionName.isBlank() || selected.apkUrl.isBlank()) {
                 AppLogger.log("UpdateChecker", "Invalid update json: $body")
@@ -156,11 +191,11 @@ object UpdateChecker {
         return result.toString()
     }
 
-    private fun buildLatest(json: JSONObject): UpdateInfo? {
+    private fun buildLatest(json: JSONObject, languageKey: String): UpdateInfo? {
         val versionCode = json.optInt("versionCode", -1)
         val versionName = json.optString("versionName").trim()
         val apkUrl = json.optString("apkUrl").trim()
-        val changelog = json.optString("changelog").trim()
+        val changelog = resolveLocalizedChangelog(json, languageKey)
         val releaseChannel = parseReleaseChannel(json.optString("releaseChannel"))
         val qqGroup = json.optString("qqGroup").trim().ifBlank { null }
         if (versionName.isBlank() || apkUrl.isBlank()) return null
@@ -175,7 +210,7 @@ object UpdateChecker {
         )
     }
 
-    private fun buildHistory(json: JSONObject): List<UpdateHistoryEntry> {
+    private fun buildHistory(json: JSONObject, languageKey: String): List<UpdateHistoryEntry> {
         val historyArray = json.optJSONArray("history") ?: return emptyList()
         val items = ArrayList<UpdateHistoryEntry>(historyArray.length())
         for (i in 0 until historyArray.length()) {
@@ -183,7 +218,7 @@ object UpdateChecker {
             val versionCode = entry.optInt("versionCode", -1)
             val versionName = entry.optString("versionName").trim()
             val releasedAt = entry.optString("releasedAt").trim()
-            val changelog = entry.optString("changelog").trim()
+            val changelog = resolveLocalizedChangelog(entry, languageKey)
             val apkUrl = entry.optString("apkUrl").trim()
             val releaseChannel = parseReleaseChannel(entry.optString("releaseChannel"))
             if (versionName.isBlank() || changelog.isBlank()) continue
@@ -199,6 +234,33 @@ object UpdateChecker {
             )
         }
         return items
+    }
+
+    /**
+     * Resolve changelog text by app UI language.
+     * Supported fields: changelog (zh-Hans default), changelog_hant, changelog_en, changelog_ru.
+     * Missing localized fields fall back to [CHANGELOG_KEY_DEFAULT].
+     */
+    internal fun resolveLocalizedChangelog(json: JSONObject, languageKey: String): String {
+        val preferredKey = when (languageKey) {
+            "zh_hant" -> CHANGELOG_KEY_HANT
+            "en" -> CHANGELOG_KEY_EN
+            "ru" -> CHANGELOG_KEY_RU
+            else -> CHANGELOG_KEY_DEFAULT
+        }
+        val preferred = json.optString(preferredKey).trim()
+        if (preferred.isNotBlank()) return preferred
+        if (preferredKey != CHANGELOG_KEY_DEFAULT) {
+            val fallback = json.optString(CHANGELOG_KEY_DEFAULT).trim()
+            if (fallback.isNotBlank()) return fallback
+        }
+        return ""
+    }
+
+    private fun isTraditionalChineseLocale(locale: Locale): Boolean {
+        val script = locale.script.orEmpty()
+        return script.equals("Hant", ignoreCase = true) ||
+            locale.country.uppercase(Locale.US) in TRADITIONAL_CHINESE_REGIONS
     }
 
     private fun parseReleaseChannel(rawValue: String?): ReleaseChannel {

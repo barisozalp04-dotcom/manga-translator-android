@@ -406,6 +406,12 @@ sourceSets["main"].assets.srcDirs("src/main/assets", "../assets")
 - 更新元数据：根目录 `update.json`
 - 更新逻辑：`UpdateChecker.kt`
 - 更新弹窗与入口：`MainActivity.kt`
+- 更新日志多语言：`update.json` 顶层与 `history[]` 条目支持
+  - `changelog`：简体中文（默认 / 回退）
+  - `changelog_hant`：繁体中文
+  - `changelog_en`：英语
+  - `changelog_ru`：俄语
+  解析时按当前 APP 界面语言选择对应字段，缺失则回退 `changelog`。
 
 ---
 

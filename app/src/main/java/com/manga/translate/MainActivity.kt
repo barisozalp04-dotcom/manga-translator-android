@@ -118,7 +118,8 @@ class MainActivity : AppCompatActivity() {
         hasCheckedUpdate = true
         lifecycleScope.launch {
             val updateInfo = UpdateChecker.fetchUpdateInfo(
-                includePreview = updateIgnoreStore.loadAcceptPreviewUpdates()
+                includePreview = updateIgnoreStore.loadAcceptPreviewUpdates(),
+                languageKey = UpdateChecker.resolveChangelogLanguageKey(this@MainActivity)
             )
             if (updateInfo == null) return@launch
             latestUpdateInfo = updateInfo
