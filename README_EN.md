@@ -75,17 +75,17 @@ Join the QQ group for questions and discussion: `1080302768`
 
 ### Models and Assets
 Place the following model files into the corresponding subdirectories under `assets/`:
-- `models/detection/yolov8m_seg-speech-bubble.onnx` (speech bubble detection)
+- `models/detection/manga109-seg.onnx` (one-shot page region detection: balloon=speech bubble, text=free-floating; frame ignored)
 - `models/ocr/manga_ocr/encoder_model.onnx`, `models/ocr/manga_ocr/decoder_model.onnx` (Japanese OCR: MangaOcr, switchable in Settings)
 - `models/ocr/manga_ocr/generation_config.json`, `models/ocr/manga_ocr/preprocessor_config.json`, `models/ocr/manga_ocr/tokenizer.json`, `models/ocr/manga_ocr/special_tokens_map.json`
 - `models/ocr/manga_ocr_mobile/encoder.tflite`, `models/ocr/manga_ocr_mobile/decoder.tflite` and tokenizer/config files (currently the default Japanese OCR: MangaOcr Mobile)
 - `models/ocr/PP-OCRv6_small_rec.onnx` (English/Chinese/mixed OCR)
 - `models/ocr/korean_PP-OCRv3_rec_infer.onnx` (Korean OCR)
-- `models/text_detection/ysgyolo_1.2_OS1.0.onnx` (supplementary text detection + text masking)
+- `models/text_detection/ysgyolo_1.2_OS1.0.onnx` (floating-window text detection; page pipeline uses manga109-seg)
 - `models/detection/PP-OCRv6_det_mobile_infer.onnx` (English line detection)
 
 Model download links:
-- Speech bubble detection model: https://huggingface.co/ogkalu/comic-speech-bubble-detector-yolov8m
+- Page region detection model (manga109-seg): https://huggingface.co/ShadowB/Manga109-panel-balloon-text-yolov26-segmentation
 - English recognition model: https://huggingface.co/PaddlePaddle/PP-OCRv6_small_rec_onnx
 - English detection model: https://huggingface.co/PaddlePaddle/PP-OCRv6_small_det_onnx
 - Korean OCR model: https://huggingface.co/breezedeus/cnocr-ppocr-korean_PP-OCRv3

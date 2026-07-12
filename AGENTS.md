@@ -12,7 +12,7 @@
 |-----|---------|
 | 翻译主流程 | `app/src/main/java/com/manga/translate/TranslationPipeline.kt` |
 | 多供应商调度 | `SettingsFragment.kt`、`SettingsStore.kt`、`ProviderProfileStore.kt`、`TranslationProviderScheduler.kt`、`FolderTranslationCoordinator.kt` |
-| 页面区域检测 | `app/src/main/java/com/manga/translate/PageRegionDetector.kt`、`BubbleDetector.kt`、`TextDetector.kt` |
+| 页面区域检测 | `app/src/main/java/com/manga/translate/PageRegionDetector.kt`、`BubbleDetector.kt`（manga109-seg 一步 balloon+text） |
 | OCR 相关 | `app/src/main/java/com/manga/translate/OcrSharedTools.kt`、`OcrEngine.kt`、`MangaOcr.kt`、`EnglishOcr.kt`、`KoreanOcr.kt`、`OcrApiFormat.kt`、`BaiduAccessTokenManager.kt`、`LlmClient.kt` |
 | 漫画库 / 导入导出 | `LibraryFragment.kt`、`LibraryRepository.kt`、`LibraryImportExportCoordinator.kt` |
 | 阅读与气泡编辑 | `ReadingFragment.kt`、`ReadingSessionViewModel.kt`、`ReadingImageTransformController.kt`、`FloatingTranslationView.kt`、`BubbleRenderer.kt`、`BubbleTextScaling.kt` |
@@ -129,7 +129,7 @@ export PATH=$PATH:$ANDROID_HOME/platform-tools
 ### 翻译与 OCR
 - `TranslationPipeline.kt`：翻译主流程编排。
 - `TranslationProviderScheduler.kt`：多供应商调度相关类型，包含附加供应商配置结构、加权候选项、页面级供应商上下文和调度器。
-- `PageRegionDetector.kt`：页面区域检测公共模块，统一调度气泡检测、文本检测、bubble mask、supplement text box、overlap/filter，以及 `source` / `maskContour` 组装。
+- `PageRegionDetector.kt`：页面区域检测公共模块；一次调用 `BubbleDetector.detectRegions` 得到 balloon（气泡）与 text（游离气泡），再做 overlap/filter 与 `source` / `maskContour` 组装。
 - `LlmClient.kt`：LLM 请求客户端；文本气泡翻译已支持结构化 `items[{id,text}] -> items[{id,translation}]` 协议解析，当前网络层基于 `OkHttp`。主 AI 请求默认会读取设置页里的"API 最大重试次数 (1–50，默认 3)"并在可重试错误时按固定延时自动重试。OCR API 请求支持根据 `OcrApiFormat` 分发到 OpenAI 兼容端点或百度 AI OCR 端点，百度 AI 模式由 `BaiduAccessTokenManager` 管理 OAuth 令牌。
 - OpenAI 兼容接口对 `API 地址` 采用统一补全策略：填写的地址若已以 `/chat/completions` 结尾则原样使用，否则自动追加 `/chat/completions`；模型列表地址同理追加 `/models`。不再自动补全 `/v1`，也不再为智谱维护独立分支。接入智谱时设置页 `API 格式` 选择 `OpenAI 兼容`，`API 地址` 直接填 `https://open.bigmodel.cn/api/paas/v4`（Coding 场景填 `https://open.bigmodel.cn/api/coding/paas/v4`），火山引擎等带 `/api/v3` 前缀的地址同理，鉴权仍使用 `Bearer API Key`。
 - `TextBubbleTranslationCoordinator.kt`：共享文本气泡翻译入口，统一结构化请求、LLM 调用、按 `id` 回填、缺失项留空/多余项丢弃，以及 glossary 回传。
@@ -140,9 +140,9 @@ export PATH=$PATH:$ANDROID_HOME/platform-tools
 - `EnglishLineDetector.kt`：英/韩行检测模型封装。
 
 ### 检测与模型支持
-- `PageRegionDetector.kt`：页面区域检测编排层，对上提供统一 `PageRegion` 列表，对下组合 `BubbleDetector` 和 `TextDetector`。
-- `BubbleDetector.kt`：气泡检测。
-- `TextDetector.kt`、`YsgYoloTextDetector.kt`：文本检测。
+- `PageRegionDetector.kt`：页面区域检测编排层，对上提供统一 `PageRegion` 列表；页面路径使用 `BubbleDetector` 一步输出 balloon+text。
+- `BubbleDetector.kt`：`models/detection/manga109-seg.onnx` 一步分割检测（class：frame 忽略 / text 游离 / balloon 气泡）。
+- `TextDetector.kt`、`YsgYoloTextDetector.kt`：悬浮窗等仍可能使用的独立文本检测（页面主流程不再调用）。
 - `OnnxRuntimeSupport.kt`：ONNX Runtime 会话与线程相关支持。
 - `VerticalTextSymbolConverter.kt`：竖排文本辅助处理。
 
@@ -280,10 +280,10 @@ sourceSets["main"].assets.srcDirs("src/main/assets", "../assets")
 - 如果后续要调整 `JA/EN/KO` 识别策略、本地/API OCR fallback、行检测或裁剪规则，优先从 `OcrSharedTools.kt` 入手，而不是分别改 `Coordinator` 或 `Service`。
 
 当前页面区域检测链路也已独立成公共模块：
-- `PageRegionDetector.kt` 负责“先检测气泡，再 mask bubble 区域，再补充文本框，再做 overlap/filter，最后产出统一 region 列表”。
-- 长图分块检测采用整页两阶段流程：先完成所有重叠 tile 的气泡检测与整页去重，再把全局气泡矩形映射回每个 tile 作为文本检测 suppression mask，避免相邻 tile 漏检气泡后重复补出游离气泡。
+- `PageRegionDetector.kt` 使用 manga109-seg 一步检测：`balloon` → `BubbleSource.BUBBLE_DETECTOR`，`text` → `BubbleSource.TEXT_DETECTOR`（游离气泡），`frame` 忽略；再对 text 与 balloon 做 overlap/filter 与合并。
+- 长图分块检测每个 tile 只跑一次统一模型，再在整页维度做气泡去重与游离文本过滤/合并。
 - `TranslationPipeline.kt` 现在主要保留缓存判断、OCR 调用、落盘和翻译编排，不再直接维护检测细节。
-- 如果后续要调整 bubble mask、supplement text box、去重阈值、`BubbleSource` 或 `maskContour` 的组装逻辑，优先修改 `PageRegionDetector.kt`。
+- 如果后续要调整去重阈值、`BubbleSource` 或 `maskContour` 的组装逻辑，优先修改 `PageRegionDetector.kt` / `BubbleDetector.kt`。
 
 当前网络请求链路说明：
 - `LlmClient.kt` 已从 `HttpURLConnection` 切换为 `OkHttp`。
@@ -320,7 +320,7 @@ sourceSets["main"].assets.srcDirs("src/main/assets", "../assets")
 
 - 普通气泡框设置：普通气泡回缩、普通气泡不透明度、游离气泡回缩、游离气泡不透明度、文字密度下限（SeekBar）、横向/竖向排版；作用范围是阅读页、条漫页、导出图片。
 - 文字密度定义为气泡文字区域面积（sp²）除以字符数。排版时会自动求填充气泡的最优字号；若面积密度低于下限，则按比例一次性扩大气泡路径以确保文字不会过于拥挤。
-- 这里的”游离气泡”仅指普通模式下由 `TextDetector` 补出的框，不包含用户手动新增气泡；手动新增气泡继续按普通气泡参数渲染。
+- 这里的”游离气泡”仅指普通模式下由 manga109-seg 的 `text` 类产出的框（`BubbleSource.TEXT_DETECTOR`），不包含用户手动新增气泡；手动新增气泡继续按普通气泡参数渲染。
 - 悬浮窗气泡设置：大小外扩/内缩、不透明度、矩形/内接椭圆、横向/竖向排版、文字密度下限（SeekBar）；作用范围仅限悬浮窗 overlay，各项参数与普通气泡框完全独立。
 - 字体设置：通过独立按钮统一控制普通气泡框与悬浮窗气泡框的字体；当前不再提供系统内置字体列表和网络字体入口，只保留系统默认、已上传字体列表（可切换与删除）与字体加粗；字体文件由 `BubbleFontResolver` 管理。
 

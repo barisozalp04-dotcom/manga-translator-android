@@ -21,9 +21,19 @@ data class BubbleDetection(
     val maskContour: FloatArray? = null
 )
 
+data class UnifiedRegionDetection(
+    val balloons: List<BubbleDetection>,
+    val freeTextRects: List<RectF>
+)
+
+/**
+ * Manga109 YOLO26-seg (exported ONNX) one-shot detector.
+ * Classes: 0=frame (ignored), 1=text (free-floating), 2=balloon (speech bubble).
+ * Output is Ultralytics end2end: output0 [1,N,4+1+1+32] xyxy/conf/cls/mask, output1 protos.
+ */
 class BubbleDetector(
     private val context: Context,
-    private val modelAssetName: String = "models/detection/yolov8m_seg-speech-bubble.onnx",
+    private val modelAssetName: String = DEFAULT_MODEL_ASSET,
     private val threadProfile: OnnxThreadProfile = OnnxThreadProfile.LIGHT,
     private val settingsStore: SettingsStore = SettingsStore(context.applicationContext)
 ) {
@@ -44,8 +54,7 @@ class BubbleDetector(
     }
 
     @Synchronized
-    fun detect(bitmap: android.graphics.Bitmap): List<BubbleDetection> {
-        // Use fixed dim when positive; treat 0 or -1 (dynamic ONNX dim) as 640.
+    fun detectRegions(bitmap: Bitmap): UnifiedRegionDetection {
         val inputHeight = inputShape.getOrNull(2)?.takeIf { it > 0 }?.toInt()
             ?: TranslationCoreDefaults.DefaultDetectionInputSize
         val inputWidth = inputShape.getOrNull(3)?.takeIf { it > 0 }?.toInt()
@@ -61,57 +70,89 @@ class BubbleDetector(
         tensor.use {
             val outputs = session.run(mapOf(inputName to tensor))
             outputs.use {
-                val output0 = outputs[0]
+                val output0 = outputs[0] as OnnxTensor
                 val output0Shape = (output0.info as TensorInfo).shape
 
                 var protoData: FloatArray? = null
                 var protoH = 160
                 var protoW = 160
                 if (hasSegOutput) {
-                    val output1 = outputs[1]
+                    val output1 = outputs[1] as OnnxTensor
                     val output1Shape = (output1.info as TensorInfo).shape
                     protoH = output1Shape.getOrNull(2)?.toInt() ?: 160
                     protoW = output1Shape.getOrNull(3)?.toInt() ?: 160
-                    protoData = parseProtos(getTensorValue(output1 as OnnxTensor), output1Shape)
+                    protoData = parseProtos(getTensorValue(output1), output1Shape)
                 }
 
-                val rawDetections = parseDetections(getTensorValue(output0 as OnnxTensor), output0Shape)
+                val rawDetections = parseEnd2EndDetections(getTensorValue(output0), output0Shape)
                 val confThreshold = settingsStore.loadBubbleConfThresholdPercent() / 100f
                 if (settingsStore.loadModelIoLogging()) {
                     val maxConf = rawDetections.maxOfOrNull { it.confidence } ?: 0f
                     val aboveThreshold = rawDetections.count { it.confidence >= confThreshold }
                     AppLogger.log(
                         "BubbleDetector",
-                        "Raw detections: ${rawDetections.size}, above ${confThreshold}: $aboveThreshold, max conf: ${"%.3f".format(maxConf)}"
+                        "Raw detections: ${rawDetections.size}, above $confThreshold: $aboveThreshold, max conf: ${"%.3f".format(maxConf)}"
                     )
                 }
+
+                val balloons = ArrayList<BubbleDetection>()
+                val freeTexts = ArrayList<RectF>()
                 val filtered = filterByNms(
-                    rawDetections, confThreshold, TranslationCoreDefaults.BubbleDetectorNmsIouThreshold,
-                    pre, bitmap.width, bitmap.height
+                    rawDetections,
+                    confThreshold,
+                    TranslationCoreDefaults.BubbleDetectorNmsIouThreshold,
+                    pre,
+                    bitmap.width,
+                    bitmap.height
                 )
-                val result = filtered.map { raw ->
+                for (raw in filtered) {
+                    if (raw.classId == CLASS_FRAME) continue
                     val rect = raw.toRect(pre, bitmap.width, bitmap.height)
-                    val contour = if (protoData != null && raw.maskCoeffs.isNotEmpty()) {
-                        computeMaskContour(raw, protoData, protoH, protoW, pre, bitmap.width, bitmap.height)
-                    } else null
-                    BubbleDetection(rect, raw.confidence, raw.classId, contour)
+                    if (rect.width() <= 1f || rect.height() <= 1f) continue
+                    when (raw.classId) {
+                        CLASS_BALLOON -> {
+                            val contour = if (protoData != null && raw.maskCoeffs.isNotEmpty()) {
+                                computeMaskContour(
+                                    raw, protoData, protoH, protoW, pre, bitmap.width, bitmap.height
+                                )
+                            } else {
+                                null
+                            }
+                            balloons.add(
+                                BubbleDetection(rect, raw.confidence, raw.classId, contour)
+                            )
+                        }
+                        CLASS_TEXT -> {
+                            freeTexts.add(
+                                expandTextRect(
+                                    rect,
+                                    TranslationCoreDefaults.TextDetectorOutputExpandRatio,
+                                    TranslationCoreDefaults.TextDetectorOutputExpandMin,
+                                    bitmap
+                                )
+                            )
+                        }
+                    }
                 }
                 if (settingsStore.loadModelIoLogging()) {
                     AppLogger.log(
                         "BubbleDetector",
-                        "Input ${bitmap.width}x${bitmap.height}, output ${result.size} boxes: ${describeDetections(result)}"
+                        "Input ${bitmap.width}x${bitmap.height}, balloons=${balloons.size}, freeText=${freeTexts.size}"
                     )
                 }
-                return result
+                return UnifiedRegionDetection(balloons = balloons, freeTextRects = freeTexts)
             }
         }
     }
+
+    /** Balloon-only convenience for callers that do not need free-text boxes. */
+    @Synchronized
+    fun detect(bitmap: Bitmap): List<BubbleDetection> = detectRegions(bitmap).balloons
 
     private fun preprocess(bitmap: Bitmap, inputWidth: Int, inputHeight: Int): PreprocessResult {
         val letterboxed = OnnxImagePreprocessor.letterbox(bitmap, inputWidth, inputHeight)
         val inputBuffer = OnnxImagePreprocessor.bitmapToRgbChwFloat(letterboxed.bitmap)
         letterboxed.bitmap.recycle()
-
         return PreprocessResult(
             inputBuffer = inputBuffer,
             gain = letterboxed.gain,
@@ -140,98 +181,118 @@ class BubbleDetector(
         return result
     }
 
-    private fun parseDetections(raw: Any, shape: LongArray): List<RawDetection> {
+    /**
+     * End2end layout: [1, N, C] with C = 4 (xyxy) + 1 conf + 1 class + 32 mask coeffs.
+     * Also accepts legacy channels-first [1, C, N] and cxcywh formats for robustness.
+     */
+    private fun parseEnd2EndDetections(raw: Any, shape: LongArray): List<RawDetection> {
         if (shape.size != 3) return emptyList()
-        val n = max(shape[1], shape[2]).toInt()
-        val c = min(shape[1], shape[2]).toInt()
-        if (c < 5) return emptyList()
-
-        // c >= 37 means seg model: 4 bbox + numClasses + 32 mask coefficients
-        val hasMaskCoeffs = c >= 37
-        val nmask = if (hasMaskCoeffs) 32 else 0
-        val numClasses = c - 4 - nmask
-
         val batch = raw as? Array<*> ?: return emptyList()
         val first = batch.firstOrNull() as? Array<*> ?: return emptyList()
         val data = first.mapNotNull { it as? FloatArray }
         if (data.size != first.size) return emptyList()
 
-        val results = ArrayList<RawDetection>(n)
-        if (shape[1] <= shape[2]) {
-            // channels-first layout: data[channel][anchor]
-            if (data.any { it.size < n }) return emptyList()
-            if (!hasMaskCoeffs && c == 6) {
-                // Legacy detection format: cx, cy, w, h, conf, classId_int
-                for (i in 0 until n) {
-                    results.add(
-                        RawDetection(
-                            data[0][i], data[1][i], data[2][i], data[3][i],
-                            data[4][i], data[5][i].toInt()
-                        )
-                    )
-                }
-            } else {
-                for (i in 0 until n) {
-                    val (classId, conf) = if (numClasses == 1) {
-                        Pair(0, data[4][i])
-                    } else {
-                        bestClass(data, i, 4, 4 + numClasses)
-                    }
-                    val coeffs = if (hasMaskCoeffs) {
-                        FloatArray(nmask) { k -> data[4 + numClasses + k][i] }
-                    } else FloatArray(0)
-                    results.add(RawDetection(data[0][i], data[1][i], data[2][i], data[3][i], conf, classId, coeffs))
-                }
-            }
+        val dim1 = shape[1].toInt()
+        val dim2 = shape[2].toInt()
+        // Prefer anchors-first when last dim looks like feature channels (e.g. 38).
+        val anchorsFirst = dim2 in 6..80 || dim1 > dim2
+        return if (anchorsFirst) {
+            parseAnchorsFirst(data, dim1.coerceAtMost(data.size))
         } else {
-            // anchors-first layout: data[anchor][channel]
-            if (data.size < n) return emptyList()
-            for (i in 0 until n) {
-                val row = data[i]
-                if (row.size < 5) continue
-                if (!hasMaskCoeffs && row.size == 6) {
-                    // Legacy detection format
-                    results.add(RawDetection(row[0], row[1], row[2], row[3], row[4], row[5].toInt()))
-                } else {
-                    val (classId, conf) = if (numClasses == 1) {
-                        Pair(0, row[4])
-                    } else {
-                        bestClassRow(row, 4, 4 + numClasses)
-                    }
-                    val coeffs = if (hasMaskCoeffs && row.size >= 4 + numClasses + nmask) {
-                        FloatArray(nmask) { k -> row[4 + numClasses + k] }
-                    } else FloatArray(0)
-                    results.add(RawDetection(row[0], row[1], row[2], row[3], conf, classId, coeffs))
-                }
-            }
+            parseChannelsFirst(data, dim2, dim1)
+        }
+    }
+
+    private fun parseAnchorsFirst(data: List<FloatArray>, n: Int): List<RawDetection> {
+        val results = ArrayList<RawDetection>(n)
+        for (i in 0 until n) {
+            val row = data.getOrNull(i) ?: continue
+            if (row.size < 6) continue
+            val detection = parseFeatureRow(row) ?: continue
+            results.add(detection)
         }
         return results
     }
 
-    private fun bestClass(data: List<FloatArray>, index: Int, from: Int, until: Int): Pair<Int, Float> {
-        var best = 0f
-        var bestId = 0
-        for (i in from until until) {
-            val v = data[i][index]
-            if (v > best) {
-                best = v
-                bestId = i - from
-            }
+    private fun parseChannelsFirst(data: List<FloatArray>, n: Int, c: Int): List<RawDetection> {
+        if (data.any { it.size < n }) return emptyList()
+        if (c < 6) return emptyList()
+        val results = ArrayList<RawDetection>(n)
+        for (i in 0 until n) {
+            val row = FloatArray(c) { ch -> data[ch][i] }
+            val detection = parseFeatureRow(row) ?: continue
+            results.add(detection)
         }
-        return Pair(bestId, best)
+        return results
     }
 
-    private fun bestClassRow(row: FloatArray, from: Int, until: Int): Pair<Int, Float> {
-        var best = 0f
-        var bestId = 0
-        for (i in from until min(until, row.size)) {
-            val v = row[i]
-            if (v > best) {
-                best = v
-                bestId = i - from
+    private fun parseFeatureRow(row: FloatArray): RawDetection? {
+        val hasMask = row.size >= 4 + 1 + 1 + MASK_COEFFS
+        val conf: Float
+        val classId: Int
+        val maskCoeffs: FloatArray
+        val boxIsXyxy: Boolean
+
+        when {
+            // End2end: xyxy, conf, cls, mask32
+            hasMask && row.size == 4 + 1 + 1 + MASK_COEFFS -> {
+                conf = row[4]
+                classId = row[5].toInt()
+                maskCoeffs = FloatArray(MASK_COEFFS) { k -> row[6 + k] }
+                boxIsXyxy = true
             }
+            // Multi-class raw YOLO: cxcywh + class scores + mask32
+            row.size >= 4 + 3 + MASK_COEFFS -> {
+                val numClasses = row.size - 4 - MASK_COEFFS
+                if (numClasses <= 0) return null
+                var best = 0f
+                var bestId = 0
+                for (c in 0 until numClasses) {
+                    val v = row[4 + c]
+                    if (v > best) {
+                        best = v
+                        bestId = c
+                    }
+                }
+                conf = best
+                classId = bestId
+                maskCoeffs = FloatArray(MASK_COEFFS) { k -> row[4 + numClasses + k] }
+                boxIsXyxy = false
+            }
+            row.size >= 6 -> {
+                conf = row[4]
+                classId = row[5].toInt()
+                maskCoeffs = FloatArray(0)
+                boxIsXyxy = row[2] > row[0] && row[3] > row[1]
+            }
+            else -> return null
         }
-        return Pair(bestId, best)
+
+        return if (boxIsXyxy && row[2] > row[0] && row[3] > row[1]) {
+            val x1 = row[0]
+            val y1 = row[1]
+            val x2 = row[2]
+            val y2 = row[3]
+            RawDetection(
+                cx = (x1 + x2) * 0.5f,
+                cy = (y1 + y2) * 0.5f,
+                w = (x2 - x1).coerceAtLeast(0f),
+                h = (y2 - y1).coerceAtLeast(0f),
+                confidence = conf,
+                classId = classId,
+                maskCoeffs = maskCoeffs
+            )
+        } else {
+            RawDetection(
+                cx = row[0],
+                cy = row[1],
+                w = row[2],
+                h = row[3],
+                confidence = conf,
+                classId = classId,
+                maskCoeffs = maskCoeffs
+            )
+        }
     }
 
     private fun filterByNms(
@@ -254,8 +315,9 @@ class BubbleDetector(
             selected.add(det)
             for (j in i + 1 until filtered.size) {
                 if (taken[j]) continue
-                val other = filtered[j]
-                val iou = iou(rect, other.toRect(pre, originalWidth, originalHeight))
+                // Class-aware NMS: only suppress same class.
+                if (filtered[j].classId != det.classId) continue
+                val iou = iou(rect, filtered[j].toRect(pre, originalWidth, originalHeight))
                 if (iou > iouThreshold) taken[j] = true
             }
         }
@@ -273,8 +335,6 @@ class BubbleDetector(
     ): FloatArray? {
         val nm = det.maskCoeffs.size
         val totalProto = protoH * protoW
-
-        // Compute raw mask at proto resolution: sigmoid(maskCoeffs @ protos[nm, protoH*protoW])
         val rawMask = FloatArray(totalProto)
         for (i in 0 until totalProto) {
             var sum = 0f
@@ -284,7 +344,6 @@ class BubbleDetector(
             rawMask[i] = sigmoid(sum)
         }
 
-        // Map detection bbox to proto coordinate space
         val normalized = det.w <= 1.5f && det.h <= 1.5f && det.cx <= 1.5f && det.cy <= 1.5f
         val xc = if (normalized) det.cx * pre.inputWidth else det.cx
         val yc = if (normalized) det.cy * pre.inputHeight else det.cy
@@ -295,15 +354,13 @@ class BubbleDetector(
         val y1p = ((yc - bh / 2f) / pre.inputHeight * protoH).toInt().coerceIn(0, protoH)
         val x2p = ((xc + bw / 2f) / pre.inputWidth * protoW).toInt().coerceIn(0, protoW)
         val y2p = ((yc + bh / 2f) / pre.inputHeight * protoH).toInt().coerceIn(0, protoH)
-
         if (x2p <= x1p || y2p <= y1p) return null
 
-        return extractContourPolygon(rawMask, protoW, protoH, x1p, y1p, x2p, y2p, pre, originalWidth, originalHeight)
+        return extractContourPolygon(
+            rawMask, protoW, protoH, x1p, y1p, x2p, y2p, pre, originalWidth, originalHeight
+        )
     }
 
-    // Extracts a closed polygon by scanning left/right edges of the mask region.
-    // Returns a flat FloatArray [x0,y0,x1,y1,...] with coordinates normalized to [0,1]
-    // relative to the original image (proto_px / protoW == fraction of image width).
     private fun extractContourPolygon(
         mask: FloatArray,
         maskW: Int,
@@ -332,18 +389,20 @@ class BubbleDetector(
                 }
             }
             if (leftX >= 0) {
-                val leftPoint = mapMaskPointToOriginal(leftX.toFloat(), y.toFloat(), maskW, maskH, pre, originalWidth, originalHeight)
-                val rightPoint = mapMaskPointToOriginal((rightX + 1).toFloat(), y.toFloat(), maskW, maskH, pre, originalWidth, originalHeight)
+                val leftPoint = mapMaskPointToOriginal(
+                    leftX.toFloat(), y.toFloat(), maskW, maskH, pre, originalWidth, originalHeight
+                )
+                val rightPoint = mapMaskPointToOriginal(
+                    (rightX + 1).toFloat(), y.toFloat(), maskW, maskH, pre, originalWidth, originalHeight
+                )
                 leftEdge.add(leftPoint.first)
                 leftEdge.add(leftPoint.second)
                 rightEdge.add(rightPoint.first)
                 rightEdge.add(rightPoint.second)
             }
         }
-
         if (leftEdge.isEmpty()) return null
 
-        // Polygon: left edge top→bottom, then right edge bottom→top (closed shape)
         val polygon = FloatArray(leftEdge.size + rightEdge.size)
         leftEdge.toFloatArray().copyInto(polygon, 0)
         var outIdx = leftEdge.size
@@ -373,8 +432,17 @@ class BubbleDetector(
         return normalizedX to normalizedY
     }
 
-    // Creates a float16 tensor from a float32 array. ORT float16 tensors require a direct
-    // ByteBuffer with 2 bytes per element encoding the IEEE 754 half-precision bit pattern.
+    private fun expandTextRect(rect: RectF, ratio: Float, minExpand: Float, bitmap: Bitmap): RectF {
+        val h = max(1f, rect.height())
+        val pad = max(minExpand, ratio * h)
+        return RectF(
+            (rect.left - pad).coerceIn(0f, bitmap.width.toFloat()),
+            (rect.top - pad).coerceIn(0f, bitmap.height.toFloat()),
+            (rect.right + pad).coerceIn(0f, bitmap.width.toFloat()),
+            (rect.bottom + pad).coerceIn(0f, bitmap.height.toFloat())
+        )
+    }
+
     private fun createFloat16Tensor(data: FloatArray, shape: LongArray): OnnxTensor {
         val buf = ByteBuffer.allocateDirect(data.size * 2).order(ByteOrder.nativeOrder())
         val sb = buf.asShortBuffer()
@@ -383,16 +451,14 @@ class BubbleDetector(
         return OnnxTensor.createTensor(env, buf, shape, OnnxJavaType.FLOAT16)
     }
 
-    // Converts a float32 value to its float16 bit pattern stored as a Short.
-    // Image pixel values are in [0,1] so no NaN/Inf handling needed.
     private fun floatToFloat16(v: Float): Short {
         val bits = java.lang.Float.floatToRawIntBits(v)
         val sign = (bits ushr 16) and 0x8000
-        val exp = ((bits ushr 23) and 0xFF) - 112   // rebias: 127 → 15, so subtract 127-15=112
+        val exp = ((bits ushr 23) and 0xFF) - 112
         val mantissa = bits and 0x7FFFFF
         return when {
-            exp >= 31 -> (sign or 0x7C00).toShort()  // overflow → infinity
-            exp <= 0 -> sign.toShort()                 // underflow → zero
+            exp >= 31 -> (sign or 0x7C00).toShort()
+            exp <= 0 -> sign.toShort()
             else -> (sign or (exp shl 10) or (mantissa ushr 13)).toShort()
         }
     }
@@ -411,8 +477,6 @@ class BubbleDetector(
 
     private fun sigmoid(x: Float): Float = 1f / (1f + exp(-x))
 
-    // Returns the tensor data as a nested FloatArray structure, handling FLOAT16 output tensors
-    // that ORT Java does not support via getValue().
     private fun getTensorValue(tensor: OnnxTensor): Any {
         val typeInfo = tensor.info as TensorInfo
         if (typeInfo.type != OnnxJavaType.FLOAT16) return tensor.value
@@ -423,19 +487,16 @@ class BubbleDetector(
         return reshapeToNestedArray(floatData, shape, 0)
     }
 
-    // Recursively reshapes a flat FloatArray into a nested Array<...FloatArray> structure
-    // matching the given ONNX tensor shape, so existing parse functions work unchanged.
     private fun reshapeToNestedArray(data: FloatArray, shape: LongArray, dim: Int): Any {
         val size = shape[dim].toInt()
         if (dim == shape.size - 1) return data.copyOf(size)
         val subSize = shape.drop(dim + 1).fold(1L) { acc, v -> acc * v }.toInt()
-        return Array<Any>(size) { i ->
+        return Array(size) { i ->
             val start = i * subSize
             reshapeToNestedArray(data.copyOfRange(start, minOf(start + subSize, data.size)), shape, dim + 1)
         }
     }
 
-    // Converts an IEEE 754 float16 bit pattern (stored as Short) to Float.
     private fun float16ToFloat32(half: Short): Float {
         val h = half.toInt() and 0xFFFF
         val sign = (h and 0x8000) shl 16
@@ -457,14 +518,12 @@ class BubbleDetector(
         )
     }
 
-    private fun describeDetections(detections: List<BubbleDetection>, limit: Int = 3): String {
-        if (detections.isEmpty()) return "[]"
-        val preview = detections.take(limit).joinToString(prefix = "[", postfix = "]") { det ->
-            val r = det.rect
-            val maskInfo = if (det.maskContour != null) ",mask=${det.maskContour.size / 2}pts" else ""
-            "(${r.left.toInt()},${r.top.toInt()},${r.right.toInt()},${r.bottom.toInt()},c=${"%.2f".format(det.confidence)}$maskInfo)"
-        }
-        return if (detections.size > limit) "$preview..." else preview
+    companion object {
+        const val DEFAULT_MODEL_ASSET = "models/detection/manga109-seg.onnx"
+        const val CLASS_FRAME = 0
+        const val CLASS_TEXT = 1
+        const val CLASS_BALLOON = 2
+        private const val MASK_COEFFS = 32
     }
 }
 
