@@ -1076,15 +1076,19 @@ internal class FolderTranslationCoordinator(
             return emptyList()
         }
         onPrepareProgress(0, pages.size, "")
-        val maxConcurrency = settingsStore.loadMaxConcurrency().coerceAtLeast(1)
+        // OCR prepare shares local detectors/engines and decode permits; keep it lower than LLM concurrency.
+        val maxConcurrency = resolveOcrPrepareConcurrency()
         val semaphore = Semaphore(maxConcurrency)
         val prepared = ArrayList<PreparedStandardPage?>(pages.size)
         repeat(pages.size) { prepared.add(null) }
+        val completedCount = AtomicInteger(0)
         supervisorScope {
             val tasks = pages.mapIndexed { index, image ->
                 async {
                     semaphore.withPermit {
                         currentCoroutineContext().ensureActive()
+                        // Show which page is running even before the first page finishes.
+                        onPrepareProgress(completedCount.get(), pages.size, image.name)
                         val result = try {
                             prepareStandardPageForTranslation(
                                 image = image,
@@ -1099,14 +1103,27 @@ internal class FolderTranslationCoordinator(
                             null
                         }
                         prepared[index] = result
-                        val currentPrepared = prepared.count { it != null }
-                        onPrepareProgress(currentPrepared, pages.size, image.name)
+                        // Count success and failure so progress never freezes on failed pages.
+                        onPrepareProgress(completedCount.incrementAndGet(), pages.size, image.name)
                     }
                 }
             }
             tasks.awaitAll()
         }
         return prepared
+    }
+
+    private fun resolveOcrPrepareConcurrency(): Int {
+        val configured = settingsStore.loadMaxConcurrency().coerceAtLeast(1)
+        val ocrSettings = settingsStore.loadOcrApiSettings()
+        val localCap = if (ocrSettings.useLocalOcr) {
+            LocalOcrConcurrency.resolve(ocrSettings.localOcrConcurrencyLimit)
+                .coerceAtMost(ImageProcessingGuards.decodeConcurrency)
+                .coerceAtLeast(1)
+        } else {
+            ocrSettings.apiOcrConcurrencyLimit.coerceIn(1, 4)
+        }
+        return minOf(configured, localCap)
     }
 
     private fun applyCrossPageBubbleMerge(
@@ -1253,7 +1270,12 @@ internal class FolderTranslationCoordinator(
         if (!force && hasRefillablePartialTranslation(image)) {
             return PreparedStandardPage(image = image, ocrResult = null)
         }
-        val ocrResult = translationPipeline.ocrImage(image, force, language) { } ?: return null
+        val ocrResult = translationPipeline.ocrImage(image, force, language) { stage ->
+            ui.setFolderStatus(
+                appContext.getString(R.string.folder_preprocess_stage_ocr),
+                "${image.name} · $stage"
+            )
+        } ?: return null
         return PreparedStandardPage(image = image, ocrResult = ocrResult)
     }
 

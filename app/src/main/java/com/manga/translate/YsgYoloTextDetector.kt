@@ -46,6 +46,7 @@ class YsgYoloTextDetector(
             .coerceAtLeast(1)
     }
 
+    @Synchronized
     fun detect(
         bitmap: Bitmap,
         suppressionMasks: List<TextSuppressionMask> = emptyList(),

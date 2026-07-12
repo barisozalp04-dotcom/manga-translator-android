@@ -43,6 +43,7 @@ class BubbleDetector(
         hasSegOutput = session.outputInfo.size >= 2
     }
 
+    @Synchronized
     fun detect(bitmap: android.graphics.Bitmap): List<BubbleDetection> {
         // Use fixed dim when positive; treat 0 or -1 (dynamic ONNX dim) as 640.
         val inputHeight = inputShape.getOrNull(2)?.takeIf { it > 0 }?.toInt()

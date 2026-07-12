@@ -43,6 +43,7 @@ class EnglishLineDetector(
         return value.toInt().coerceAtLeast(1)
     }
 
+    @Synchronized
     fun detectLines(bitmap: Bitmap): List<RectF> {
         if (bitmap.width < MIN_CROP_SIZE || bitmap.height < MIN_CROP_SIZE) {
             return emptyList()

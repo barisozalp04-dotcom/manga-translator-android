@@ -207,6 +207,9 @@ internal class TranslationPipeline(
                     language = resolvedLanguage
                 )
             } else {
+                onProgress(
+                    appContext.getString(R.string.floating_progress_recognizing, regions.size)
+                )
                 recognizeBubblesIndividually(
                     cropSource = cropSource,
                     regions = regions,

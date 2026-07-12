@@ -26,6 +26,7 @@ class MangaOcrMobile(
     private val encoderInterpreter = createInterpreter(ENCODER_ASSET_NAME)
     private val decoderInterpreter = createInterpreter(DECODER_ASSET_NAME)
 
+    @Synchronized
     override fun recognize(bitmap: Bitmap): String {
         val encoderInput = preprocess(bitmap)
         val encoderOutput = Array(1) { Array(config.encoderSeqLen) { FloatArray(config.encoderHiddenSize) } }

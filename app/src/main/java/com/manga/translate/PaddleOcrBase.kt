@@ -29,6 +29,7 @@ abstract class PaddleOcrBase(
         return recognizeWithScore(bitmap).text
     }
 
+    @Synchronized
     override fun recognizeWithScore(bitmap: Bitmap, rect: RectF?): OcrEngine.OcrEngineResult {
         val preprocessed = if (rect != null) preprocess(bitmap, rect) else preprocess(bitmap)
         return preprocessed.use { tensor ->
