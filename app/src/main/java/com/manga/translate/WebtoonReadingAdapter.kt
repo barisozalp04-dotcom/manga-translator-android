@@ -906,6 +906,18 @@ class WebtoonReadingAdapter(
             }
             binding.readingPageOverlay.setEditMode(lockedForEdit)
             binding.readingPageOverlay.visibility = if (resolved.bubbles.isEmpty()) View.GONE else View.VISIBLE
+            if (binding.readingPageOverlay.visibility == View.VISIBLE) {
+                val displayedPath = boundPath
+                binding.readingPageOverlay.postOnAnimation {
+                    if (boundPath != displayedPath) return@postOnAnimation
+                    if (binding.readingPageOverlay.visibility != View.VISIBLE) return@postOnAnimation
+                    updateOverlayDisplayRect()
+                    binding.readingPageOverlay.setContentZoomScale(
+                        imageTransformController.currentContentZoomScale()
+                    )
+                    binding.readingPageOverlay.postInvalidateOnAnimation()
+                }
+            }
         }
 
         private fun toggleDoubleTapZoom(x: Float, y: Float): Boolean {

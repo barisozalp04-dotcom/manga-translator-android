@@ -706,6 +706,16 @@ class ReadingFragment : Fragment() {
         binding.translationOverlay.setEditOverflowBounds(0f, 0f)
         binding.translationOverlay.setEditMode(isEditMode)
         binding.translationOverlay.visibility = View.VISIBLE
+        val displayedPath = currentImageFile?.absolutePath
+        binding.translationOverlay.postOnAnimation {
+            if (!isAdded || _binding == null) return@postOnAnimation
+            if (currentImageFile?.absolutePath != displayedPath) return@postOnAnimation
+            if (binding.translationOverlay.visibility != View.VISIBLE) return@postOnAnimation
+            val refreshedRect = computeOverlayDisplayRect() ?: return@postOnAnimation
+            binding.translationOverlay.setDisplayRect(refreshedRect)
+            binding.translationOverlay.setContentZoomScale(imageTransformController.currentContentZoomScale())
+            binding.translationOverlay.postInvalidateOnAnimation()
+        }
     }
 
     private fun currentReadingPageAnimationMode(): ReadingPageAnimationMode {
