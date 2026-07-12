@@ -877,19 +877,31 @@ internal class LibraryExporter(
         tempDir: File,
         index: Int
     ): PreparedCbzEntry? {
+        val translation = translationStore.load(imageFile)
+        val hasText = hasExportableTranslation(translation)
+        val spec = resolveExportSpec(imageFile.name)
+        val entryName = "$prefix/${spec.displayName}"
+        val tempFile = File(tempDir, "entry_$index")
+        if (!hasText && canPassthroughOriginal(imageFile, spec)) {
+            val success = try {
+                imageFile.copyTo(tempFile, overwrite = true)
+                true
+            } catch (e: Exception) {
+                AppLogger.log("Library", "Copy CBZ entry failed: ${imageFile.name}", e)
+                false
+            }
+            if (!success) return null
+            return PreparedCbzEntry(index = index, entryName = entryName, tempFile = tempFile)
+        }
         val renderer = BubbleRenderer(context)
         val bitmap = BitmapFactory.decodeFile(imageFile.absolutePath) ?: return null
         var output: Bitmap? = null
         try {
-            val translation = translationStore.load(imageFile)
-            output = if (translation != null && translation.bubbles.any { it.text.isNotBlank() }) {
+            output = if (hasText && translation != null) {
                 renderer.render(bitmap, translation, verticalLayoutEnabled)
             } else {
                 bitmap
             }
-            val spec = resolveExportSpec(imageFile.name)
-            val entryName = "$prefix/${spec.displayName}"
-            val tempFile = File(tempDir, "entry_$index")
             val success = try {
                 FileOutputStream(tempFile).use { outputStream ->
                     output.compress(spec.format, spec.quality, outputStream)
@@ -1019,25 +1031,39 @@ internal class LibraryExporter(
         verticalLayoutEnabled: Boolean,
         exportDir: DocumentFile?
     ): Boolean {
-        val bitmap = BitmapFactory.decodeFile(imageFile.absolutePath) ?: return false
         val translation = translationStore.load(imageFile)
-        val output = if (translation != null && translation.bubbles.any { it.text.isNotBlank() }) {
-            renderer.render(bitmap, translation, verticalLayoutEnabled)
-        } else {
-            bitmap
-        }
+        val hasText = hasExportableTranslation(translation)
         val spec = resolveExportSpec(imageFile.name)
-        val success = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && exportDir != null) {
-            saveBitmapToDocumentFile(context, output, spec, exportDir)
-        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            saveBitmapToMediaStore(context, output, spec, folderName)
+        val success = if (!hasText && canPassthroughOriginal(imageFile, spec)) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && exportDir != null) {
+                copyFileToDocumentFile(context, imageFile, spec, exportDir)
+            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                copyFileToMediaStore(context, imageFile, spec, folderName)
+            } else {
+                copyFileToLegacyStorage(imageFile, spec, folderName)
+            }
         } else {
-            saveBitmapToLegacyStorage(output, spec, folderName)
+            val bitmap = BitmapFactory.decodeFile(imageFile.absolutePath) ?: return false
+            val output = if (hasText && translation != null) {
+                renderer.render(bitmap, translation, verticalLayoutEnabled)
+            } else {
+                bitmap
+            }
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && exportDir != null) {
+                    saveBitmapToDocumentFile(context, output, spec, exportDir)
+                } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    saveBitmapToMediaStore(context, output, spec, folderName)
+                } else {
+                    saveBitmapToLegacyStorage(output, spec, folderName)
+                }
+            } finally {
+                if (output !== bitmap) {
+                    output.recycle()
+                }
+                bitmap.recycle()
+            }
         }
-        if (output !== bitmap) {
-            output.recycle()
-        }
-        bitmap.recycle()
         if (!success) {
             AppLogger.log("Library", "Export failed for ${imageFile.name}")
         }
@@ -1045,12 +1071,11 @@ internal class LibraryExporter(
     }
 
     @RequiresApi(Build.VERSION_CODES.Q)
-    private fun saveBitmapToMediaStore(
+    private fun openOrCreateMediaStoreUri(
         context: Context,
-        bitmap: Bitmap,
         spec: ExportSpec,
         folderName: String
-    ): Boolean {
+    ): Pair<Uri, Boolean>? {
         val resolver = context.contentResolver
         val collection = MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL)
         val relativePathWithSlash = "Documents/manga-translate/$folderName/"
@@ -1073,7 +1098,7 @@ internal class LibraryExporter(
             }
         }
         val values = ContentValues()
-        val (uri, createdNew) = if (existingUri != null) {
+        return if (existingUri != null) {
             values.put(MediaStore.MediaColumns.IS_PENDING, 1)
             resolver.update(existingUri, values, null, null)
             existingUri to false
@@ -1082,23 +1107,77 @@ internal class LibraryExporter(
             values.put(MediaStore.MediaColumns.MIME_TYPE, spec.mimeType)
             values.put(MediaStore.MediaColumns.RELATIVE_PATH, relativePathWithSlash)
             values.put(MediaStore.MediaColumns.IS_PENDING, 1)
-            (resolver.insert(collection, values) ?: return false) to true
+            val uri = resolver.insert(collection, values) ?: return null
+            uri to true
         }
+    }
+
+    @RequiresApi(Build.VERSION_CODES.Q)
+    private fun finishMediaStoreWrite(
+        context: Context,
+        uri: Uri,
+        createdNew: Boolean,
+        success: Boolean
+    ) {
+        val values = ContentValues().apply {
+            put(MediaStore.MediaColumns.IS_PENDING, 0)
+        }
+        context.contentResolver.update(uri, values, null, null)
+        if (!success && createdNew) {
+            context.contentResolver.delete(uri, null, null)
+        }
+    }
+
+    @RequiresApi(Build.VERSION_CODES.Q)
+    private fun saveBitmapToMediaStore(
+        context: Context,
+        bitmap: Bitmap,
+        spec: ExportSpec,
+        folderName: String
+    ): Boolean {
+        val (uri, createdNew) = openOrCreateMediaStoreUri(context, spec, folderName) ?: return false
         val success = try {
-            resolver.openOutputStream(uri)?.use { output ->
+            context.contentResolver.openOutputStream(uri)?.use { output ->
                 bitmap.compress(spec.format, spec.quality, output)
             } ?: false
         } catch (e: Exception) {
             AppLogger.log("Library", "Export write failed: ${spec.displayName}", e)
             false
         }
-        values.clear()
-        values.put(MediaStore.MediaColumns.IS_PENDING, 0)
-        resolver.update(uri, values, null, null)
-        if (!success && createdNew) {
-            resolver.delete(uri, null, null)
-        }
+        finishMediaStoreWrite(context, uri, createdNew, success)
         return success
+    }
+
+    @RequiresApi(Build.VERSION_CODES.Q)
+    private fun copyFileToMediaStore(
+        context: Context,
+        source: File,
+        spec: ExportSpec,
+        folderName: String
+    ): Boolean {
+        val (uri, createdNew) = openOrCreateMediaStoreUri(context, spec, folderName) ?: return false
+        val success = try {
+            context.contentResolver.openOutputStream(uri)?.use { output ->
+                copySourceToStream(source, output)
+            } ?: false
+        } catch (e: Exception) {
+            AppLogger.log("Library", "Export copy failed: ${spec.displayName}", e)
+            false
+        }
+        finishMediaStoreWrite(context, uri, createdNew, success)
+        return success
+    }
+
+    private fun resolveDocumentFileTarget(
+        exportDir: DocumentFile,
+        spec: ExportSpec
+    ): DocumentFile? {
+        val existing = exportDir.findFile(spec.displayName)
+        return if (existing != null && existing.isFile) {
+            existing
+        } else {
+            exportDir.createFile(spec.mimeType, spec.displayName)
+        }
     }
 
     private fun saveBitmapToDocumentFile(
@@ -1107,15 +1186,9 @@ internal class LibraryExporter(
         spec: ExportSpec,
         exportDir: DocumentFile
     ): Boolean {
-        val resolver = context.contentResolver
-        val existing = exportDir.findFile(spec.displayName)
-        val target = if (existing != null && existing.isFile) {
-            existing
-        } else {
-            exportDir.createFile(spec.mimeType, spec.displayName)
-        } ?: return false
+        val target = resolveDocumentFileTarget(exportDir, spec) ?: return false
         return try {
-            resolver.openOutputStream(target.uri, "wt")?.use { output ->
+            context.contentResolver.openOutputStream(target.uri, "wt")?.use { output ->
                 bitmap.compress(spec.format, spec.quality, output)
             } ?: false
         } catch (e: Exception) {
@@ -1124,24 +1197,60 @@ internal class LibraryExporter(
         }
     }
 
+    private fun copyFileToDocumentFile(
+        context: Context,
+        source: File,
+        spec: ExportSpec,
+        exportDir: DocumentFile
+    ): Boolean {
+        val target = resolveDocumentFileTarget(exportDir, spec) ?: return false
+        return try {
+            context.contentResolver.openOutputStream(target.uri, "wt")?.use { output ->
+                copySourceToStream(source, output)
+            } ?: false
+        } catch (e: Exception) {
+            AppLogger.log("Library", "Export copy failed: ${spec.displayName}", e)
+            false
+        }
+    }
+
+    private fun resolveLegacyExportTarget(spec: ExportSpec, folderName: String): File? {
+        val root = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS)
+        val exportDir = File(root, "manga-translate/$folderName")
+        if (!exportDir.exists() && !exportDir.mkdirs()) {
+            AppLogger.log("Library", "Export directory create failed: ${exportDir.absolutePath}")
+            return null
+        }
+        return resolveUniqueFile(exportDir, spec.displayName)
+    }
+
     private fun saveBitmapToLegacyStorage(
         bitmap: Bitmap,
         spec: ExportSpec,
         folderName: String
     ): Boolean {
-        val root = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS)
-        val exportDir = File(root, "manga-translate/$folderName")
-        if (!exportDir.exists() && !exportDir.mkdirs()) {
-            AppLogger.log("Library", "Export directory create failed: ${exportDir.absolutePath}")
-            return false
-        }
-        val target = resolveUniqueFile(exportDir, spec.displayName)
+        val target = resolveLegacyExportTarget(spec, folderName) ?: return false
         return try {
             FileOutputStream(target).use { output ->
                 bitmap.compress(spec.format, spec.quality, output)
             }
         } catch (e: Exception) {
             AppLogger.log("Library", "Export write failed: ${target.name}", e)
+            false
+        }
+    }
+
+    private fun copyFileToLegacyStorage(
+        source: File,
+        spec: ExportSpec,
+        folderName: String
+    ): Boolean {
+        val target = resolveLegacyExportTarget(spec, folderName) ?: return false
+        return try {
+            source.copyTo(target, overwrite = true)
+            true
+        } catch (e: Exception) {
+            AppLogger.log("Library", "Export copy failed: ${target.name}", e)
             false
         }
     }
@@ -1174,11 +1283,34 @@ internal class LibraryExporter(
                 "$baseName.jpg"
             }
         }
-        val quality = when (format) {
-            Bitmap.CompressFormat.PNG -> 100
-            else -> 95
-        }
+        val quality = 100
         return ExportSpec(displayName, mimeType, format, quality)
+    }
+
+    private fun hasExportableTranslation(translation: TranslationResult?): Boolean {
+        return translation != null && translation.bubbles.any { it.text.isNotBlank() }
+    }
+
+    private fun canPassthroughOriginal(imageFile: File, spec: ExportSpec): Boolean {
+        if (!imageFile.isFile || !imageFile.exists()) return false
+        if (ImageFileSupport.isAvifFile(imageFile.name)) return false
+        val sourceName = imageFile.name.lowercase()
+        val targetName = spec.displayName.lowercase()
+        if (sourceName != targetName) return false
+        val ext = sourceName.substringAfterLast('.', "")
+        return ext == "png" || ext == "jpg" || ext == "jpeg" || ext == "webp"
+    }
+
+    private fun copySourceToStream(source: File, output: java.io.OutputStream): Boolean {
+        return try {
+            FileInputStream(source).use { input ->
+                input.copyTo(output)
+            }
+            true
+        } catch (e: Exception) {
+            AppLogger.log("Library", "Export copy failed: ${source.name}", e)
+            false
+        }
     }
 
     private fun resolveUniqueFile(folder: File, fileName: String): File {
@@ -1493,18 +1625,30 @@ internal class LibraryExporter(
         tempDir: File,
         index: Int
     ): PreparedCbzEntry? {
+        val translation = translationStore.load(imageFile)
+        val hasText = hasExportableTranslation(translation)
+        val spec = resolveExportSpec(imageFile.name)
+        val tempFile = File(tempDir, "entry_$index")
+        if (!hasText && canPassthroughOriginal(imageFile, spec)) {
+            val success = try {
+                imageFile.copyTo(tempFile, overwrite = true)
+                true
+            } catch (e: Exception) {
+                AppLogger.log("Library", "Copy CBZ entry failed: ${imageFile.name}", e)
+                false
+            }
+            if (!success) return null
+            return PreparedCbzEntry(index = index, entryName = spec.displayName, tempFile = tempFile)
+        }
         val renderer = BubbleRenderer(context)
         val bitmap = BitmapFactory.decodeFile(imageFile.absolutePath) ?: return null
         var output: Bitmap? = null
         try {
-            val translation = translationStore.load(imageFile)
-            output = if (translation != null && translation.bubbles.any { it.text.isNotBlank() }) {
+            output = if (hasText && translation != null) {
                 renderer.render(bitmap, translation, verticalLayoutEnabled)
             } else {
                 bitmap
             }
-            val spec = resolveExportSpec(imageFile.name)
-            val tempFile = File(tempDir, "entry_$index")
             val success = try {
                 FileOutputStream(tempFile).use { outputStream ->
                     output.compress(spec.format, spec.quality, outputStream)

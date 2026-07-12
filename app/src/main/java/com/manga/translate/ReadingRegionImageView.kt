@@ -25,6 +25,7 @@ import java.io.File
 import kotlin.math.ceil
 import kotlin.math.floor
 import kotlin.math.max
+import kotlin.math.sqrt
 
 class ReadingRegionImageView @JvmOverloads constructor(
     context: Context,
@@ -36,7 +37,7 @@ class ReadingRegionImageView @JvmOverloads constructor(
         val top: Int,
         val right: Int,
         val bottom: Int,
-        val sampleSize: Int
+        val decodeSampleSize: Int
     )
 
     private data class DecodeRequest(
@@ -51,6 +52,7 @@ class ReadingRegionImageView @JvmOverloads constructor(
     }
     private val contentMatrix = Matrix()
     private val inverseMatrix = Matrix()
+    private val matrixValues = FloatArray(9)
     private val visibleRect = RectF()
     private val viewVisibleRect = Rect()
     private val prefetchRect = RectF()
@@ -73,12 +75,14 @@ class ReadingRegionImageView @JvmOverloads constructor(
     private var decoder: BitmapRegionDecoder? = null
     private var decoderFile: File? = null
     private var generation = 0
+    private var lastDecodeSampleSize = 1
     private val scrollChangedListener = ViewTreeObserver.OnScrollChangedListener { invalidate() }
 
     fun setRegionSource(next: ReadingRegionImageSource?) {
         if (source == next) return
         generation += 1
         source = next
+        lastDecodeSampleSize = next?.layoutSampleSize?.coerceAtLeast(1) ?: 1
         decodeJobs.values.forEach { it.cancel() }
         decodeJobs.clear()
         tileCache.evictAll()
@@ -99,23 +103,38 @@ class ReadingRegionImageView @JvmOverloads constructor(
         }
         if (width <= 0 || height <= 0) return
         if (!computeVisibleDisplayRect(activeSource)) return
-        val visibleRequests = planTiles(activeSource, visibleRect)
-        val prefetchRequests = planPrefetchTiles(activeSource, visibleRequests)
+        val displayScale = currentDisplayScale()
+        val decodeSampleSize = ReadingBitmapDecoder.calculateDecodeSampleSize(
+            layoutSampleSize = activeSource.layoutSampleSize,
+            displayScale = displayScale
+        )
+        if (decodeSampleSize != lastDecodeSampleSize) {
+            lastDecodeSampleSize = decodeSampleSize
+            // Keep lower-res tiles briefly as placeholders while sharper tiles load.
+        }
+        val tileSize = displayTileSize()
+        val visibleRequests = planTiles(activeSource, visibleRect, decodeSampleSize, tileSize)
+        val prefetchRequests = planPrefetchTiles(activeSource, visibleRequests, decodeSampleSize, tileSize)
         cancelStaleDecodeJobs((visibleRequests + prefetchRequests).mapTo(hashSetOf()) { it.key })
         val save = canvas.save()
         canvas.concat(contentMatrix)
         for (request in visibleRequests) {
-            val bitmap = tileCache.get(request.key)
             tileDrawRect.set(
                 request.key.left.toFloat(),
                 request.key.top.toFloat(),
                 request.key.right.toFloat(),
                 request.key.bottom.toFloat()
             )
-            if (bitmap != null && !bitmap.isRecycled) {
-                canvas.drawBitmap(bitmap, null, tileDrawRect, paint)
+            val sharp = tileCache.get(request.key)
+            if (sharp != null && !sharp.isRecycled) {
+                canvas.drawBitmap(sharp, null, tileDrawRect, paint)
             } else {
-                canvas.drawRect(tileDrawRect, missingTilePaint)
+                val fallback = findFallbackTile(request)
+                if (fallback != null && !fallback.isRecycled) {
+                    canvas.drawBitmap(fallback, null, tileDrawRect, paint)
+                } else {
+                    canvas.drawRect(tileDrawRect, missingTilePaint)
+                }
                 enqueueDecode(activeSource, request, priority = true)
             }
         }
@@ -155,17 +174,27 @@ class ReadingRegionImageView @JvmOverloads constructor(
         return visibleRect.width() > 0f && visibleRect.height() > 0f
     }
 
+    private fun currentDisplayScale(): Float {
+        contentMatrix.getValues(matrixValues)
+        val scaleX = matrixValues[Matrix.MSCALE_X]
+        val skewY = matrixValues[Matrix.MSKEW_Y]
+        val scale = sqrt(scaleX * scaleX + skewY * skewY)
+        return if (scale.isFinite() && scale > 0f) scale else 1f
+    }
+
     private fun planTiles(
         activeSource: ReadingRegionImageSource,
-        displayRect: RectF
+        displayRect: RectF,
+        decodeSampleSize: Int,
+        tileSize: Int
     ): List<DecodeRequest> {
         val displayWidth = displayWidth(activeSource)
         val displayHeight = displayHeight(activeSource)
-        val tileSize = displayTileSize()
         val leftIndex = floor(displayRect.left / tileSize).toInt().coerceAtLeast(0)
         val topIndex = floor(displayRect.top / tileSize).toInt().coerceAtLeast(0)
         val rightIndex = ceil(displayRect.right / tileSize).toInt().coerceAtLeast(leftIndex + 1)
         val bottomIndex = ceil(displayRect.bottom / tileSize).toInt().coerceAtLeast(topIndex + 1)
+        val layoutSample = activeSource.layoutSampleSize.coerceAtLeast(1)
         val result = ArrayList<DecodeRequest>()
         for (tileY in topIndex until bottomIndex) {
             for (tileX in leftIndex until rightIndex) {
@@ -179,15 +208,15 @@ class ReadingRegionImageView @JvmOverloads constructor(
                     top = displayTop,
                     right = displayRight,
                     bottom = displayBottom,
-                    sampleSize = activeSource.sampleSize
+                    decodeSampleSize = decodeSampleSize
                 )
                 result += DecodeRequest(
                     key = key,
                     sourceRect = Rect(
-                        displayLeft * activeSource.sampleSize,
-                        displayTop * activeSource.sampleSize,
-                        (displayRight * activeSource.sampleSize).coerceAtMost(activeSource.sourceWidth),
-                        (displayBottom * activeSource.sampleSize).coerceAtMost(activeSource.sourceHeight)
+                        displayLeft * layoutSample,
+                        displayTop * layoutSample,
+                        (displayRight * layoutSample).coerceAtMost(activeSource.sourceWidth),
+                        (displayBottom * layoutSample).coerceAtMost(activeSource.sourceHeight)
                     )
                 )
             }
@@ -197,7 +226,9 @@ class ReadingRegionImageView @JvmOverloads constructor(
 
     private fun planPrefetchTiles(
         activeSource: ReadingRegionImageSource,
-        visibleRequests: List<DecodeRequest>
+        visibleRequests: List<DecodeRequest>,
+        decodeSampleSize: Int,
+        tileSize: Int
     ): List<DecodeRequest> {
         if (visibleRequests.isEmpty()) return emptyList()
         val displayHeight = displayHeight(activeSource).toFloat()
@@ -210,8 +241,28 @@ class ReadingRegionImageView @JvmOverloads constructor(
         )
         if (prefetchRect == visibleRect) return emptyList()
         val visibleKeys = visibleRequests.mapTo(hashSetOf()) { it.key }
-        return planTiles(activeSource, prefetchRect)
+        return planTiles(activeSource, prefetchRect, decodeSampleSize, tileSize)
             .filterNot { it.key in visibleKeys }
+    }
+
+    private fun findFallbackTile(request: DecodeRequest): Bitmap? {
+        // Prefer any cached tile covering the same display rect at coarser sample.
+        var sample = request.key.decodeSampleSize * 2
+        while (sample <= 64) {
+            val key = request.key.copy(decodeSampleSize = sample)
+            val bitmap = tileCache.get(key)
+            if (bitmap != null && !bitmap.isRecycled) return bitmap
+            sample *= 2
+        }
+        // Last resort: any other sample for this rect.
+        sample = 1
+        while (sample < request.key.decodeSampleSize) {
+            val key = request.key.copy(decodeSampleSize = sample)
+            val bitmap = tileCache.get(key)
+            if (bitmap != null && !bitmap.isRecycled) return bitmap
+            sample *= 2
+        }
+        return null
     }
 
     private fun cancelStaleDecodeJobs(activeKeys: Set<TileKey>) {
@@ -238,7 +289,7 @@ class ReadingRegionImageView @JvmOverloads constructor(
         val decodeGeneration = generation
         decodeJobs[request.key] = scope.launch {
             val bitmap = withContext(Dispatchers.IO) {
-                decodeRegion(activeSource, request.sourceRect)
+                decodeRegion(activeSource, request.sourceRect, request.key.decodeSampleSize)
             }
             decodeJobs.remove(request.key)
             if (decodeGeneration != generation || source != activeSource) {
@@ -252,28 +303,49 @@ class ReadingRegionImageView @JvmOverloads constructor(
         }
     }
 
-    private suspend fun decodeRegion(activeSource: ReadingRegionImageSource, sourceRect: Rect): Bitmap? {
+    private suspend fun decodeRegion(
+        activeSource: ReadingRegionImageSource,
+        sourceRect: Rect,
+        decodeSampleSize: Int
+    ): Bitmap? {
         if (sourceRect.width() <= 0 || sourceRect.height() <= 0) return null
         val decoder = synchronized(decodeLock) {
             ensureDecoder(activeSource)
         } ?: return null
-        val options = BitmapFactory.Options().apply {
-            inSampleSize = activeSource.sampleSize
-            inPreferredConfig = Bitmap.Config.RGB_565
+        val sample = decodeSampleSize.coerceAtLeast(1)
+        val outWidth = ceilDiv(sourceRect.width(), sample)
+        val outHeight = ceilDiv(sourceRect.height(), sample)
+        val preferArgb = ImageProcessingGuards.hasMemoryBudgetForBitmap(
+            width = outWidth,
+            height = outHeight,
+            copies = 2
+        )
+        val configs = if (preferArgb) {
+            listOf(Bitmap.Config.ARGB_8888, Bitmap.Config.RGB_565)
+        } else {
+            listOf(Bitmap.Config.RGB_565, Bitmap.Config.ARGB_8888)
         }
-        return ImageProcessingGuards.withDecodePermit(
-            width = sourceRect.width(),
-            height = sourceRect.height(),
-            tag = "ReadingRegionImageView"
-        ) {
-            synchronized(decodeLock) {
-                if (decoder.isRecycled) {
-                    null
-                } else {
-                    runCatching { decoder.decodeRegion(sourceRect, options) }.getOrNull()
+        for (config in configs) {
+            val options = BitmapFactory.Options().apply {
+                inSampleSize = sample
+                inPreferredConfig = config
+            }
+            val bitmap = ImageProcessingGuards.withDecodePermit(
+                width = outWidth,
+                height = outHeight,
+                tag = "ReadingRegionImageView"
+            ) {
+                synchronized(decodeLock) {
+                    if (decoder.isRecycled) {
+                        null
+                    } else {
+                        runCatching { decoder.decodeRegion(sourceRect, options) }.getOrNull()
+                    }
                 }
             }
+            if (bitmap != null) return bitmap
         }
+        return null
     }
 
     private fun ensureDecoder(activeSource: ReadingRegionImageSource): BitmapRegionDecoder? {
@@ -293,14 +365,15 @@ class ReadingRegionImageView @JvmOverloads constructor(
     }
 
     private fun displayWidth(activeSource: ReadingRegionImageSource): Int {
-        return ceilDiv(activeSource.sourceWidth, activeSource.sampleSize)
+        return ceilDiv(activeSource.sourceWidth, activeSource.layoutSampleSize.coerceAtLeast(1))
     }
 
     private fun displayHeight(activeSource: ReadingRegionImageSource): Int {
-        return ceilDiv(activeSource.sourceHeight, activeSource.sampleSize)
+        return ceilDiv(activeSource.sourceHeight, activeSource.layoutSampleSize.coerceAtLeast(1))
     }
 
     private fun displayTileSize(): Int {
+        // Fixed grid across zoom levels so coarser tiles can act as fallbacks while sharp tiles load.
         val longestViewEdge = max(width, height).coerceAtLeast(DEFAULT_DISPLAY_TILE_SIZE)
         return longestViewEdge.coerceIn(DEFAULT_DISPLAY_TILE_SIZE, MAX_DISPLAY_TILE_SIZE)
     }
@@ -321,13 +394,14 @@ class ReadingRegionImageView @JvmOverloads constructor(
 
     private companion object {
         const val DEFAULT_DISPLAY_TILE_SIZE = 1024
-        const val MAX_DISPLAY_TILE_SIZE = 2048
-        const val PREFETCH_VIEWPORT_MULTIPLIER = 1.5f
-        const val MAX_BACKGROUND_DECODE_JOBS = 4
+        const val MAX_DISPLAY_TILE_SIZE = 1536
+        const val PREFETCH_VIEWPORT_MULTIPLIER = 1.25f
+        const val MAX_BACKGROUND_DECODE_JOBS = 6
 
         fun tileCacheMaxKb(): Int {
             val runtimeMaxKb = (Runtime.getRuntime().maxMemory() / 1024L).coerceAtLeast(1L)
-            return (runtimeMaxKb / 20L).toInt().coerceIn(12 * 1024, 64 * 1024)
+            // ARGB tiles need more room; keep ~1/12 of heap, clamp 16–96MB.
+            return (runtimeMaxKb / 12L).toInt().coerceIn(16 * 1024, 96 * 1024)
         }
     }
 }

@@ -20,6 +20,7 @@ import kotlin.math.roundToInt
 internal object PdfImageCodec {
     private const val IMPORT_RENDER_SCALE = 2f
     private const val IMPORT_FILE_NAME_WIDTH = 4
+    private const val PDF_JPEG_QUALITY = 100
 
     fun renderPdfToImages(
         contentResolver: ContentResolver,
@@ -201,48 +202,47 @@ internal object PdfImageCodec {
 
         // Pages — process one image at a time to keep memory low
         for (i in 0 until n) {
-            val bitmap = BitmapFactory.decodeFile(images[i].absolutePath)
-                ?: throw IllegalStateException("Cannot decode image: ${images[i].name}")
-            try {
-                val w = bitmap.width
-                val h = bitmap.height
-
-                val jpegStream = ByteArrayOutputStream()
-                bitmap.compress(Bitmap.CompressFormat.JPEG, 95, jpegStream)
-                val jpegBytes = jpegStream.toByteArray()
-
-                // Image XObject
-                beginObj(imageObjBase + i)
-                writeln("<< /Type /XObject /Subtype /Image /Width $w /Height $h " +
-                    "/ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode " +
-                    "/Length ${jpegBytes.size} >>")
-                writeln("stream")
-                counter.write(jpegBytes)
-                writeln("")
-                writeln("endstream")
-                endObj()
-
-                // Content stream
-                beginObj(contentObjBase + i)
-                val content = "q $w 0 0 $h 0 0 cm /Im0 Do Q"
-                val contentBytes = content.toByteArray()
-                writeln("<< /Length ${contentBytes.size} >>")
-                writeln("stream")
-                counter.write(contentBytes)
-                writeln("")
-                writeln("endstream")
-                endObj()
-
-                // Page object
-                beginObj(pageObjBase + i)
-                writeln("<< /Type /Page /Parent ${indirectRef(2)} " +
-                    "/MediaBox [0 0 $w $h] " +
-                    "/Contents ${indirectRef(contentObjBase + i)} " +
-                    "/Resources << /XObject << /Im0 ${indirectRef(imageObjBase + i)} >> >> >>")
-                endObj()
-            } finally {
-                bitmap.recycle()
+            val imageFile = images[i]
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeFile(imageFile.absolutePath, bounds)
+            val w = bounds.outWidth
+            val h = bounds.outHeight
+            if (w <= 0 || h <= 0) {
+                throw IllegalStateException("Cannot decode image: ${imageFile.name}")
             }
+
+            val jpegBytes = encodeImageAsJpegBytes(imageFile)
+                ?: throw IllegalStateException("Cannot encode image as JPEG: ${imageFile.name}")
+
+            // Image XObject
+            beginObj(imageObjBase + i)
+            writeln("<< /Type /XObject /Subtype /Image /Width $w /Height $h " +
+                "/ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode " +
+                "/Length ${jpegBytes.size} >>")
+            writeln("stream")
+            counter.write(jpegBytes)
+            writeln("")
+            writeln("endstream")
+            endObj()
+
+            // Content stream
+            beginObj(contentObjBase + i)
+            val content = "q $w 0 0 $h 0 0 cm /Im0 Do Q"
+            val contentBytes = content.toByteArray()
+            writeln("<< /Length ${contentBytes.size} >>")
+            writeln("stream")
+            counter.write(contentBytes)
+            writeln("")
+            writeln("endstream")
+            endObj()
+
+            // Page object
+            beginObj(pageObjBase + i)
+            writeln("<< /Type /Page /Parent ${indirectRef(2)} " +
+                "/MediaBox [0 0 $w $h] " +
+                "/Contents ${indirectRef(contentObjBase + i)} " +
+                "/Resources << /XObject << /Im0 ${indirectRef(imageObjBase + i)} >> >> >>")
+            endObj()
         }
 
         // Outline items
@@ -281,6 +281,24 @@ internal object PdfImageCodec {
         writeln("startxref")
         writeln("$startxref")
         counter.write("%%EOF".toByteArray())
+    }
+
+    private fun encodeImageAsJpegBytes(imageFile: File): ByteArray? {
+        val ext = imageFile.name.substringAfterLast('.', "").lowercase()
+        if (ext == "jpg" || ext == "jpeg") {
+            return runCatching { imageFile.readBytes() }.getOrNull()
+        }
+        val bitmap = BitmapFactory.decodeFile(imageFile.absolutePath) ?: return null
+        return try {
+            val jpegStream = ByteArrayOutputStream()
+            if (!bitmap.compress(Bitmap.CompressFormat.JPEG, PDF_JPEG_QUALITY, jpegStream)) {
+                null
+            } else {
+                jpegStream.toByteArray()
+            }
+        } finally {
+            bitmap.recycle()
+        }
     }
 
     private fun drawBitmapFit(canvas: Canvas, bitmap: Bitmap) {

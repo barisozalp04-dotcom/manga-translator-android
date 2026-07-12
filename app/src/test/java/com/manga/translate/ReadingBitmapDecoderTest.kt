@@ -1,6 +1,7 @@
 package com.manga.translate
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -46,5 +47,23 @@ class ReadingBitmapDecoderTest {
         )
 
         assertEquals(2, sample)
+    }
+
+    @Test
+    fun `tiled decode triggers for long images and high resolution pages`() {
+        assertTrue(ReadingBitmapDecoder.shouldUseTiledDecode(1080, 24000))
+        assertTrue(ReadingBitmapDecoder.shouldUseTiledDecode(4000, 7000))
+        assertTrue(ReadingBitmapDecoder.shouldUseTiledDecode(5000, 5000))
+        assertFalse(ReadingBitmapDecoder.shouldUseTiledDecode(1600, 2400))
+        assertFalse(ReadingBitmapDecoder.shouldUseTiledDecode(2400, 3600))
+    }
+
+    @Test
+    fun `decode sample size follows display scale for full-res layout`() {
+        assertEquals(4, ReadingBitmapDecoder.calculateDecodeSampleSize(layoutSampleSize = 1, displayScale = 0.2f))
+        assertEquals(2, ReadingBitmapDecoder.calculateDecodeSampleSize(layoutSampleSize = 1, displayScale = 0.5f))
+        assertEquals(1, ReadingBitmapDecoder.calculateDecodeSampleSize(layoutSampleSize = 1, displayScale = 1.0f))
+        assertEquals(1, ReadingBitmapDecoder.calculateDecodeSampleSize(layoutSampleSize = 1, displayScale = 2.5f))
+        assertEquals(2, ReadingBitmapDecoder.calculateDecodeSampleSize(layoutSampleSize = 2, displayScale = 1.0f))
     }
 }

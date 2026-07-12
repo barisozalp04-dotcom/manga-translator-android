@@ -118,6 +118,7 @@ export PATH=$PATH:$ANDROID_HOME/platform-tools
 ### Reading 相关
 - `ReadingSessionViewModel.kt`：阅读会话共享。
 - `ReadingImageTransformController.kt`：阅读页手势与矩阵控制。
+- `ReadingBitmapDecoder.kt` / `ReadingRegionImageView.kt`：阅读解码。普通页优先 `ARGB_8888`、detail≈屏×3；长图/超高分图走区域分块，布局坐标用源分辨率，`decodeSample` 随缩放动态降到 1 以在放大时接近原画，低分 tile 可作 fallback。
 - `ReadingEmptyBubbleCoordinator.kt`：阅读页空白气泡补翻，OCR 后批量提交空白气泡翻译。
 - `WebtoonReadingAdapter.kt`：条漫模式列表适配。
 - `BubbleRenderer.kt`：气泡渲染。
