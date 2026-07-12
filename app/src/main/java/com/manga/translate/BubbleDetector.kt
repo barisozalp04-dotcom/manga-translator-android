@@ -510,11 +510,14 @@ class BubbleDetector(
     }
 
     private fun createSession(): OrtSession {
+        // YOLO-seg + XNNPACK has crashed natively on some devices during session create.
+        // Match PP-OCR / line-detector: plain CPU EP only.
         return OnnxRuntimeSupport.getOrCreateSession(
             cacheDir = context.cacheDir,
             assetProvider = context.assets::open,
             assetName = modelAssetName,
-            threadProfile = threadProfile
+            threadProfile = threadProfile,
+            useXnnpack = false
         )
     }
 

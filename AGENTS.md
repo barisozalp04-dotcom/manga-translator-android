@@ -249,7 +249,7 @@ sourceSets["main"].assets.srcDirs("src/main/assets", "../assets")
 - `TranslationKeepAliveService.kt` 持有自己的 `CoroutineScope` 和 `Job`，真正负责文件夹翻译、合集翻译和批量翻译的执行生命周期。
 - `TranslationKeepAliveService.kt` 在后台翻译结束后会补发系统通知（成功 / 失败 / 取消），点击后回到漫画库页查看结果。
 - `FolderTranslationCoordinator.kt` 仍负责翻译编排，但不再负责启动/停止保活服务；它现在向上返回真实任务 `Job`，由 Service 持有。
-- `TranslationTaskPersistence.kt` 会持久化当前任务描述；`MangaTranslateApp.kt` 启动时如果发现有未完成任务且上次运行未崩溃，会调用 `resumePendingTask(...)` 尝试恢复。崩溃时（未捕获异常）会立即清空任务描述；下次启动若仍带有崩溃标记，也会丢弃待恢复任务，避免反复自动恢复导致崩溃循环。
+- `TranslationTaskPersistence.kt` 会在任务运行期间写入任务描述（便于同进程内状态/崩溃时清理）；**进程重启后一律丢弃，不再自动恢复**。页级进度依赖 `*.ocr.json` / `*.json` 缓存，用户再次点翻译时会从文件续跑。冷启动与 Service 被系统拉起时都会 `clear()`；未捕获异常时也会立刻清空。
 - `LibraryUiBridge.kt` 与 `ServiceLibraryUiCallbacks.kt` 用来把后台 Service 中的状态、Toast、刷新请求和模型错误对话框转发给当前附着的 Library UI。
 
 当前文本气泡翻译逻辑已做一轮收敛：

@@ -60,19 +60,48 @@ object OnnxRuntimeSupport {
         useXnnpack: Boolean
     ): OrtSession {
         val modelFile = copyAssetToCacheIfMissing(cacheDir, assetProvider, assetName)
+        AppLogger.log(
+            "OnnxRuntime",
+            "Creating session for $assetName (${modelFile.length()} bytes), " +
+                "threads=${threadProfile.name}, xnnpack=$useXnnpack"
+        )
         return try {
             createSession(modelFile, threadProfile, useXnnpack)
         } catch (e: OrtException) {
+            if (useXnnpack) {
+                AppLogger.log(
+                    "OnnxRuntime",
+                    "Session create with XNNPACK failed for $assetName, retrying plain CPU",
+                    e
+                )
+                return try {
+                    createSession(modelFile, threadProfile, useXnnpack = false)
+                } catch (cpuError: OrtException) {
+                    if (!shouldRebuildCache(cpuError) && !shouldRebuildCache(e)) throw cpuError
+                    rebuildAndCreateSession(cacheDir, assetProvider, assetName, threadProfile, useXnnpack = false)
+                }
+            }
             if (!shouldRebuildCache(e)) throw e
-            AppLogger.log(
-                "OnnxRuntime",
-                "Model cache looks corrupted, rebuilding $assetName",
-                e
-            )
-            deleteCachedModel(cacheDir, assetName)
-            val rebuiltFile = forceCopyAssetToCache(cacheDir, assetProvider, assetName)
-            createSession(rebuiltFile, threadProfile, useXnnpack)
+            rebuildAndCreateSession(cacheDir, assetProvider, assetName, threadProfile, useXnnpack = false)
+        }.also {
+            AppLogger.log("OnnxRuntime", "Session ready for $assetName")
         }
+    }
+
+    private fun rebuildAndCreateSession(
+        cacheDir: File,
+        assetProvider: (String) -> java.io.InputStream,
+        assetName: String,
+        threadProfile: OnnxThreadProfile,
+        useXnnpack: Boolean
+    ): OrtSession {
+        AppLogger.log(
+            "OnnxRuntime",
+            "Model cache looks corrupted, rebuilding $assetName"
+        )
+        deleteCachedModel(cacheDir, assetName)
+        val rebuiltFile = forceCopyAssetToCache(cacheDir, assetProvider, assetName)
+        return createSession(rebuiltFile, threadProfile, useXnnpack)
     }
 
     private fun createSession(
@@ -83,6 +112,9 @@ object OnnxRuntimeSupport {
         val options = OrtSession.SessionOptions().apply {
             setIntraOpNumThreads(threadProfile.intraOpThreads)
             setInterOpNumThreads(threadProfile.interOpThreads)
+            // Large YOLO-seg graphs can OOM / SIGSEGV under full graph opts + mem pattern.
+            setOptimizationLevel(OrtSession.SessionOptions.OptLevel.BASIC_OPT)
+            setMemoryPatternOptimization(false)
             if (useXnnpack) {
                 try {
                     addXnnpack(emptyMap())

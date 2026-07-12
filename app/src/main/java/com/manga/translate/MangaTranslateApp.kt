@@ -47,25 +47,14 @@ class MangaTranslateApp : Application() {
             // Force-sync so the stack survives process death (appendText alone is often lost).
             AppLogger.logFatal("Crash", "Uncaught exception on ${thread.name}", throwable)
             crashStateStore.markCrashed()
-            // Drop in-flight translation so the next cold start does not resume a crashing task.
             taskPersistence.clear()
             previousHandler?.uncaughtException(thread, throwable)
         }
-        val pendingTask = taskPersistence.load()
-        if (pendingTask != null) {
-            val ageMs = System.currentTimeMillis() - pendingTask.startedAtEpochMs
-            val crashedLastRun = crashStateStore.wasCrashedLastRun()
-            if (crashedLastRun || ageMs >= 24 * 60 * 60 * 1000L) {
-                if (crashedLastRun) {
-                    AppLogger.log(
-                        "Library",
-                        "Discarding pending translation after crash: mode=${pendingTask.mode}"
-                    )
-                }
-                taskPersistence.clear()
-            } else {
-                TranslationKeepAliveService.resumePendingTask(this)
-            }
+        // Never auto-resume after process restart. Page progress lives in *.ocr.json / *.json;
+        // re-running a dead task only re-triggers crashes (e.g. native model load).
+        if (taskPersistence.load() != null) {
+            AppLogger.log("Library", "Discarding pending translation on cold start")
+            taskPersistence.clear()
         }
     }
 

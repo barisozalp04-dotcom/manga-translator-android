@@ -325,7 +325,8 @@ class YsgYoloTextDetector(
             cacheDir = context.cacheDir,
             assetProvider = context.assets::open,
             assetName = modelAssetName,
-            threadProfile = threadProfile
+            threadProfile = threadProfile,
+            useXnnpack = false
         )
     }
 

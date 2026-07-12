@@ -57,10 +57,6 @@ class TranslationKeepAliveService : Service() {
             loadDescriptor(intent)?.let { descriptor ->
                 currentTaskLabel = describeTaskLabel(this, descriptor)
             }
-        } else if (intent?.action == ACTION_RESUME_TRANSLATION_TASK && currentTaskLabel.isBlank()) {
-            taskPersistence.load()?.let { descriptor ->
-                currentTaskLabel = describeTaskLabel(this, descriptor)
-            }
         }
         startForeground(
             NOTIFICATION_ID,
@@ -78,68 +74,33 @@ class TranslationKeepAliveService : Service() {
                 val descriptor = loadDescriptor(intent)
                 if (descriptor == null) {
                     finishIdleTask(
-                        clearPersistedTask = false,
+                        clearPersistedTask = true,
                         reEnableTranslationActions = true
                     )
                     return START_NOT_STICKY
                 }
                 startTranslationTask(descriptor)
-            }
-            ACTION_RESUME_TRANSLATION_TASK -> {
-                if (translationJob?.isActive != true) {
-                    if (applicationContext.appContainer.crashStateStore.wasCrashedLastRun()) {
-                        AppLogger.log("Library", "Skip resume: last run crashed")
-                        finishIdleTask(
-                            clearPersistedTask = true,
-                            reEnableTranslationActions = true
-                        )
-                        return START_NOT_STICKY
-                    }
-                    val descriptor = taskPersistence.load()
-                    if (descriptor == null) {
-                        finishIdleTask(
-                            clearPersistedTask = true,
-                            reEnableTranslationActions = true
-                        )
-                        return START_NOT_STICKY
-                    }
-                    startTranslationTask(descriptor)
-                }
+                // Do not ask the system to restart this translation after process death.
+                return START_NOT_STICKY
             }
             else -> {
                 // Keep an in-flight translation running; export/unknown starts must not kill it.
                 if (translationJob?.isActive == true) {
-                    return START_STICKY
+                    return START_NOT_STICKY
                 }
                 if (intent == null) {
-                    // System STICKY restart: resume only if task is still valid and last run did not crash.
-                    val crashedLastRun = applicationContext.appContainer.crashStateStore.wasCrashedLastRun()
-                    val pending = taskPersistence.load()
-                    if (crashedLastRun) {
-                        AppLogger.log("Library", "STICKY restart after crash — discarding pending translation")
-                        finishIdleTask(
-                            clearPersistedTask = true,
-                            reEnableTranslationActions = true
-                        )
-                        return START_NOT_STICKY
-                    }
-                    if (pending != null) {
-                        currentTaskLabel = describeTaskLabel(this, pending)
-                        startTranslationTask(pending)
-                        return START_STICKY
-                    }
+                    // System may still restart a previous sticky instance — never auto-resume.
+                    AppLogger.log("Library", "Service restart with null intent — discarding pending translation")
                     finishIdleTask(
-                        clearPersistedTask = false,
+                        clearPersistedTask = true,
                         reEnableTranslationActions = true
                     )
                     return START_NOT_STICKY
                 }
-                // Export / legacy keep-alive: hold the foreground service without touching
-                // translation persistence or auto-resuming a pending translation task.
+                // Export / legacy keep-alive: hold the foreground service without auto-resuming.
                 return START_STICKY
             }
         }
-        return START_STICKY
     }
 
     override fun onDestroy() {
@@ -342,7 +303,7 @@ class TranslationKeepAliveService : Service() {
         private const val EXTRA_TASK_DESCRIPTOR = "extra_task_descriptor"
         private const val ACTION_CANCEL_TRANSLATION = "com.manga.translate.action.CANCEL_TRANSLATION"
         private const val ACTION_START_TRANSLATION_TASK = "com.manga.translate.action.START_TRANSLATION_TASK"
-        private const val ACTION_RESUME_TRANSLATION_TASK = "com.manga.translate.action.RESUME_TRANSLATION_TASK"
+
         const val EXTRA_OPEN_LIBRARY_TAB = "extra_open_library_tab"
         @Volatile
         private var cancelActionEnabled: Boolean = false
@@ -452,17 +413,6 @@ class TranslationKeepAliveService : Service() {
                 putExtra(EXTRA_MESSAGE, message)
                 putExtra(EXTRA_CONTENT, content)
                 putExtra(EXTRA_TASK_DESCRIPTOR, descriptor.toJsonString())
-            }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                context.startForegroundService(intent)
-            } else {
-                context.startService(intent)
-            }
-        }
-
-        internal fun resumePendingTask(context: Context) {
-            val intent = Intent(context, TranslationKeepAliveService::class.java).apply {
-                action = ACTION_RESUME_TRANSLATION_TASK
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 context.startForegroundService(intent)

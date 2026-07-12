@@ -527,10 +527,16 @@ internal class PageRegionDetector(
     private fun getBubbleDetector(logTag: String): BubbleDetector? {
         if (bubbleDetector != null) return bubbleDetector
         return try {
+            AppLogger.log(logTag, "Loading BubbleDetector (${BubbleDetector.DEFAULT_MODEL_ASSET})")
             bubbleDetector = BubbleDetector(appContext, settingsStore = settingsStore)
+            AppLogger.log(logTag, "BubbleDetector ready")
             bubbleDetector
         } catch (e: Exception) {
             AppLogger.log(logTag, "Failed to init bubble detector", e)
+            null
+        } catch (e: Error) {
+            // OutOfMemoryError / UnsatisfiedLinkError etc. — do not kill the process unlogged.
+            AppLogger.logFatal(logTag, "Fatal error init bubble detector", e)
             null
         }
     }
