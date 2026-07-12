@@ -3,6 +3,15 @@ package com.manga.translate
 import android.content.Context
 import android.util.AttributeSet
 import android.view.MotionEvent
+
+internal fun shouldEnableReadingContainerScroll(
+    readingMode: FolderReadingMode,
+    isEditMode: Boolean,
+    isLongImage: Boolean
+): Boolean {
+    return readingMode != FolderReadingMode.WEBTOON_SCROLL && !isEditMode && isLongImage
+}
+
 class ReadingScrollView @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null,

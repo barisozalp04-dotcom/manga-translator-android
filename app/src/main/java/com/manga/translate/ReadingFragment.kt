@@ -368,6 +368,7 @@ class ReadingFragment : Fragment() {
             isCurrentImageLong = false
             imageTransformController.setCurrentBitmap(null)
             imageTransformController.setVerticalPanEnabled(true)
+            updateReadingInteractionState()
             finishPageTransitionImmediately()
             binding.readingScrollContainer.scrollTo(0, 0)
             return
@@ -431,6 +432,7 @@ class ReadingFragment : Fragment() {
                 isCurrentImageLong = isTargetLongImage
                 imageTransformController.setCurrentContent(decoded.displayWidth, decoded.displayHeight)
                 imageTransformController.setVerticalPanEnabled(!isTargetLongImage)
+                updateReadingInteractionState()
                 applyReadingImageLayerMode(decoded)
                 displayedImagePath = targetPath
                 displayedPageIndex = targetIndex
@@ -445,6 +447,7 @@ class ReadingFragment : Fragment() {
                 isCurrentImageLong = false
                 imageTransformController.setCurrentBitmap(null)
                 imageTransformController.setVerticalPanEnabled(true)
+                updateReadingInteractionState()
                 applyReadingImageLayerMode(null)
                 displayedImagePath = null
                 displayedPageIndex = null
@@ -1073,7 +1076,6 @@ class ReadingFragment : Fragment() {
         val isWebtoon = folderReadingMode == FolderReadingMode.WEBTOON_SCROLL
         binding.readingWebtoonList.visibility = if (isWebtoon) View.VISIBLE else View.GONE
         binding.readingScrollContainer.visibility = if (isWebtoon) View.GONE else View.VISIBLE
-        binding.readingScrollContainer.scrollEnabled = !isWebtoon && !isEditMode
         binding.readingScrollContainer.isFillViewport = !isWebtoon
         if (isWebtoon) {
             binding.readingWebtoonList.post {
@@ -1102,8 +1104,11 @@ class ReadingFragment : Fragment() {
 
     private fun updateReadingInteractionState() {
         val isWebtoonScroll = folderReadingMode == FolderReadingMode.WEBTOON_SCROLL && !isEditMode
-        binding.readingScrollContainer.scrollEnabled =
-            folderReadingMode != FolderReadingMode.WEBTOON_SCROLL && !isEditMode
+        binding.readingScrollContainer.scrollEnabled = shouldEnableReadingContainerScroll(
+            readingMode = folderReadingMode,
+            isEditMode = isEditMode,
+            isLongImage = isCurrentImageLong
+        )
         binding.translationOverlay.setTouchPassthroughEnabled(isWebtoonScroll)
     }
 
