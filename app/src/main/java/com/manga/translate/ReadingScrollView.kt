@@ -12,6 +12,17 @@ internal fun shouldEnableReadingContainerScroll(
     return readingMode != FolderReadingMode.WEBTOON_SCROLL && !isEditMode && isLongImage
 }
 
+internal fun resolveViewportPinnedContentHeight(
+    readingMode: FolderReadingMode,
+    isLongImage: Boolean,
+    viewportHeight: Int
+): Int? {
+    if (readingMode == FolderReadingMode.WEBTOON_SCROLL || isLongImage || viewportHeight <= 0) {
+        return null
+    }
+    return viewportHeight
+}
+
 class ReadingScrollView @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null,

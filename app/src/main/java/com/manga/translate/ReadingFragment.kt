@@ -297,6 +297,20 @@ class ReadingFragment : Fragment() {
                 }
             }
         }
+        binding.readingScrollContainer.addOnLayoutChangeListener { _, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom ->
+            if (right - left == oldRight - oldLeft && bottom - top == oldBottom - oldTop) {
+                return@addOnLayoutChangeListener
+            }
+            val decoded = currentDecodedImage ?: return@addOnLayoutChangeListener
+            val pinnedHeight = resolveViewportPinnedContentHeight(
+                readingMode = folderReadingMode,
+                isLongImage = isLongImage(decoded.sourceWidth, decoded.sourceHeight),
+                viewportHeight = bottom - top
+            ) ?: return@addOnLayoutChangeListener
+            if (binding.readingContentContainer.layoutParams.height != pinnedHeight) {
+                updateReadingContentLayout(decoded)
+            }
+        }
         applyFolderReadingMode()
     }
 
@@ -1182,7 +1196,13 @@ class ReadingFragment : Fragment() {
                 binding.readingScrollContainer.scrollTo(0, 0)
             }
         } else {
-            contentParams.height = ViewGroup.LayoutParams.MATCH_PARENT
+            contentParams.height = decoded?.let {
+                resolveViewportPinnedContentHeight(
+                    readingMode = folderReadingMode,
+                    isLongImage = isLongImage(it.sourceWidth, it.sourceHeight),
+                    viewportHeight = binding.readingScrollContainer.height
+                )
+            } ?: ViewGroup.LayoutParams.MATCH_PARENT
             imageParams.height = ViewGroup.LayoutParams.MATCH_PARENT
             transitionImageParams.height = ViewGroup.LayoutParams.MATCH_PARENT
             overlayParams.height = ViewGroup.LayoutParams.MATCH_PARENT
