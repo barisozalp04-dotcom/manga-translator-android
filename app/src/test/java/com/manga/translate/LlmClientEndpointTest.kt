@@ -57,4 +57,20 @@ class LlmClientEndpointTest {
             LlmClient.buildOpenAiCompatibleModelsEndpoint("https://api.siliconflow.cn/v1/models")
         )
     }
+
+    @Test
+    fun `openai responses endpoint appends responses to base url`() {
+        assertEquals(
+            "https://api.openai.com/v1/responses",
+            LlmClient.buildOpenAiResponsesApiEndpoint("https://api.openai.com/v1")
+        )
+    }
+
+    @Test
+    fun `openai responses endpoint keeps full responses url`() {
+        assertEquals(
+            "https://api.openai.com/v1/responses",
+            LlmClient.buildOpenAiResponsesApiEndpoint("https://api.openai.com/v1/responses")
+        )
+    }
 }

@@ -7,6 +7,7 @@ enum class ApiFormat(
     @param:StringRes val labelRes: Int
 ) {
     OPENAI_COMPATIBLE("openai_compatible", R.string.api_format_openai_compatible),
+    OPENAI_RESPONSES("openai_responses", R.string.api_format_openai_responses),
     GEMINI("gemini", R.string.api_format_gemini);
 
     companion object {
@@ -14,4 +15,7 @@ enum class ApiFormat(
             return entries.firstOrNull { it.prefValue == value } ?: OPENAI_COMPATIBLE
         }
     }
+
+    val usesOpenAiAuth: Boolean
+        get() = this == OPENAI_COMPATIBLE || this == OPENAI_RESPONSES
 }

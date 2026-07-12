@@ -56,22 +56,6 @@
         </com.google.android.material.textfield.TextInputLayout>
 
         <com.google.android.material.textfield.TextInputLayout
-            android:id="@+id/thinking_budget_input_layout"
-            style="@style/Widget.MangaTranslator.Input"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:hint="@string/llm_param_thinking_budget">
-
-            <com.google.android.material.textfield.TextInputEditText
-                style="@style/Widget.MangaTranslator.DialogEditText"
-                android:id="@+id/thinking_budget_input"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:inputType="number" />
-        </com.google.android.material.textfield.TextInputLayout>
-
-        <com.google.android.material.textfield.TextInputLayout
             style="@style/Widget.MangaTranslator.Input"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"

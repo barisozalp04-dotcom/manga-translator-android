@@ -26,6 +26,7 @@
     <string name="api_format_title">API 格式</string>
     <string name="api_format_format">API 格式：%1$s</string>
     <string name="api_format_openai_compatible">OpenAI 相容</string>
+    <string name="api_format_openai_responses">OpenAI Responses</string>
     <string name="api_format_gemini">Gemini</string>
     <string name="model_name_hint">模型名稱</string>
     <string name="api_timeout_hint">API 逾時 (秒, 30–1200)</string>
@@ -33,6 +34,7 @@
     <string name="floating_api_timeout_hint">懸浮翻譯 API 逾時 (秒, 30–1200)</string>
     <string name="max_concurrency_hint">AI API 呼叫並行數 (1–200)</string>
     <string name="api_settings_note_openai">範例 URL：https://api.siliconflow.cn/v1 或 https://open.bigmodel.cn/api/paas/v4（填寫後會自動補全 /chat/completions）</string>
+    <string name="api_settings_note_openai_responses">範例 URL：https://api.openai.com/v1（填寫後會自動補全 /responses）</string>
     <string name="api_settings_note_gemini">範例 URL：https://generativelanguage.googleapis.com/v1beta</string>
     <string name="api_url_required">請先填寫 API 位址</string>
     <string name="missing_api_settings">請先在設定中填寫 API 位址與 Key</string>
@@ -243,14 +245,21 @@
     <string name="llm_params_clear">全部留空</string>
     <string name="llm_params_invalid">參數格式有誤，已忽略無效項</string>
     <string name="llm_params_note">留空將不傳送該欄位</string>
-    <string name="llm_params_note_thinking">留空將不傳送該欄位。開啟思考且 `thinking_budget` 留空時：OpenAI 相容預設 1024，Gemini 預設 -1（動態思考）。關閉思考時 Gemini 傳送 `thinkingBudget=0`。</string>
+    <string name="thinking_length_button">思考長度</string>
+    <string name="thinking_length_title">思考長度</string>
+    <string name="thinking_length_format">思考長度：%1$s</string>
+    <string name="thinking_length_auto">自動</string>
+    <string name="thinking_length_low">低</string>
+    <string name="thinking_length_medium">中</string>
+    <string name="thinking_length_high">高</string>
+    <string name="thinking_length_xhigh">極高</string>
+    <string name="thinking_length_requires_enable">請先啟用思考</string>
     <string name="custom_request_params_invalid_value">自訂參數值格式無效：%1$s</string>
     <string name="llm_param_temperature">temperature</string>
     <string name="llm_param_top_p">top_p</string>
     <string name="llm_param_top_k">top_k</string>
     <string name="llm_param_max_output_tokens">max_output_tokens</string>
     <string name="llm_param_enable_thinking">啟用思考</string>
-    <string name="llm_param_thinking_budget">thinking_budget</string>
     <string name="llm_param_frequency_penalty">frequency_penalty</string>
     <string name="llm_param_presence_penalty">presence_penalty</string>
 

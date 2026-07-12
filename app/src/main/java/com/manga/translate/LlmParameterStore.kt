@@ -19,7 +19,7 @@ internal class LlmParameterStore(
                 SettingsStore.KEY_LLM_ENABLE_THINKING,
                 SettingsStore.DEFAULT_LLM_ENABLE_THINKING
             ),
-            thinkingBudget = storage.readIntOptional(SettingsStore.KEY_LLM_THINKING_BUDGET),
+            thinkingLength = loadThinkingLength(),
             frequencyPenalty = storage.readDoubleOptional(SettingsStore.KEY_LLM_FREQUENCY_PENALTY),
             presencePenalty = storage.readDoubleOptional(SettingsStore.KEY_LLM_PRESENCE_PENALTY)
         )
@@ -33,6 +33,7 @@ internal class LlmParameterStore(
                 SettingsStore.KEY_LLM_TOP_K,
                 SettingsStore.KEY_LLM_MAX_OUTPUT_TOKENS,
                 SettingsStore.KEY_LLM_ENABLE_THINKING,
+                SettingsStore.KEY_LLM_THINKING_LENGTH,
                 SettingsStore.KEY_LLM_THINKING_BUDGET,
                 SettingsStore.KEY_LLM_FREQUENCY_PENALTY,
                 SettingsStore.KEY_LLM_PRESENCE_PENALTY
@@ -43,7 +44,8 @@ internal class LlmParameterStore(
                 .putOptionalNumber(SettingsStore.KEY_LLM_TOP_K, settings.topK)
                 .putOptionalNumber(SettingsStore.KEY_LLM_MAX_OUTPUT_TOKENS, settings.maxOutputTokens)
                 .putBoolean(SettingsStore.KEY_LLM_ENABLE_THINKING, settings.enableThinking)
-                .putOptionalNumber(SettingsStore.KEY_LLM_THINKING_BUDGET, settings.thinkingBudget)
+                .putString(SettingsStore.KEY_LLM_THINKING_LENGTH, settings.thinkingLength.prefValue)
+                .remove(SettingsStore.KEY_LLM_THINKING_BUDGET)
                 .putOptionalNumber(
                     SettingsStore.KEY_LLM_FREQUENCY_PENALTY,
                     settings.frequencyPenalty
@@ -53,5 +55,15 @@ internal class LlmParameterStore(
                     settings.presencePenalty
                 )
         }
+    }
+
+    private fun loadThinkingLength(): ThinkingLength {
+        val stored = storage.prefs.getString(SettingsStore.KEY_LLM_THINKING_LENGTH, null)
+        if (!stored.isNullOrBlank()) {
+            return ThinkingLength.fromPref(stored)
+        }
+        return ThinkingLength.fromLegacyBudget(
+            storage.readIntOptional(SettingsStore.KEY_LLM_THINKING_BUDGET)
+        )
     }
 }

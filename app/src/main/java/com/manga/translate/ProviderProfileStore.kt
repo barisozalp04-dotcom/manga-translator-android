@@ -391,7 +391,7 @@ internal class ProviderProfileStore(
                     .put("topK", profile.llmParameters.topK)
                     .put("maxOutputTokens", profile.llmParameters.maxOutputTokens)
                     .put("enableThinking", profile.llmParameters.enableThinking)
-                    .put("thinkingBudget", profile.llmParameters.thinkingBudget)
+                    .put("thinkingLength", profile.llmParameters.thinkingLength.prefValue)
                     .put("frequencyPenalty", profile.llmParameters.frequencyPenalty)
                     .put("presencePenalty", profile.llmParameters.presencePenalty)
             )
@@ -562,7 +562,7 @@ internal class ProviderProfileStore(
                     "enableThinking",
                     SettingsStore.DEFAULT_LLM_ENABLE_THINKING
                 ),
-                thinkingBudget = llmJson.optOptionalInt("thinkingBudget"),
+                thinkingLength = parseThinkingLength(llmJson),
                 frequencyPenalty = llmJson.optOptionalDouble("frequencyPenalty"),
                 presencePenalty = llmJson.optOptionalDouble("presencePenalty")
             ),
@@ -591,6 +591,14 @@ internal class ProviderProfileStore(
                 }
             }
         )
+    }
+
+    private fun parseThinkingLength(llmJson: JSONObject): ThinkingLength {
+        val stored = llmJson.optStringOrNull("thinkingLength")
+        if (!stored.isNullOrBlank()) {
+            return ThinkingLength.fromPref(stored)
+        }
+        return ThinkingLength.fromLegacyBudget(llmJson.optOptionalInt("thinkingBudget"))
     }
 
     private fun parseAdditionalTranslationProvider(

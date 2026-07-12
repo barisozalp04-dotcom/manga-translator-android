@@ -139,6 +139,23 @@
                     android:inputType="number" />
             </com.google.android.material.textfield.TextInputLayout>
 
+            <androidx.appcompat.widget.SwitchCompat
+                android:id="@+id/enable_thinking_switch"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="14dp"
+                android:text="@string/llm_param_enable_thinking"
+                android:textColor="?attr/dialogTextColor" />
+
+            <Button
+                android:id="@+id/thinking_length_button"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:layout_marginStart="2dp"
+                android:layout_marginEnd="2dp"
+                android:text="@string/thinking_length_button" />
+
             <Button
                 android:id="@+id/multi_provider_scheduling_button"
                 android:layout_width="match_parent"
@@ -174,14 +191,6 @@
                 android:layout_marginStart="2dp"
                 android:layout_marginEnd="2dp"
                 android:text="@string/custom_request_params_button" />
-
-            <androidx.appcompat.widget.SwitchCompat
-                android:id="@+id/enable_thinking_switch"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="14dp"
-                android:text="@string/llm_param_enable_thinking"
-                android:textColor="?attr/dialogTextColor" />
 
             <Button
                 android:id="@+id/fetch_models_button"

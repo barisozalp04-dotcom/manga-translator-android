@@ -623,6 +623,10 @@ class LlmClient(
         return buildOpenAiCompatibleChatEndpoint(baseUrl)
     }
 
+    private fun buildOpenAiResponsesEndpoint(baseUrl: String): String {
+        return buildOpenAiResponsesApiEndpoint(baseUrl)
+    }
+
     private fun buildOpenAiModelsEndpoint(baseUrl: String): String {
         return buildOpenAiCompatibleModelsEndpoint(baseUrl)
     }
@@ -630,6 +634,7 @@ class LlmClient(
     private fun buildEndpoint(settings: ApiSettings, modelName: String): String {
         return when (settings.apiFormat) {
             ApiFormat.OPENAI_COMPATIBLE -> buildOpenAiEndpoint(settings.apiUrl)
+            ApiFormat.OPENAI_RESPONSES -> buildOpenAiResponsesEndpoint(settings.apiUrl)
             ApiFormat.GEMINI -> buildGeminiGenerateEndpoint(settings.apiUrl, modelName, settings.apiKey)
         }
     }
@@ -686,6 +691,12 @@ class LlmClient(
                 config = config,
                 userPayload = userPayload
             )
+            ApiFormat.OPENAI_RESPONSES -> buildOpenAiResponsesPayload(
+                settings = settings,
+                modelName = modelName,
+                config = config,
+                userPayload = userPayload
+            )
             ApiFormat.GEMINI -> buildGeminiTextPayload(
                 config = config,
                 userPayload = userPayload
@@ -730,6 +741,46 @@ class LlmClient(
         return payload
     }
 
+    private fun buildOpenAiResponsesPayload(
+        settings: ApiSettings,
+        modelName: String,
+        config: LlmPromptConfig,
+        userPayload: String
+    ): JSONObject {
+        val llmParams = settingsStore.loadLlmParameters()
+        val input = JSONArray()
+        for (message in config.exampleMessages) {
+            input.put(
+                JSONObject()
+                    .put("role", mapOpenAiResponsesRole(message.role))
+                    .put("content", message.content)
+            )
+        }
+        input.put(
+            JSONObject()
+                .put("role", "user")
+                .put("content", config.userPromptPrefix + userPayload)
+        )
+        val payload = JSONObject()
+            .put("model", modelName)
+            .put("input", input)
+        if (config.systemPrompt.isNotBlank()) {
+            payload.put("instructions", config.systemPrompt)
+        }
+        applyOpenAiResponsesSamplingParams(payload, llmParams)
+        applyOpenAiThinkingParams(payload, llmParams)
+        applyCustomRequestParameters(payload, settings)
+        return payload
+    }
+
+    private fun mapOpenAiResponsesRole(role: String): String {
+        return when (role.lowercase()) {
+            "assistant", "model" -> "assistant"
+            "system", "developer" -> "developer"
+            else -> "user"
+        }
+    }
+
     private fun buildGeminiTextPayload(
         config: LlmPromptConfig,
         userPayload: String
@@ -751,6 +802,7 @@ class LlmClient(
     private fun parseResponseContent(body: String, apiFormat: ApiFormat): String? {
         return when (apiFormat) {
             ApiFormat.OPENAI_COMPATIBLE -> parseOpenAiResponseContent(body)
+            ApiFormat.OPENAI_RESPONSES -> parseOpenAiResponsesContent(body)
             ApiFormat.GEMINI -> parseGeminiResponseContent(body)
         }
     }
@@ -780,6 +832,49 @@ class LlmClient(
                 }
                 else -> null
             }
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    private fun parseOpenAiResponsesContent(body: String): String? {
+        return try {
+            val json = JSONObject(body)
+            val outputText = json.optString("output_text").trim()
+            if (outputText.isNotBlank()) {
+                return outputText
+            }
+            val output = json.optJSONArray("output") ?: return null
+            val parts = ArrayList<String>()
+            for (i in 0 until output.length()) {
+                val item = output.optJSONObject(i) ?: continue
+                val type = item.optString("type").trim().lowercase()
+                if (type.isNotBlank() && type != "message") continue
+                val content = item.opt("content")
+                when (content) {
+                    is String -> if (content.isNotBlank()) parts.add(content.trim())
+                    is JSONArray -> {
+                        for (j in 0 until content.length()) {
+                            when (val part = content.opt(j)) {
+                                is String -> if (part.isNotBlank()) parts.add(part.trim())
+                                is JSONObject -> {
+                                    val partType = part.optString("type").trim().lowercase()
+                                    if (
+                                        partType.isNotBlank() &&
+                                        partType != "output_text" &&
+                                        partType != "text"
+                                    ) {
+                                        continue
+                                    }
+                                    val text = part.optString("text").trim()
+                                    if (text.isNotBlank()) parts.add(text)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            parts.joinToString("\n").trim().ifBlank { null }
         } catch (e: Exception) {
             null
         }
@@ -877,6 +972,12 @@ class LlmClient(
                 imageBase64 = imageBase64,
                 promptAsset = promptAsset
             )
+            ApiFormat.OPENAI_RESPONSES -> buildOpenAiResponsesImageTranslationPayload(
+                settings = settings,
+                modelName = modelName,
+                imageBase64 = imageBase64,
+                promptAsset = promptAsset
+            )
             ApiFormat.GEMINI -> buildGeminiImageTranslationPayload(imageBase64, promptAsset)
         }
     }
@@ -936,6 +1037,57 @@ class LlmClient(
         return payload
     }
 
+    private fun buildOpenAiResponsesImageTranslationPayload(
+        settings: ApiSettings,
+        modelName: String,
+        imageBase64: String,
+        promptAsset: String
+    ): JSONObject {
+        val llmParams = settingsStore.loadLlmParameters()
+        val config = getPromptConfig(promptAsset)
+        val input = JSONArray()
+        for (message in config.exampleMessages) {
+            input.put(
+                JSONObject()
+                    .put("role", mapOpenAiResponsesRole(message.role))
+                    .put("content", message.content)
+            )
+        }
+        input.put(
+            JSONObject()
+                .put("role", "user")
+                .put(
+                    "content",
+                    JSONArray()
+                        .put(
+                            JSONObject()
+                                .put("type", "input_text")
+                                .put(
+                                    "text",
+                                    config.userPromptPrefix.ifBlank {
+                                        DEFAULT_IMAGE_TRANSLATION_USER_PROMPT
+                                    }
+                                )
+                        )
+                        .put(
+                            JSONObject()
+                                .put("type", "input_image")
+                                .put("image_url", "data:image/jpeg;base64,$imageBase64")
+                        )
+                )
+        )
+        val payload = JSONObject()
+            .put("model", modelName)
+            .put("input", input)
+        if (config.systemPrompt.isNotBlank()) {
+            payload.put("instructions", config.systemPrompt)
+        }
+        applyOpenAiResponsesSamplingParams(payload, llmParams)
+        applyOpenAiThinkingParams(payload, llmParams)
+        applyCustomRequestParameters(payload, settings)
+        return payload
+    }
+
     private fun applyOpenAiSamplingParams(
         payload: JSONObject,
         llmParams: LlmParameterSettings,
@@ -947,6 +1099,15 @@ class LlmClient(
         llmParams.maxOutputTokens?.let { payload.put("max_output_tokens", it) }
         llmParams.frequencyPenalty?.let { payload.put("frequency_penalty", it) }
         llmParams.presencePenalty?.let { payload.put("presence_penalty", it) }
+    }
+
+    private fun applyOpenAiResponsesSamplingParams(
+        payload: JSONObject,
+        llmParams: LlmParameterSettings
+    ) {
+        llmParams.temperature?.let { payload.put("temperature", it) }
+        llmParams.topP?.let { payload.put("top_p", it) }
+        llmParams.maxOutputTokens?.let { payload.put("max_output_tokens", it) }
     }
 
     private fun buildGeminiImageTranslationPayload(
@@ -1028,17 +1189,14 @@ class LlmClient(
         llmParams: LlmParameterSettings
     ) {
         payload.put("enable_thinking", llmParams.enableThinking)
-        resolveThinkingBudget(llmParams)?.let { payload.put("thinking_budget", it) }
-    }
-
-    private fun resolveThinkingBudget(llmParams: LlmParameterSettings): Int? {
-        if (!llmParams.enableThinking) return null
-        return llmParams.thinkingBudget ?: DEFAULT_OPENAI_THINKING_BUDGET
+        if (llmParams.enableThinking) {
+            payload.put("thinking_budget", llmParams.thinkingLength.openAiBudgetTokens())
+        }
     }
 
     private fun resolveGeminiThinkingBudget(llmParams: LlmParameterSettings): Int {
         if (!llmParams.enableThinking) return 0
-        return llmParams.thinkingBudget ?: DEFAULT_GEMINI_THINKING_BUDGET
+        return llmParams.thinkingLength.geminiThinkingBudget()
     }
 
     private fun sanitizeModelIoForLog(content: String): String {
@@ -1309,7 +1467,8 @@ class LlmClient(
             throw LlmRequestException("MISSING_URL")
         }
         val endpoint = when (apiFormat) {
-            ApiFormat.OPENAI_COMPATIBLE -> buildOpenAiModelsEndpoint(apiUrl)
+            ApiFormat.OPENAI_COMPATIBLE,
+            ApiFormat.OPENAI_RESPONSES -> buildOpenAiModelsEndpoint(apiUrl)
             ApiFormat.GEMINI -> buildGeminiModelsEndpoint(apiUrl, apiKey)
         }
         val timeoutMs = settingsStore.loadApiTimeoutMs()
@@ -1322,7 +1481,7 @@ class LlmClient(
                     .url(endpoint)
                     .get()
                     .header("Content-Type", "application/json")
-                if (apiFormat == ApiFormat.OPENAI_COMPATIBLE && apiKey.isNotBlank()) {
+                if (apiFormat.usesOpenAiAuth && apiKey.isNotBlank()) {
                     requestBuilder.header("Authorization", "Bearer $apiKey")
                 }
                 executeRequest(requestBuilder.build(), timeoutMs).use { response ->
@@ -1457,7 +1616,8 @@ class LlmClient(
 
     private fun parseModelList(body: String, apiFormat: ApiFormat): List<String> {
         return when (apiFormat) {
-            ApiFormat.OPENAI_COMPATIBLE -> parseOpenAiModelList(body)
+            ApiFormat.OPENAI_COMPATIBLE,
+            ApiFormat.OPENAI_RESPONSES -> parseOpenAiModelList(body)
             ApiFormat.GEMINI -> parseGeminiModelList(body)
         }
     }
@@ -1574,7 +1734,7 @@ class LlmClient(
             .url(endpoint)
             .post(payload.toString().toRequestBody(jsonMediaType))
             .header("Content-Type", "application/json")
-        if (settings.apiFormat == ApiFormat.OPENAI_COMPATIBLE) {
+        if (settings.apiFormat.usesOpenAiAuth) {
             requestBuilder.header("Authorization", "Bearer ${settings.apiKey}")
         }
         return requestBuilder.build()
@@ -1732,15 +1892,21 @@ class LlmClient(
         private const val RETRY_BASE_DELAY_MS = 750
         private const val RETRY_MAX_DELAY_MS = 4_000
         private const val CONFIGURED_RETRY_DELAY_MS = 3_000
-        private const val DEFAULT_OPENAI_THINKING_BUDGET = 1024
-        private const val DEFAULT_GEMINI_THINKING_BUDGET = -1
-
         internal fun buildOpenAiCompatibleChatEndpoint(baseUrl: String): String {
             val trimmed = normalizeOpenAiCompatibleBaseUrl(baseUrl)
             return if (trimmed.endsWith("/chat/completions", ignoreCase = true)) {
                 trimmed
             } else {
                 "$trimmed/chat/completions"
+            }
+        }
+
+        internal fun buildOpenAiResponsesApiEndpoint(baseUrl: String): String {
+            val trimmed = normalizeOpenAiCompatibleBaseUrl(baseUrl)
+            return if (trimmed.endsWith("/responses", ignoreCase = true)) {
+                trimmed
+            } else {
+                "$trimmed/responses"
             }
         }
 
@@ -1768,6 +1934,16 @@ class LlmClient(
                     "max_output_tokens",
                     "frequency_penalty",
                     "presence_penalty",
+                    "enable_thinking",
+                    "thinking_budget"
+                )
+                ApiFormat.OPENAI_RESPONSES -> setOf(
+                    "model",
+                    "input",
+                    "instructions",
+                    "temperature",
+                    "top_p",
+                    "max_output_tokens",
                     "enable_thinking",
                     "thinking_budget"
                 )

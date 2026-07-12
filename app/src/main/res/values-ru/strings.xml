@@ -21,6 +21,7 @@
     <string name="api_format_title">Формат API</string>
     <string name="api_format_format">API Формат: %1$s</string>
     <string name="api_format_openai_compatible">OpenAI совместим</string>
+    <string name="api_format_openai_responses">OpenAI Responses</string>
     <string name="api_format_gemini">Gemini</string>
     <string name="model_name_hint">Название модели</string>
     <string name="api_timeout_hint">Таймаут API (секунды, 30–1200)</string>
@@ -28,6 +29,7 @@
     <string name="floating_api_timeout_hint">Тайм-аут трансляции API при наведении (секунды, 30–1200)</string>
     <string name="max_concurrency_hint">AI API Количество одновременных вызовов (1–200)</string>
     <string name="api_settings_note_openai">Пример URL: https://api.siliconflow.cn/v1 или https://open.bigmodel.cn/api/paas/v4 (приложение автоматически добавит /chat/completions)</string>
+    <string name="api_settings_note_openai_responses">Пример URL: https://api.openai.com/v1 (приложение автоматически добавит /responses)</string>
     <string name="api_settings_note_gemini">Пример URL: https://generativelanguage.googleapis.com/v1beta</string>
     <string name="api_url_required">Пожалуйста, сначала заполните адрес API</string>
     <string name="missing_api_settings">Пожалуйста, сначала введите адрес API и Key в настройках.</string>
@@ -232,14 +234,21 @@
     <string name="llm_params_clear">Оставьте все пустым</string>
     <string name="llm_params_invalid">Неверный формат параметра, недопустимые элементы проигнорированы.</string>
     <string name="llm_params_note">Оставьте пустым, чтобы не отправлять это поле</string>
-    <string name="llm_params_note_thinking">Оставьте пустым, чтобы не отправлять это поле. При включённом thinking и пустом `thinking_budget`: OpenAI-compatible — 1024, Gemini — -1 (динамически). При выключенном thinking Gemini отправляет `thinkingBudget=0`.</string>
+    <string name="thinking_length_button">Длина мышления</string>
+    <string name="thinking_length_title">Длина мышления</string>
+    <string name="thinking_length_format">Длина мышления: %1$s</string>
+    <string name="thinking_length_auto">Авто</string>
+    <string name="thinking_length_low">Низкая</string>
+    <string name="thinking_length_medium">Средняя</string>
+    <string name="thinking_length_high">Высокая</string>
+    <string name="thinking_length_xhigh">Очень высокая</string>
+    <string name="thinking_length_requires_enable">Сначала включите мышление</string>
     <string name="custom_request_params_invalid_value">Неверный формат значения специального параметра: %1$s.</string>
     <string name="llm_param_temperature">температура</string>
     <string name="llm_param_top_p">top_p</string>
     <string name="llm_param_top_k">top_k</string>
     <string name="llm_param_max_output_tokens">max_output_tokens</string>
     <string name="llm_param_enable_thinking">Включить мышление</string>
-    <string name="llm_param_thinking_budget">мышление_бюджет</string>
     <string name="llm_param_frequency_penalty">частота_пенальти</string>
     <string name="llm_param_presence_penalty">присутствие_пенальти</string>
     <string name="view_logs">Просмотреть логи</string>

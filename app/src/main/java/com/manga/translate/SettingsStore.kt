@@ -452,6 +452,7 @@ class SettingsStore(context: Context) {
             "additional_translation_providers"
         internal const val KEY_LLM_ENABLE_THINKING = "llm_enable_thinking"
         internal const val KEY_LLM_THINKING_BUDGET = "llm_thinking_budget"
+        internal const val KEY_LLM_THINKING_LENGTH = "llm_thinking_length"
         internal const val KEY_LLM_FREQUENCY_PENALTY = "llm_frequency_penalty"
         internal const val KEY_LLM_PRESENCE_PENALTY = "llm_presence_penalty"
         internal const val KEY_CUSTOM_REQUEST_PARAMETERS = "custom_request_parameters"
@@ -533,7 +534,7 @@ data class LlmParameterSettings(
     val topK: Int?,
     val maxOutputTokens: Int?,
     val enableThinking: Boolean,
-    val thinkingBudget: Int?,
+    val thinkingLength: ThinkingLength = ThinkingLength.DEFAULT,
     val frequencyPenalty: Double?,
     val presencePenalty: Double?
 )

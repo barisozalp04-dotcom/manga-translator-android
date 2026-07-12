@@ -21,6 +21,7 @@
     <string name="api_format_title">API Format</string>
     <string name="api_format_format">API Format: %1$s</string>
     <string name="api_format_openai_compatible">OpenAI compatible</string>
+    <string name="api_format_openai_responses">OpenAI Responses</string>
     <string name="api_format_gemini">Gemini</string>
     <string name="model_name_hint">Model name</string>
     <string name="api_timeout_hint">API timeout (seconds, 30–1200)</string>
@@ -28,6 +29,7 @@
     <string name="floating_api_timeout_hint">Floating translation API timeout (seconds, 30–1200)</string>
     <string name="max_concurrency_hint">AI API Number of concurrent calls (1–200)</string>
     <string name="api_settings_note_openai">Example URL: https://api.siliconflow.cn/v1 or https://open.bigmodel.cn/api/paas/v4 (the app will automatically append /chat/completions)</string>
+    <string name="api_settings_note_openai_responses">Example URL: https://api.openai.com/v1 (the app will automatically append /responses)</string>
     <string name="api_settings_note_gemini">Example URL: https://generativelanguage.googleapis.com/v1beta</string>
     <string name="api_url_required">Please fill in the API address first</string>
     <string name="missing_api_settings">Please fill in the API address and Key in the settings first</string>
@@ -232,14 +234,21 @@ For example: if the primary provider is 10, provider A is 5, and provider B is 5
     <string name="llm_params_clear">Leave all blank</string>
     <string name="llm_params_invalid">The parameter format is incorrect, invalid items have been ignored</string>
     <string name="llm_params_note">Leave blank to not send this field</string>
-    <string name="llm_params_note_thinking">Leave blank to not send this field. With thinking on and `thinking_budget` empty: OpenAI-compatible defaults to 1024; Gemini defaults to -1 (dynamic). With thinking off, Gemini sends `thinkingBudget=0`.</string>
+    <string name="thinking_length_button">Thinking length</string>
+    <string name="thinking_length_title">Thinking length</string>
+    <string name="thinking_length_format">Thinking length: %1$s</string>
+    <string name="thinking_length_auto">Auto</string>
+    <string name="thinking_length_low">Low</string>
+    <string name="thinking_length_medium">Medium</string>
+    <string name="thinking_length_high">High</string>
+    <string name="thinking_length_xhigh">Extra high</string>
+    <string name="thinking_length_requires_enable">Enable thinking first</string>
     <string name="custom_request_params_invalid_value">Invalid custom parameter value format: %1$s</string>
     <string name="llm_param_temperature">temperature</string>
     <string name="llm_param_top_p">top_p</string>
     <string name="llm_param_top_k">top_k</string>
     <string name="llm_param_max_output_tokens">max_output_tokens</string>
     <string name="llm_param_enable_thinking">Enable thinking</string>
-    <string name="llm_param_thinking_budget">thinking_budget</string>
     <string name="llm_param_frequency_penalty">frequency_penalty</string>
     <string name="llm_param_presence_penalty">presence_penalty</string>
     <string name="view_logs">View Logs</string>

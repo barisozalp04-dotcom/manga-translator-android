@@ -455,10 +455,14 @@ class SettingsFragment : Fragment() {
             val current = settingsStore.loadLlmParameters()
             if (current.enableThinking == isChecked) return@setOnCheckedChangeListener
             settingsStore.saveLlmParameters(current.copy(enableThinking = isChecked))
+            updateThinkingLengthButton()
             AppLogger.log(
                 "Settings",
                 "enable_thinking ${if (isChecked) "enabled" else "disabled"}"
             )
+        }
+        binding.thinkingLengthButton.setOnClickListener {
+            showThinkingLengthDialog()
         }
         binding.themeButton.setOnClickListener {
             showThemeDialog()
@@ -727,6 +731,8 @@ class SettingsFragment : Fragment() {
         ) { dialog, selected ->
             updateApiFormatButton(selected)
             updateApiSettingsNote(selected)
+            ensureThinkingLengthCompatible(selected)
+            updateThinkingLengthButton()
             AppLogger.log("Settings", "API format set to ${selected.prefValue}")
             dialog.dismiss()
         }
@@ -746,6 +752,7 @@ class SettingsFragment : Fragment() {
         binding.apiUrlHintText.setText(
             when (format) {
                 ApiFormat.OPENAI_COMPATIBLE -> R.string.api_settings_note_openai
+                ApiFormat.OPENAI_RESPONSES -> R.string.api_settings_note_openai_responses
                 ApiFormat.GEMINI -> R.string.api_settings_note_gemini
             }
         )
@@ -867,6 +874,7 @@ class SettingsFragment : Fragment() {
         binding.maxConcurrencyInput.setText(formatNumber(settingsStore.loadMaxConcurrency()))
         binding.modelIoLoggingSwitch.isChecked = settingsStore.loadModelIoLogging()
         binding.enableThinkingSwitch.isChecked = settingsStore.loadLlmParameters().enableThinking
+        updateThinkingLengthButton()
         updateLanguageButton(settingsStore.loadAppLanguage())
         updateThemeButton(settingsStore.loadThemeMode())
         updateReadingDisplayButton(settingsStore.loadReadingDisplayMode())
@@ -1408,6 +1416,51 @@ class SettingsFragment : Fragment() {
         }
     }
 
+    private fun showThinkingLengthDialog() {
+        val current = settingsStore.loadLlmParameters()
+        if (!current.enableThinking) {
+            Toast.makeText(
+                requireContext(),
+                R.string.thinking_length_requires_enable,
+                Toast.LENGTH_SHORT
+            ).show()
+            return
+        }
+        val options = ThinkingLength.optionsFor(currentApiFormat())
+        val selected = options.find { it == current.thinkingLength } ?: options.first()
+        showSingleChoiceSettingDialog(
+            titleRes = R.string.thinking_length_title,
+            options = options,
+            current = selected,
+            labelRes = { it.labelRes }
+        ) { dialog, length ->
+            val latest = settingsStore.loadLlmParameters()
+            settingsStore.saveLlmParameters(latest.copy(thinkingLength = length))
+            updateThinkingLengthButton()
+            AppLogger.log("Settings", "thinking_length set to ${length.prefValue}")
+            dialog.dismiss()
+        }
+    }
+
+    private fun updateThinkingLengthButton() {
+        val params = settingsStore.loadLlmParameters()
+        val enabled = params.enableThinking
+        binding.thinkingLengthButton.isEnabled = enabled
+        binding.thinkingLengthButton.alpha = if (enabled) 1f else 0.5f
+        updateLabeledButton(
+            binding.thinkingLengthButton,
+            R.string.thinking_length_format,
+            params.thinkingLength.labelRes
+        )
+    }
+
+    private fun ensureThinkingLengthCompatible(format: ApiFormat) {
+        val current = settingsStore.loadLlmParameters()
+        val options = ThinkingLength.optionsFor(format)
+        if (current.thinkingLength in options) return
+        settingsStore.saveLlmParameters(current.copy(thinkingLength = ThinkingLength.DEFAULT))
+    }
+
     private fun showLlmParamsDialog() {
         val currentParams = settingsStore.loadLlmParameters()
         val dialogBinding = DialogLlmParamsBinding.inflate(layoutInflater)
@@ -1415,10 +1468,9 @@ class SettingsFragment : Fragment() {
         dialogBinding.topPInput.setText(formatNumberOrEmpty(currentParams.topP))
         dialogBinding.topKInput.setText(formatNumberOrEmpty(currentParams.topK))
         dialogBinding.maxOutputTokensInput.setText(formatNumberOrEmpty(currentParams.maxOutputTokens))
-        dialogBinding.thinkingBudgetInput.setText(formatNumberOrEmpty(currentParams.thinkingBudget))
         dialogBinding.frequencyPenaltyInput.setText(formatNumberOrEmpty(currentParams.frequencyPenalty))
         dialogBinding.presencePenaltyInput.setText(formatNumberOrEmpty(currentParams.presencePenalty))
-        dialogBinding.llmParamsNote.setText(R.string.llm_params_note_thinking)
+        dialogBinding.llmParamsNote.setText(R.string.llm_params_note)
         AlertDialog.Builder(requireContext())
             .setTitle(R.string.llm_params_title)
             .setView(dialogBinding.root)
@@ -1426,6 +1478,7 @@ class SettingsFragment : Fragment() {
                 val parsed = parseLlmParams(dialogBinding)
                 settingsStore.saveLlmParameters(parsed.params)
                 binding.enableThinkingSwitch.isChecked = parsed.params.enableThinking
+                updateThinkingLengthButton()
                 if (parsed.hasInvalid) {
                     Toast.makeText(
                         requireContext(),
@@ -1436,15 +1489,15 @@ class SettingsFragment : Fragment() {
                 AppLogger.log("Settings", "LLM params updated")
             }
             .setNeutralButton(R.string.llm_params_clear) { _, _ ->
-                val enableThinking = settingsStore.loadLlmParameters().enableThinking
+                val existing = settingsStore.loadLlmParameters()
                 settingsStore.saveLlmParameters(
                     LlmParameterSettings(
                         temperature = null,
                         topP = null,
                         topK = null,
                         maxOutputTokens = null,
-                        enableThinking = enableThinking,
-                        thinkingBudget = null,
+                        enableThinking = existing.enableThinking,
+                        thinkingLength = existing.thinkingLength,
                         frequencyPenalty = null,
                         presencePenalty = null
                     )
@@ -1996,13 +2049,14 @@ class SettingsFragment : Fragment() {
             if (trimmed.isBlank()) return null
             return parseIntInput(trimmed).also { if (it == null) hasInvalid = true }
         }
+        val existing = settingsStore.loadLlmParameters()
         val params = LlmParameterSettings(
             temperature = parseDouble(dialogBinding.temperatureInput.text?.toString()),
             topP = parseDouble(dialogBinding.topPInput.text?.toString()),
             topK = parseInt(dialogBinding.topKInput.text?.toString()),
             maxOutputTokens = parseInt(dialogBinding.maxOutputTokensInput.text?.toString()),
             enableThinking = binding.enableThinkingSwitch.isChecked,
-            thinkingBudget = parseInt(dialogBinding.thinkingBudgetInput.text?.toString()),
+            thinkingLength = existing.thinkingLength,
             frequencyPenalty = parseDouble(dialogBinding.frequencyPenaltyInput.text?.toString()),
             presencePenalty = parseDouble(dialogBinding.presencePenaltyInput.text?.toString())
         )

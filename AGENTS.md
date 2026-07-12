@@ -132,6 +132,7 @@ export PATH=$PATH:$ANDROID_HOME/platform-tools
 - `PageRegionDetector.kt`：页面区域检测公共模块；一次调用 `BubbleDetector.detectRegions` 得到 balloon（气泡）与 text（游离气泡），再做 overlap/filter 与 `source` / `maskContour` 组装。
 - `LlmClient.kt`：LLM 请求客户端；文本气泡翻译已支持结构化 `items[{id,text}] -> items[{id,translation}]` 协议解析，当前网络层基于 `OkHttp`。主 AI 请求默认会读取设置页里的"API 最大重试次数 (1–50，默认 3)"并在可重试错误时按固定延时自动重试。OCR API 请求支持根据 `OcrApiFormat` 分发到 OpenAI 兼容端点或百度 AI OCR 端点，百度 AI 模式由 `BaiduAccessTokenManager` 管理 OAuth 令牌。
 - OpenAI 兼容接口对 `API 地址` 采用统一补全策略：填写的地址若已以 `/chat/completions` 结尾则原样使用，否则自动追加 `/chat/completions`；模型列表地址同理追加 `/models`。不再自动补全 `/v1`，也不再为智谱维护独立分支。接入智谱时设置页 `API 格式` 选择 `OpenAI 兼容`，`API 地址` 直接填 `https://open.bigmodel.cn/api/paas/v4`（Coding 场景填 `https://open.bigmodel.cn/api/coding/paas/v4`），火山引擎等带 `/api/v3` 前缀的地址同理，鉴权仍使用 `Bearer API Key`。
+- OpenAI Responses 格式（`ApiFormat.OPENAI_RESPONSES`）走 `/responses`：地址若已以 `/responses` 结尾则原样使用，否则自动追加 `/responses`；模型列表仍用 `/models`。请求体使用 `model` + `input`（消息数组）+ 可选 `instructions`（system prompt），采样参数为 `temperature` / `top_p` / `max_output_tokens`；响应优先读 `output_text`，否则从 `output[].content[].text`（`output_text`/`text` 类型）拼接。文本翻译与 VL 图片翻译均支持该格式；OCR API 仍仅支持 OpenAI 兼容 chat 与百度 AI。
 - `TextBubbleTranslationCoordinator.kt`：共享文本气泡翻译入口，统一结构化请求、LLM 调用、按 `id` 回填、缺失项留空/多余项丢弃，以及 glossary 回传。
 - `FloatingBubbleTranslationCoordinator.kt`：悬浮窗气泡翻译协调，负责悬浮窗特有的缓存与回退策略。
 - `OcrSharedTools.kt`：OCR 共享工具模块，集中放 OCR 引擎注册、区域识别、裁剪、行识别和 OCR 文本归一化辅助。
