@@ -254,10 +254,10 @@ class ReadingFragment : Fragment() {
             clearAllBubbles()
         }
         binding.readingBubbleSizeMinus.setOnClickListener {
-            adjustSelectedBubbleSize(deltaPercent = -10)
+            adjustSelectedBubbleSize(deltaPercent = -2)
         }
         binding.readingBubbleSizePlus.setOnClickListener {
-            adjustSelectedBubbleSize(deltaPercent = 10)
+            adjustSelectedBubbleSize(deltaPercent = 2)
         }
         updateEditButtonState()
         applyNormalBubbleRenderSettings()
@@ -353,6 +353,7 @@ class ReadingFragment : Fragment() {
             binding.readingPageInfo.visibility = View.GONE
             binding.translationOverlay.visibility = View.GONE
             binding.translationOverlay.setSourceBitmap(null)
+            binding.translationOverlay.setSourceImageFile(null)
             binding.readingEditControls.visibility = View.GONE
             exitBubbleResizeMode()
             binding.readingImage.setRegionSource(null)
@@ -667,6 +668,7 @@ class ReadingFragment : Fragment() {
         val rect = computeOverlayDisplayRect() ?: run {
             binding.translationOverlay.visibility = View.GONE
             binding.translationOverlay.setSourceBitmap(null)
+            binding.translationOverlay.setSourceImageFile(null)
             return
         }
         val resolvedWidth = when {
@@ -682,6 +684,7 @@ class ReadingFragment : Fragment() {
         if (resolvedWidth <= 0 || resolvedHeight <= 0) {
             binding.translationOverlay.visibility = View.GONE
             binding.translationOverlay.setSourceBitmap(null)
+            binding.translationOverlay.setSourceImageFile(null)
             return
         }
         val normalized = when {
@@ -693,6 +696,7 @@ class ReadingFragment : Fragment() {
         binding.translationOverlay.setDisplayRect(rect)
         binding.translationOverlay.setContentZoomScale(imageTransformController.currentContentZoomScale())
         binding.translationOverlay.setSourceBitmap(bitmap)
+        binding.translationOverlay.setSourceImageFile(currentImageFile)
         binding.translationOverlay.setCurrentImageName(currentImageFile?.name ?: normalized.imageName)
         binding.translationOverlay.setTranslations(normalized)
         binding.translationOverlay.setOffsets(emptyMap())

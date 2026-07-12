@@ -146,6 +146,7 @@ class FloatingTranslationView @JvmOverloads constructor(
     private var editOverflowBottom = 0f
     private var bubbleRenderSettings = SettingsStore(context.applicationContext).loadNormalBubbleRenderSettings()
     private var sourceBitmap: Bitmap? = null
+    private var sourceImageFile: java.io.File? = null
     private val bubbleColorCache = mutableMapOf<Int, Int>()
     private val viewJob = SupervisorJob()
     private val viewScope = CoroutineScope(Dispatchers.Main + viewJob)
@@ -219,6 +220,13 @@ class FloatingTranslationView @JvmOverloads constructor(
     fun setSourceBitmap(bitmap: Bitmap?) {
         if (sourceBitmap === bitmap) return
         sourceBitmap = bitmap
+        bubbleColorCache.clear()
+        invalidate()
+    }
+
+    fun setSourceImageFile(imageFile: java.io.File?) {
+        if (sourceImageFile?.absolutePath == imageFile?.absolutePath) return
+        sourceImageFile = imageFile
         bubbleColorCache.clear()
         invalidate()
     }
@@ -909,7 +917,7 @@ class FloatingTranslationView @JvmOverloads constructor(
         val offset = offsets[bubble.id] ?: 0f to 0f
         val shrinkPercent = resolveBubbleShrinkPercent(bubble)
         val opacityAlpha = resolveBubbleOpacityAlpha(bubble)
-        resolveBubbleFillColor(bubble, opacityAlpha)
+        resolveBubbleFillColor(bubble, offset, opacityAlpha)
         BubbleShapePaths.buildPath(
             outPath = bubblePath,
             bubble = bubble,
@@ -925,7 +933,9 @@ class FloatingTranslationView @JvmOverloads constructor(
         )
         bubblePath.computeBounds(bubbleBounds, true)
         if (bubbleBounds.width() <= 0f || bubbleBounds.height() <= 0f) return
-        if (interactionActive) {
+        // Empty bubbles still need a filled frame in edit mode; text layout can exit early.
+        val hasText = bubble.hasDisplayText()
+        if (interactionActive || !hasText) {
             canvas.drawPath(bubblePath, fillPaint)
             return
         }
@@ -933,8 +943,8 @@ class FloatingTranslationView @JvmOverloads constructor(
         val textRect = BubbleTextScaling.resolveAreaAdjustedTextRect(
             bubble.text, bubblePath, effectiveMinArea, resources.displayMetrics.density
         )
-        if (textRect.width() <= 0f || textRect.height() <= 0f) return
         canvas.drawPath(bubblePath, fillPaint)
+        if (textRect.width() <= 0f || textRect.height() <= 0f) return
         drawTextInRect(canvas, bubble.text, textRect)
     }
 
@@ -955,29 +965,35 @@ class FloatingTranslationView @JvmOverloads constructor(
         return ((opacityPercent.coerceIn(0, 100) / 100f) * 255f).toInt()
     }
 
-    private fun resolveBubbleFillColor(bubble: BubbleTranslation, opacityAlpha: Int) {
+    private fun resolveBubbleFillColor(
+        bubble: BubbleTranslation,
+        offset: Pair<Float, Float>,
+        opacityAlpha: Int
+    ) {
         val useAutoAdaptColor = bubble.source.isFreeBubble &&
             bubbleRenderSettings.autoAdaptFreeBubbleColor
         val bubbleFillColor = if (useAutoAdaptColor) {
-            bubbleColorCache.getOrPut(bubble.id) {
-                val bmp = sourceBitmap
-                val sampleScaleX = if (imageWidth > 0 && bmp != null) {
-                    bmp.width.toFloat() / imageWidth.toFloat()
-                } else {
-                    1f
+            bubbleColorCache[bubble.id] ?: run {
+                val sampleLeft = bubble.rect.left + offset.first
+                val sampleTop = bubble.rect.top + offset.second
+                val sampleRight = bubble.rect.right + offset.first
+                val sampleBottom = bubble.rect.bottom + offset.second
+                val sampled = BubbleColorSampler.sampleBackgroundColor(
+                    bitmap = sourceBitmap,
+                    imageFile = sourceImageFile,
+                    sourceWidth = imageWidth,
+                    sourceHeight = imageHeight,
+                    left = sampleLeft,
+                    top = sampleTop,
+                    right = sampleRight,
+                    bottom = sampleBottom
+                )
+                val color = sampled ?: Color.WHITE
+                // Cache even fallback white once a source was available, to avoid per-frame resamples.
+                if (sampled != null || sourceBitmap != null || sourceImageFile != null) {
+                    bubbleColorCache[bubble.id] = color
                 }
-                val sampleScaleY = if (imageHeight > 0 && bmp != null) {
-                    bmp.height.toFloat() / imageHeight.toFloat()
-                } else {
-                    1f
-                }
-                BubbleColorSampler.sampleBackgroundColor(
-                    bmp,
-                    bubble.rect.left * sampleScaleX,
-                    bubble.rect.top * sampleScaleY,
-                    bubble.rect.right * sampleScaleX,
-                    bubble.rect.bottom * sampleScaleY
-                ) ?: Color.WHITE
+                color
             }
         } else {
             Color.WHITE
