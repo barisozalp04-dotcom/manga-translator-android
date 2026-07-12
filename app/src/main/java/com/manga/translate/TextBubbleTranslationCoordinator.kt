@@ -1,7 +1,5 @@
 package com.manga.translate
 
-import java.text.Normalizer
-
 internal class TextBubbleTranslationCoordinator(
     private val llmClient: LlmGateway
 ) {
@@ -82,25 +80,17 @@ internal class TextBubbleTranslationCoordinator(
         val requestedIdSet = requestedIds.toSet()
         val unexpectedIds = translationById.keys.filter { it !in requestedIdSet }
         val missingIds = requestedIds.filterNot { translationById.containsKey(it) }
-        val sourceTextById = requestItems.associate { it.id to it.text.trim() }
-        val echoedIds = requestedIds.filter { id ->
-            val sourceText = normalizeForSourceEchoCheck(sourceTextById[id].orEmpty())
-            val translatedText = normalizeForSourceEchoCheck(translationById[id].orEmpty())
-            sourceText.isNotBlank() && translatedText == sourceText
-        }
         if (
             duplicateIds.isNotEmpty() ||
             unexpectedIds.isNotEmpty() ||
-            missingIds.isNotEmpty() ||
-            echoedIds.isNotEmpty()
+            missingIds.isNotEmpty()
         ) {
             val error = buildStructuredTranslationErrorLog(
                 mode = translationMode,
                 requestedIds = requestedIds,
                 duplicateIds = duplicateIds.toList(),
                 unexpectedIds = unexpectedIds,
-                missingIds = missingIds,
-                echoedIds = echoedIds
+                missingIds = missingIds
             )
             AppLogger.log(logTag, error)
             throw LlmResponseException(LlmErrorCode.MissingTranslationItems, error)
@@ -129,19 +119,12 @@ internal data class TextBubbleTranslationBatchResult(
     val removedBubbleIds: Set<Int> = emptySet()
 )
 
-private fun normalizeForSourceEchoCheck(value: String): String {
-    return Normalizer.normalize(value, Normalizer.Form.NFKC)
-        .replace(Regex("\\s+"), "")
-        .trim()
-}
-
 private fun buildStructuredTranslationErrorLog(
     mode: String,
     requestedIds: List<Int>,
     duplicateIds: List<Int>,
     unexpectedIds: List<Int>,
-    missingIds: List<Int>,
-    echoedIds: List<Int>
+    missingIds: List<Int>
 ): String {
     return buildString {
         append("Structured translation partial in ")
@@ -159,10 +142,6 @@ private fun buildStructuredTranslationErrorLog(
         if (missingIds.isNotEmpty()) {
             append(", missing=")
             append(summarizeIdsForLog(missingIds))
-        }
-        if (echoedIds.isNotEmpty()) {
-            append(", source_echo=")
-            append(summarizeIdsForLog(echoedIds))
         }
     }
 }

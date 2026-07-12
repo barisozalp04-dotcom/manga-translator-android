@@ -14,7 +14,7 @@ import org.robolectric.RuntimeEnvironment
 @RunWith(RobolectricTestRunner::class)
 class TextBubbleTranslationCoordinatorTest {
     @Test
-    fun `source echo raises model response error`() {
+    fun `source echo is accepted as translation`() {
         val gateway = FakeLlmGateway(
             LlmBubbleTranslationResult(
                 items = listOf(LlmBubbleTranslationItem(1, " 漫画\n原文 ")),
@@ -23,19 +23,17 @@ class TextBubbleTranslationCoordinatorTest {
         )
         val coordinator = TextBubbleTranslationCoordinator(gateway)
 
-        val error = assertThrows(LlmResponseException::class.java) {
-            runBlocking {
-                coordinator.translateBubbles(
-                    bubbles = listOf(pendingBubble(1, "漫画原文")),
-                    glossary = emptyMap(),
-                    promptAsset = "prompts/llm_prompts.json",
-                    logTag = "Test",
-                    translationMode = "standard"
-                )
-            }
+        val result = runBlocking {
+            coordinator.translateBubbles(
+                bubbles = listOf(pendingBubble(1, "漫画原文")),
+                glossary = emptyMap(),
+                promptAsset = "prompts/llm_prompts.json",
+                logTag = "Test",
+                translationMode = "standard"
+            )
         }
 
-        assertEquals(LlmErrorCode.MissingTranslationItems, error.errorCode)
+        assertEquals("漫画\n原文", result?.bubbles?.single()?.translatedText)
     }
 
     @Test
