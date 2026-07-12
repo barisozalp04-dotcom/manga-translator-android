@@ -725,7 +725,7 @@ class LlmClient(
             .put("model", modelName)
             .put("messages", messages)
         applyOpenAiSamplingParams(payload, llmParams, settings)
-        applyOpenAiExtraBody(payload, llmParams, settings)
+        applyOpenAiThinkingParams(payload, llmParams)
         applyCustomRequestParameters(payload, settings)
         return payload
     }
@@ -931,7 +931,7 @@ class LlmClient(
             .put("model", modelName)
             .put("messages", messages)
         applyOpenAiSamplingParams(payload, llmParams, settings)
-        applyOpenAiExtraBody(payload, llmParams, settings)
+        applyOpenAiThinkingParams(payload, llmParams)
         applyCustomRequestParameters(payload, settings)
         return payload
     }
@@ -1023,23 +1023,22 @@ class LlmClient(
         return rawValue
     }
 
-    private fun applyOpenAiExtraBody(
+    private fun applyOpenAiThinkingParams(
         payload: JSONObject,
-        llmParams: LlmParameterSettings,
-        settings: ApiSettings
+        llmParams: LlmParameterSettings
     ) {
-        if (!supportsSiliconFlowThinkingParams(settings)) return
-        val extraBody = JSONObject()
-            .put("enable_thinking", llmParams.enableThinking)
-        llmParams.thinkingBudget?.let { extraBody.put("thinking_budget", it) }
-        payload.put("extra_body", extraBody)
+        payload.put("enable_thinking", llmParams.enableThinking)
+        resolveThinkingBudget(llmParams)?.let { payload.put("thinking_budget", it) }
     }
 
-    private fun supportsSiliconFlowThinkingParams(settings: ApiSettings): Boolean {
-        if (settings.apiFormat != ApiFormat.OPENAI_COMPATIBLE) return false
-        val normalized = settings.apiUrl.trim().lowercase()
-        return normalized.startsWith("https://api.siliconflow.cn") ||
-            normalized.startsWith("http://api.siliconflow.cn")
+    private fun resolveThinkingBudget(llmParams: LlmParameterSettings): Int? {
+        if (!llmParams.enableThinking) return null
+        return llmParams.thinkingBudget ?: DEFAULT_OPENAI_THINKING_BUDGET
+    }
+
+    private fun resolveGeminiThinkingBudget(llmParams: LlmParameterSettings): Int {
+        if (!llmParams.enableThinking) return 0
+        return llmParams.thinkingBudget ?: DEFAULT_GEMINI_THINKING_BUDGET
     }
 
     private fun sanitizeModelIoForLog(content: String): String {
@@ -1558,7 +1557,12 @@ class LlmClient(
         llmParams.maxOutputTokens?.let { config.put("maxOutputTokens", it) }
         llmParams.frequencyPenalty?.let { config.put("frequencyPenalty", it) }
         llmParams.presencePenalty?.let { config.put("presencePenalty", it) }
+        config.put("thinkingConfig", buildGeminiThinkingConfig(llmParams))
         return config.takeIf { it.length() > 0 }
+    }
+
+    private fun buildGeminiThinkingConfig(llmParams: LlmParameterSettings): JSONObject {
+        return JSONObject().put("thinkingBudget", resolveGeminiThinkingBudget(llmParams))
     }
 
     private fun buildJsonPostRequest(
@@ -1728,6 +1732,8 @@ class LlmClient(
         private const val RETRY_BASE_DELAY_MS = 750
         private const val RETRY_MAX_DELAY_MS = 4_000
         private const val CONFIGURED_RETRY_DELAY_MS = 3_000
+        private const val DEFAULT_OPENAI_THINKING_BUDGET = 1024
+        private const val DEFAULT_GEMINI_THINKING_BUDGET = -1
 
         internal fun buildOpenAiCompatibleChatEndpoint(baseUrl: String): String {
             val trimmed = normalizeOpenAiCompatibleBaseUrl(baseUrl)
@@ -1762,7 +1768,8 @@ class LlmClient(
                     "max_output_tokens",
                     "frequency_penalty",
                     "presence_penalty",
-                    "extra_body"
+                    "enable_thinking",
+                    "thinking_budget"
                 )
                 ApiFormat.GEMINI -> setOf(
                     "contents",

@@ -243,7 +243,7 @@
     <string name="llm_params_clear">全部留空</string>
     <string name="llm_params_invalid">参数格式有误，已忽略无效项</string>
     <string name="llm_params_note">留空将不发送该字段</string>
-    <string name="llm_params_note_siliconflow">留空将不发送该字段；当前 API 地址识别为硅基流动，已显示 `enable_thinking` 与 `thinking_budget` 扩展参数</string>
+    <string name="llm_params_note_thinking">留空将不发送该字段。开启思考且 `thinking_budget` 留空时：OpenAI 兼容默认 1024，Gemini 默认 -1（动态思考）。关闭思考时 Gemini 发送 `thinkingBudget=0`。</string>
     <string name="custom_request_params_invalid_value">自定义参数值格式无效：%1$s</string>
     <string name="llm_param_temperature">temperature</string>
     <string name="llm_param_top_p">top_p</string>

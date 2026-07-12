@@ -232,7 +232,7 @@
     <string name="llm_params_clear">Оставьте все пустым</string>
     <string name="llm_params_invalid">Неверный формат параметра, недопустимые элементы проигнорированы.</string>
     <string name="llm_params_note">Оставьте пустым, чтобы не отправлять это поле</string>
-    <string name="llm_params_note_siliconflow">Оставьте пустым, чтобы не отправлять это поле; текущий адрес API идентифицирован как поток на основе кремния и имеет показанные параметры расширения `enable_thinking` и `thinking_budget`</string>
+    <string name="llm_params_note_thinking">Оставьте пустым, чтобы не отправлять это поле. При включённом thinking и пустом `thinking_budget`: OpenAI-compatible — 1024, Gemini — -1 (динамически). При выключенном thinking Gemini отправляет `thinkingBudget=0`.</string>
     <string name="custom_request_params_invalid_value">Неверный формат значения специального параметра: %1$s.</string>
     <string name="llm_param_temperature">температура</string>
     <string name="llm_param_top_p">top_p</string>

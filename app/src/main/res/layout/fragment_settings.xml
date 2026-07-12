@@ -158,6 +158,32 @@
                 android:text="@string/ai_provider_profiles_button" />
 
             <Button
+                android:id="@+id/llm_params_button"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:layout_marginStart="2dp"
+                android:layout_marginEnd="2dp"
+                android:text="@string/llm_params_button" />
+
+            <Button
+                android:id="@+id/custom_request_params_button"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:layout_marginStart="2dp"
+                android:layout_marginEnd="2dp"
+                android:text="@string/custom_request_params_button" />
+
+            <androidx.appcompat.widget.SwitchCompat
+                android:id="@+id/enable_thinking_switch"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="14dp"
+                android:text="@string/llm_param_enable_thinking"
+                android:textColor="?attr/dialogTextColor" />
+
+            <Button
                 android:id="@+id/fetch_models_button"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -207,28 +233,10 @@
             </com.google.android.material.textfield.TextInputLayout>
 
             <Button
-                android:id="@+id/llm_params_button"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="14dp"
-                android:layout_marginStart="2dp"
-                android:layout_marginEnd="2dp"
-                android:text="@string/llm_params_button" />
-
-            <Button
-                android:id="@+id/custom_request_params_button"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="10dp"
-                android:layout_marginStart="2dp"
-                android:layout_marginEnd="2dp"
-                android:text="@string/custom_request_params_button" />
-
-            <Button
                 android:id="@+id/ocr_settings_button"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="10dp"
+                android:layout_marginTop="14dp"
                 android:layout_marginStart="2dp"
                 android:layout_marginEnd="2dp"
                 android:text="@string/ocr_settings_button" />

@@ -20,7 +20,6 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.StringRes
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatDelegate
-import androidx.core.view.isGone
 import androidx.core.view.doOnLayout
 import androidx.core.content.FileProvider
 import kotlin.math.roundToInt
@@ -452,6 +451,15 @@ class SettingsFragment : Fragment() {
                 "Model I/O logging ${if (isChecked) "enabled" else "disabled"}"
             )
         }
+        binding.enableThinkingSwitch.setOnCheckedChangeListener { _, isChecked ->
+            val current = settingsStore.loadLlmParameters()
+            if (current.enableThinking == isChecked) return@setOnCheckedChangeListener
+            settingsStore.saveLlmParameters(current.copy(enableThinking = isChecked))
+            AppLogger.log(
+                "Settings",
+                "enable_thinking ${if (isChecked) "enabled" else "disabled"}"
+            )
+        }
         binding.themeButton.setOnClickListener {
             showThemeDialog()
         }
@@ -858,6 +866,7 @@ class SettingsFragment : Fragment() {
         binding.apiRetryCountInput.setText(formatNumber(settingsStore.loadApiRetryCount()))
         binding.maxConcurrencyInput.setText(formatNumber(settingsStore.loadMaxConcurrency()))
         binding.modelIoLoggingSwitch.isChecked = settingsStore.loadModelIoLogging()
+        binding.enableThinkingSwitch.isChecked = settingsStore.loadLlmParameters().enableThinking
         updateLanguageButton(settingsStore.loadAppLanguage())
         updateThemeButton(settingsStore.loadThemeMode())
         updateReadingDisplayButton(settingsStore.loadReadingDisplayMode())
@@ -1402,26 +1411,21 @@ class SettingsFragment : Fragment() {
     private fun showLlmParamsDialog() {
         val currentParams = settingsStore.loadLlmParameters()
         val dialogBinding = DialogLlmParamsBinding.inflate(layoutInflater)
-        val supportsThinkingParams = supportsSiliconFlowThinkingParams()
         dialogBinding.temperatureInput.setText(formatNumberOrEmpty(currentParams.temperature))
         dialogBinding.topPInput.setText(formatNumberOrEmpty(currentParams.topP))
         dialogBinding.topKInput.setText(formatNumberOrEmpty(currentParams.topK))
         dialogBinding.maxOutputTokensInput.setText(formatNumberOrEmpty(currentParams.maxOutputTokens))
-        dialogBinding.enableThinkingSwitch.isChecked = currentParams.enableThinking
         dialogBinding.thinkingBudgetInput.setText(formatNumberOrEmpty(currentParams.thinkingBudget))
         dialogBinding.frequencyPenaltyInput.setText(formatNumberOrEmpty(currentParams.frequencyPenalty))
         dialogBinding.presencePenaltyInput.setText(formatNumberOrEmpty(currentParams.presencePenalty))
-        dialogBinding.enableThinkingSwitch.isGone = !supportsThinkingParams
-        dialogBinding.thinkingBudgetInputLayout.isGone = !supportsThinkingParams
-        dialogBinding.llmParamsNote.setText(
-            if (supportsThinkingParams) R.string.llm_params_note_siliconflow else R.string.llm_params_note
-        )
+        dialogBinding.llmParamsNote.setText(R.string.llm_params_note_thinking)
         AlertDialog.Builder(requireContext())
             .setTitle(R.string.llm_params_title)
             .setView(dialogBinding.root)
             .setPositiveButton(android.R.string.ok) { _, _ ->
                 val parsed = parseLlmParams(dialogBinding)
                 settingsStore.saveLlmParameters(parsed.params)
+                binding.enableThinkingSwitch.isChecked = parsed.params.enableThinking
                 if (parsed.hasInvalid) {
                     Toast.makeText(
                         requireContext(),
@@ -1432,13 +1436,14 @@ class SettingsFragment : Fragment() {
                 AppLogger.log("Settings", "LLM params updated")
             }
             .setNeutralButton(R.string.llm_params_clear) { _, _ ->
+                val enableThinking = settingsStore.loadLlmParameters().enableThinking
                 settingsStore.saveLlmParameters(
                     LlmParameterSettings(
                         temperature = null,
                         topP = null,
                         topK = null,
                         maxOutputTokens = null,
-                        enableThinking = false,
+                        enableThinking = enableThinking,
                         thinkingBudget = null,
                         frequencyPenalty = null,
                         presencePenalty = null
@@ -1981,7 +1986,6 @@ class SettingsFragment : Fragment() {
         dialogBinding: DialogLlmParamsBinding
     ): ParsedLlmParams {
         var hasInvalid = false
-        val supportsThinkingParams = supportsSiliconFlowThinkingParams()
         fun parseDouble(text: String?): Double? {
             val trimmed = text?.trim().orEmpty()
             if (trimmed.isBlank()) return null
@@ -1997,12 +2001,8 @@ class SettingsFragment : Fragment() {
             topP = parseDouble(dialogBinding.topPInput.text?.toString()),
             topK = parseInt(dialogBinding.topKInput.text?.toString()),
             maxOutputTokens = parseInt(dialogBinding.maxOutputTokensInput.text?.toString()),
-            enableThinking = supportsThinkingParams && dialogBinding.enableThinkingSwitch.isChecked,
-            thinkingBudget = if (supportsThinkingParams) {
-                parseInt(dialogBinding.thinkingBudgetInput.text?.toString())
-            } else {
-                null
-            },
+            enableThinking = binding.enableThinkingSwitch.isChecked,
+            thinkingBudget = parseInt(dialogBinding.thinkingBudgetInput.text?.toString()),
             frequencyPenalty = parseDouble(dialogBinding.frequencyPenaltyInput.text?.toString()),
             presencePenalty = parseDouble(dialogBinding.presencePenaltyInput.text?.toString())
         )
@@ -2119,18 +2119,6 @@ class SettingsFragment : Fragment() {
             }
         }
         return null
-    }
-
-    private fun supportsSiliconFlowThinkingParams(): Boolean {
-        if (currentApiFormat() != ApiFormat.OPENAI_COMPATIBLE) return false
-        return isSiliconFlowUrl(binding.apiUrlInput.text?.toString())
-    }
-
-    private fun isSiliconFlowUrl(url: String?): Boolean {
-        val normalized = url?.trim().orEmpty().lowercase(Locale.US)
-        if (normalized.isBlank()) return false
-        return normalized.startsWith("https://api.siliconflow.cn") ||
-            normalized.startsWith("http://api.siliconflow.cn")
     }
 
     private fun fetchModelList() {

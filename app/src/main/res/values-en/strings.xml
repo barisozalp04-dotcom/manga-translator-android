@@ -232,7 +232,7 @@ For example: if the primary provider is 10, provider A is 5, and provider B is 5
     <string name="llm_params_clear">Leave all blank</string>
     <string name="llm_params_invalid">The parameter format is incorrect, invalid items have been ignored</string>
     <string name="llm_params_note">Leave blank to not send this field</string>
-    <string name="llm_params_note_siliconflow">Leave blank to not send this field; the current API address is identified as silicon-based flow and has the `enable_thinking` and `thinking_budget` extension parameters shown</string>
+    <string name="llm_params_note_thinking">Leave blank to not send this field. With thinking on and `thinking_budget` empty: OpenAI-compatible defaults to 1024; Gemini defaults to -1 (dynamic). With thinking off, Gemini sends `thinkingBudget=0`.</string>
     <string name="custom_request_params_invalid_value">Invalid custom parameter value format: %1$s</string>
     <string name="llm_param_temperature">temperature</string>
     <string name="llm_param_top_p">top_p</string>
