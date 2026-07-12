@@ -1834,7 +1834,10 @@ internal class FolderTranslationCoordinator(
     private fun buildGlossaryText(pages: List<PageOcrResult>): String {
         val builder = StringBuilder()
         for (page in pages) {
-            for (bubble in page.bubbles) {
+            val orderedBubbles = page.bubbles.sortedWith(
+                compareBy({ it.rect.top }, { it.rect.left }, { it.id })
+            )
+            for (bubble in orderedBubbles) {
                 val text = bubble.text.trim()
                 if (text.isNotBlank()) {
                     builder.append("<b>").append(text).append("</b>\n")

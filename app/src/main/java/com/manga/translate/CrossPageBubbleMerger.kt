@@ -199,9 +199,11 @@ internal object CrossPageBubbleMerger {
     }
 
     private fun renumberBubbles(bubbles: List<OcrBubble>): List<OcrBubble> {
-        return bubbles.mapIndexed { index, bubble ->
-            if (bubble.id == index) bubble else bubble.copy(id = index)
-        }
+        return bubbles
+            .sortedWith(compareBy({ it.rect.top }, { it.rect.left }, { it.id }))
+            .mapIndexed { index, bubble ->
+                if (bubble.id == index) bubble else bubble.copy(id = index)
+            }
     }
 
     private fun computeEdgeHeight(currentWidth: Int, currentHeight: Int, nextHeight: Int): Float {

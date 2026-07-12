@@ -64,8 +64,40 @@ class TextBubbleTranslationCoordinatorTest {
         }
     }
 
-    private fun pendingBubble(id: Int, source: String): BubbleTranslation {
-        return BubbleTranslation.pending(id, RectF(0f, 0f, 10f, 10f), originalText = source)
+    @Test
+    fun `request items are sent top to bottom`() {
+        val gateway = CapturingLlmGateway(
+            LlmBubbleTranslationResult(
+                items = listOf(
+                    LlmBubbleTranslationItem(0, "译文上"),
+                    LlmBubbleTranslationItem(1, "译文中"),
+                    LlmBubbleTranslationItem(2, "译文下")
+                ),
+                glossaryUsed = emptyMap()
+            )
+        )
+        val coordinator = TextBubbleTranslationCoordinator(gateway)
+
+        runBlocking {
+            coordinator.translateBubbles(
+                bubbles = listOf(
+                    pendingBubble(2, "原文下", top = 200f),
+                    pendingBubble(0, "原文上", top = 10f),
+                    pendingBubble(1, "原文中", top = 100f)
+                ),
+                glossary = emptyMap(),
+                promptAsset = "prompts/llm_prompts.json",
+                logTag = "Test",
+                translationMode = "standard"
+            )
+        }
+
+        assertEquals(listOf(0, 1, 2), gateway.lastRequestIds)
+        assertEquals(listOf("原文上", "原文中", "原文下"), gateway.lastRequestTexts)
+    }
+
+    private fun pendingBubble(id: Int, source: String, top: Float = 0f): BubbleTranslation {
+        return BubbleTranslation.pending(id, RectF(0f, top, 10f, top + 10f), originalText = source)
     }
 }
 
@@ -84,6 +116,58 @@ private class FakeLlmGateway(
         retryCount: Int,
         apiSettings: ApiSettings?
     ): LlmBubbleTranslationResult = result
+
+    override suspend fun extractGlossary(
+        text: String,
+        glossary: Map<String, String>,
+        promptAsset: String
+    ): Map<String, String> = emptyMap()
+
+    override suspend fun recognizeImageText(
+        image: Bitmap,
+        language: TranslationLanguage
+    ): String? = null
+
+    override suspend fun translateImageBubble(
+        imageBase64: String,
+        promptAsset: String,
+        requestTimeoutMs: Int?,
+        retryCount: Int,
+        apiSettings: ApiSettings?
+    ): String? = null
+
+    override suspend fun recognizeFullPageWithBaidu(
+        image: Bitmap,
+        language: TranslationLanguage
+    ): List<BaiduOcrWord>? = null
+
+    override fun resourceContext(): Context = RuntimeEnvironment.getApplication()
+}
+
+private class CapturingLlmGateway(
+    private val result: LlmBubbleTranslationResult
+) : LlmGateway {
+    var lastRequestIds: List<Int> = emptyList()
+        private set
+    var lastRequestTexts: List<String> = emptyList()
+        private set
+
+    override fun isConfigured(apiSettings: ApiSettings?): Boolean = true
+
+    override fun isOcrConfigured(): Boolean = true
+
+    override suspend fun translateBubbleItems(
+        items: List<LlmBubbleTranslationRequestItem>,
+        glossary: Map<String, String>,
+        promptAsset: String,
+        requestTimeoutMs: Int?,
+        retryCount: Int,
+        apiSettings: ApiSettings?
+    ): LlmBubbleTranslationResult {
+        lastRequestIds = items.map { it.id }
+        lastRequestTexts = items.map { it.text }
+        return result
+    }
 
     override suspend fun extractGlossary(
         text: String,

@@ -52,12 +52,14 @@ internal class TextBubbleTranslationCoordinator(
         }
 
         AppLogger.log(logTag, "Translate request segments=${cacheMisses.size}")
-        val requestItems = cacheMisses.map {
-            LlmBubbleTranslationRequestItem(
-                id = it.id,
-                text = normalizeOcrText(it.sourceText, language)
-            )
-        }
+        val requestItems = cacheMisses
+            .sortedWith(compareBy({ it.rect.top }, { it.rect.left }, { it.id }))
+            .map {
+                LlmBubbleTranslationRequestItem(
+                    id = it.id,
+                    text = normalizeOcrText(it.sourceText, language)
+                )
+            }
         val translated = llmClient.translateBubbleItems(
             items = requestItems,
             glossary = glossary,

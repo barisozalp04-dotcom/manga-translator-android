@@ -36,6 +36,7 @@ object RectGeometryDeduplicator {
             }
         }
         return mergeDenseClusters(mergedRects, imageArea, maxMergedHeight)
+            .sortedWith(compareBy({ it.top }, { it.left }))
     }
 
     fun mergeShortTextDetectorOcrBubbles(
@@ -63,7 +64,9 @@ object RectGeometryDeduplicator {
                 }
             }
         }
-        return merged.mapIndexed { index, group -> group.toOcrBubble(index) }
+        return merged
+            .sortedWith(compareBy({ it.rect.top }, { it.rect.left }))
+            .mapIndexed { index, group -> group.toOcrBubble(index) }
     }
 
     private fun mergeDenseClusters(

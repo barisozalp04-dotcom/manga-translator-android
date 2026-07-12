@@ -621,24 +621,37 @@ internal class PageRegionDetector(
         bubbleRects: List<RectF>,
         textRects: List<RectF>
     ): List<PageRegion> {
-        val allRects = ArrayList<RectF>(bubbleRects.size + textRects.size)
-        allRects.addAll(bubbleRects)
-        allRects.addAll(textRects)
-        val bubbleDetectorCount = bubbleRects.size
-        return allRects.mapIndexed { index, rect ->
+        data class RegionSeed(
+            val rect: RectF,
+            val source: BubbleSource,
+            val maskContour: FloatArray?
+        )
+        val seeds = ArrayList<RegionSeed>(bubbleRects.size + textRects.size)
+        for (i in bubbleRects.indices) {
+            seeds.add(
+                RegionSeed(
+                    rect = bubbleRects[i],
+                    source = BubbleSource.BUBBLE_DETECTOR,
+                    maskContour = detections.getOrNull(i)?.maskContour
+                )
+            )
+        }
+        for (rect in textRects) {
+            seeds.add(
+                RegionSeed(
+                    rect = rect,
+                    source = BubbleSource.TEXT_DETECTOR,
+                    maskContour = null
+                )
+            )
+        }
+        seeds.sortWith(compareBy({ it.rect.top }, { it.rect.left }))
+        return seeds.mapIndexed { index, seed ->
             PageRegion(
                 id = index,
-                rect = rect,
-                source = if (index < bubbleDetectorCount) {
-                    BubbleSource.BUBBLE_DETECTOR
-                } else {
-                    BubbleSource.TEXT_DETECTOR
-                },
-                maskContour = if (index < bubbleDetectorCount) {
-                    detections.getOrNull(index)?.maskContour
-                } else {
-                    null
-                }
+                rect = seed.rect,
+                source = seed.source,
+                maskContour = seed.maskContour
             )
         }
     }
