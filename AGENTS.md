@@ -281,7 +281,7 @@ sourceSets["main"].assets.srcDirs("src/main/assets", "../assets")
 
 当前页面区域检测链路也已独立成公共模块：
 - `PageRegionDetector.kt` 使用 manga109-seg 一步检测：`balloon` → `BubbleSource.BUBBLE_DETECTOR`，`text` → `BubbleSource.TEXT_DETECTOR`（游离气泡），`frame` 忽略；再对 text 与 balloon 做 overlap/filter 与合并。
-- 长图分块检测每个 tile 只跑一次统一模型，再在整页维度做气泡去重与游离文本过滤/合并。
+- 长图分块检测每个 tile 只跑一次统一模型，再在整页维度做气泡去重与游离文本过滤/合并；tile 取近方形（约 1.05×宽、高度约 960–1400px、重叠约 32%），避免固定 640 输入 letterbox 后有效宽度过低导致漏检；跨 tile 同一气泡去重时写回并集矩形，避免只保留半框。
 - `TranslationPipeline.kt` 现在主要保留缓存判断、OCR 调用、落盘和翻译编排，不再直接维护检测细节。
 - 如果后续要调整去重阈值、`BubbleSource` 或 `maskContour` 的组装逻辑，优先修改 `PageRegionDetector.kt` / `BubbleDetector.kt`。
 

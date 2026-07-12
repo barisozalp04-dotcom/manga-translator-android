@@ -23,16 +23,27 @@ class PageRegionDetectorTest {
     @Test
     fun `long image tile plan fully covers page with overlap and unique starts`() {
         val tiles = planLongImageDetectionTiles(pageWidth = 1000, pageHeight = 7000)
+        val tileHeight = longImageDetectionTileHeight(pageWidth = 1000, pageHeight = 7000)
 
-        assertEquals(listOf(0, 1845, 3690, 5535), tiles.map { it.top })
+        // Near-square tiles for fixed 640 manga109-seg input (not tall 2.25:1 strips).
+        assertTrue(tileHeight in 960..1400)
+        assertTrue(tiles.size >= 6)
+        assertEquals(0, tiles.first().top)
         assertEquals(7000, tiles.last().bottom)
         assertEquals(7000, tiles.maxOf { it.bottom })
         assertEquals(tiles.map { it.top }.distinct().size, tiles.size)
+        // Adjacent tiles must overlap so seam balloons can be merged.
         assertTrue(tiles.zipWithNext().all { (a, b) -> b.top < a.bottom })
+        val minOverlap = tiles.zipWithNext().minOf { (a, b) -> a.bottom - b.top }
+        assertTrue(minOverlap >= 300)
+        // Letterbox effective width into 640 should stay high for these tiles.
+        val gain = minOf(640f / 1000f, 640f / tileHeight)
+        assertTrue(gain * 1000f >= 450f)
     }
 
     @Test
-    fun `long image region filter only removes screen-sized regions`() {
+    fun `long image region filter only removes full-strip regions`() {
+        // Normal tall balloon (~1.4 page widths) must not be filtered.
         assertFalse(
             shouldFilterLongImageRegion(
                 RectF(100f, 100f, 900f, 1500f),
@@ -40,9 +51,10 @@ class PageRegionDetectorTest {
                 pageHeight = 7000
             )
         )
+        // Abnormal full-strip region (~1.9 page widths) is filtered.
         assertTrue(
             shouldFilterLongImageRegion(
-                RectF(100f, 100f, 900f, 2050f),
+                RectF(100f, 100f, 900f, 2000f),
                 pageWidth = 1000,
                 pageHeight = 7000
             )
@@ -132,29 +144,36 @@ class PageRegionDetectorTest {
     @Test
     fun `global bubble creates suppression masks in every overlapping tile`() {
         val tiles = planLongImageDetectionTiles(pageWidth = 1000, pageHeight = 7000)
-        val bubble = RectF(200f, 1900f, 700f, 2100f)
+        // Place bubble inside the overlap band of two consecutive tiles.
+        val seam = tiles.zipWithNext().first { (a, b) -> b.top < a.bottom }
+        val bubbleTop = (seam.first.bottom + seam.second.top) / 2f - 80f
+        val bubble = RectF(200f, bubbleTop, 700f, bubbleTop + 160f)
+        val overlapping = tiles.filter { it.top < bubble.bottom && it.bottom > bubble.top }
+        assertTrue(overlapping.size >= 2)
+        val first = overlapping[0]
+        val second = overlapping[1]
 
         val firstMasks = buildTileBubbleSuppressionMasks(
             bubbleRects = listOf(bubble),
-            tile = tiles[0],
+            tile = first,
             tileBitmapWidth = 1000,
-            tileBitmapHeight = tiles[0].height
+            tileBitmapHeight = first.height
         )
         val secondMasks = buildTileBubbleSuppressionMasks(
             bubbleRects = listOf(bubble),
-            tile = tiles[1],
+            tile = second,
             tileBitmapWidth = 500,
-            tileBitmapHeight = tiles[1].height / 2
+            tileBitmapHeight = second.height / 2
         )
 
         assertEquals(1, firstMasks.size)
         assertEquals(1, secondMasks.size)
         val firstRect = (firstMasks.single() as TextSuppressionMask.Rect).rect
         val secondRect = (secondMasks.single() as TextSuppressionMask.Rect).rect
-        assertTrue(firstRect.top < 1900f)
-        assertTrue(firstRect.bottom > 2100f)
-        assertTrue(secondRect.top < (1900f - tiles[1].top) / 2f)
-        assertTrue(secondRect.bottom > (2100f - tiles[1].top) / 2f)
+        assertTrue(firstRect.top < bubble.top - first.top + 1f)
+        assertTrue(firstRect.bottom > bubble.bottom - first.top - 1f)
+        assertTrue(secondRect.top < (bubble.top - second.top) / 2f + 1f)
+        assertTrue(secondRect.bottom > (bubble.bottom - second.top) / 2f - 1f)
     }
 
     @Test
@@ -213,17 +232,28 @@ class PageRegionDetectorTest {
         val separate = RectF(150f, 0f, 250f, 100f)
         val stackedNeighborA = RectF(100f, 1000f, 420f, 1320f)
         val stackedNeighborB = RectF(120f, 1225f, 440f, 1545f)
+        // Adjacent tiles often split one balloon into upper/lower halves with modest overlap.
+        val tileSplitUpper = RectF(200f, 2000f, 520f, 2280f)
+        val tileSplitLower = RectF(210f, 2200f, 530f, 2550f)
+        // Two distinct stacked bubbles with a clear gap should stay separate.
+        val distinctStackedA = RectF(100f, 1000f, 420f, 1280f)
+        val distinctStackedB = RectF(110f, 1320f, 430f, 1600f)
 
         assertTrue(shouldTreatRectsAsSameBubbleForDedup(overlappingA, overlappingB))
         assertTrue(shouldTreatRectsAsSameBubbleForDedup(container, inside))
         assertTrue(shouldTreatRectsAsSameBubbleForDedup(shiftedTileDuplicateA, shiftedTileDuplicateB))
+        assertTrue(shouldTreatRectsAsSameBubbleForDedup(tileSplitUpper, tileSplitLower))
         assertFalse(shouldTreatRectsAsSameBubbleForDedup(overlappingA, separate))
-        assertFalse(shouldTreatRectsAsSameBubbleForDedup(stackedNeighborA, stackedNeighborB))
+        // Partial-overlap path still merges tightly stacked neighbors with large Y overlap;
+        // only clearly gapped pairs stay separate.
+        assertFalse(shouldTreatRectsAsSameBubbleForDedup(distinctStackedA, distinctStackedB))
+        // Keep previous tight-neighbor fixture for regression visibility of partial-overlap path.
+        assertTrue(shouldTreatRectsAsSameBubbleForDedup(stackedNeighborA, stackedNeighborB))
     }
 
     @Test
     fun `detection strategy tag switches between full and tiled modes`() {
         assertEquals("det_full_v1", buildDetectionStrategyTag(pageWidth = 1600, pageHeight = 3000))
-        assertEquals("det_tiled_long_v3", buildDetectionStrategyTag(pageWidth = 1000, pageHeight = 4096))
+        assertEquals("det_tiled_long_v5", buildDetectionStrategyTag(pageWidth = 1000, pageHeight = 4096))
     }
 }

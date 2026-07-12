@@ -223,8 +223,11 @@ class LibraryFolderAdapter(
 
         private fun bindCustomTags(tags: List<String>) {
             val tagContainer = binding.folderTags
-            if (tagContainer.childCount > 1) {
-                tagContainer.removeViews(1, tagContainer.childCount - 1)
+            if (tagContainer.childCount > BUILTIN_TAG_CHILD_COUNT) {
+                tagContainer.removeViews(
+                    BUILTIN_TAG_CHILD_COUNT,
+                    tagContainer.childCount - BUILTIN_TAG_CHILD_COUNT
+                )
             }
             val context = tagContainer.context
             tags.forEach { tag ->
@@ -258,6 +261,7 @@ class LibraryFolderAdapter(
         const val MENU_RENAME = 1
         const val MENU_DELETE = 2
         const val MENU_EDIT_TAGS = 3
+        const val BUILTIN_TAG_CHILD_COUNT = 2
 
         val DiffCallback = object : DiffUtil.ItemCallback<FolderItem>() {
             override fun areItemsTheSame(oldItem: FolderItem, newItem: FolderItem): Boolean {

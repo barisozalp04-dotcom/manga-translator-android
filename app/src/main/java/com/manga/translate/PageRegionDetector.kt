@@ -180,7 +180,11 @@ internal fun shouldTreatRectsAsSameBubbleForDedup(a: RectF, b: RectF): Boolean {
         return true
     }
 
-    return shouldTreatPartiallyShiftedRectsAsSameBubble(a, b, overlapOverMin)
+    if (shouldTreatPartiallyShiftedRectsAsSameBubble(a, b, overlapOverMin)) {
+        return true
+    }
+    // Tile seams often produce vertically stacked partial balloons with modest overlap.
+    return shouldTreatVerticallySplitTileRectsAsSameBubble(a, b)
 }
 
 internal fun shouldFilterLongImageRegion(
@@ -197,8 +201,10 @@ internal fun shouldFilterLongImageRegion(
 }
 
 internal fun longImageMaxRegionHeight(pageWidth: Int, pageHeight: Int): Float {
-    return longImageDetectionTileHeight(pageWidth, pageHeight) *
-        LONG_IMAGE_REGION_SCREEN_HEIGHT_RATIO
+    // Independent of tile height: tiles are sized for letterbox density on the fixed
+    // 640 ONNX input, while this cap only rejects full-strip false positives.
+    if (pageWidth <= 0) return 0f
+    return pageWidth * LONG_IMAGE_MAX_REGION_HEIGHT_WIDTH_RATIO
 }
 
 internal class PageRegionDetector(
@@ -498,6 +504,7 @@ internal class PageRegionDetector(
                 )
             }
             val bestOffset = choosePreferredBubbleCandidateIndex(candidates).coerceAtLeast(0)
+            val best = detections[component[bestOffset]]
             val firstRect = detections[component.first()].rect
             var left = firstRect.left
             var top = firstRect.top
@@ -510,10 +517,18 @@ internal class PageRegionDetector(
                 right = max(right, rect.right)
                 bottom = max(bottom, rect.bottom)
             }
+            // Multi-tile detections of one balloon often only cover partial heights.
+            // Keep the union rect so OCR/render are not truncated to a single tile half.
+            val unionRect = RectF(left, top, right, bottom)
+            val rectExpanded = component.size > 1 && !rectsApproximatelyEqual(best.rect, unionRect)
             result.add(
                 DeduplicatedBubbleGroup(
-                    detection = detections[component[bestOffset]],
-                    suppressionRect = RectF(left, top, right, bottom)
+                    detection = best.copy(
+                        rect = unionRect,
+                        // Mask is relative to the tile-local detection; drop when expanded.
+                        maskContour = if (rectExpanded) null else best.maskContour
+                    ),
+                    suppressionRect = unionRect
                 )
             )
         }
@@ -768,18 +783,28 @@ private fun RectF.offsetBy(offsetX: Float, offsetY: Float): RectF {
 
 private const val LONG_IMAGE_ASPECT_THRESHOLD = 3.0f
 private const val LONG_IMAGE_MIN_HEIGHT_PX = 4096
-private const val LONG_IMAGE_TILE_HEIGHT_WIDTH_RATIO = 2.25f
-private const val LONG_IMAGE_TILE_MIN_HEIGHT_PX = 1600
-private const val LONG_IMAGE_TILE_MAX_HEIGHT_PX = 2800
-private const val LONG_IMAGE_TILE_OVERLAP_RATIO = 0.18f
-private const val LONG_IMAGE_TILE_OVERLAP_MIN_PX = 240
+// Near-square tiles: manga109-seg ONNX is fixed 640x640; tall 2.25:1 tiles letterbox
+// down to ~280 effective width and miss many balloons on webtoons/long strips.
+private const val LONG_IMAGE_TILE_HEIGHT_WIDTH_RATIO = 1.05f
+private const val LONG_IMAGE_TILE_MIN_HEIGHT_PX = 960
+private const val LONG_IMAGE_TILE_MAX_HEIGHT_PX = 1400
+private const val LONG_IMAGE_TILE_OVERLAP_RATIO = 0.32f
+private const val LONG_IMAGE_TILE_OVERLAP_MIN_PX = 320
+// Keep for full-page TILED_LONG path (bitmap.height * ratio) if ever used.
 private const val LONG_IMAGE_REGION_SCREEN_HEIGHT_RATIO = 0.85f
+// Reject only abnormal full-strip boxes (~1.8 page-widths tall), not normal tall balloons.
+private const val LONG_IMAGE_MAX_REGION_HEIGHT_WIDTH_RATIO = 1.8f
 private const val BUBBLE_DEDUP_IOU_THRESHOLD = TranslationCoreDefaults.BubbleDedupIouThreshold
 private const val BUBBLE_DEDUP_CONTAINMENT_THRESHOLD = 0.9f
-private const val BUBBLE_DEDUP_PARTIAL_OVERLAP_MIN_RATIO = 0.58f
-private const val BUBBLE_DEDUP_AXIS_OVERLAP_MIN_RATIO = 0.55f
-private const val BUBBLE_DEDUP_CENTER_DRIFT_RATIO = 0.38f
-private const val BUBBLE_DEDUP_CENTER_DRIFT_PAD = 18f
+private const val BUBBLE_DEDUP_PARTIAL_OVERLAP_MIN_RATIO = 0.40f
+private const val BUBBLE_DEDUP_AXIS_OVERLAP_MIN_RATIO = 0.45f
+private const val BUBBLE_DEDUP_CENTER_DRIFT_RATIO = 0.42f
+private const val BUBBLE_DEDUP_CENTER_DRIFT_PAD = 24f
+private const val BUBBLE_DEDUP_VERTICAL_SPLIT_WIDTH_RATIO = 0.72f
+private const val BUBBLE_DEDUP_VERTICAL_SPLIT_CENTER_X_RATIO = 0.28f
+private const val BUBBLE_DEDUP_VERTICAL_SPLIT_AXIS_X_RATIO = 0.60f
+private const val BUBBLE_DEDUP_VERTICAL_SPLIT_MAX_GAP_PX = 12f
+private const val BUBBLE_DEDUP_RECT_EQUAL_EPS_PX = 2f
 
 private fun rectIou(a: RectF, b: RectF): Float {
     val inter = rectIntersectionArea(a, b)
@@ -831,4 +856,51 @@ private fun shouldTreatPartiallyShiftedRectsAsSameBubble(
 
     return abs(centerAX - centerBX) <= maxCenterDx &&
         abs(centerAY - centerBY) <= maxCenterDy
+}
+
+/**
+ * Detects two partial balloons from adjacent long-image tiles: similar width, strong X overlap,
+ * vertically stacked with little gap, and the union is taller than either half alone.
+ */
+private fun shouldTreatVerticallySplitTileRectsAsSameBubble(a: RectF, b: RectF): Boolean {
+    val widthA = a.width().coerceAtLeast(1f)
+    val widthB = b.width().coerceAtLeast(1f)
+    val heightA = a.height().coerceAtLeast(1f)
+    val heightB = b.height().coerceAtLeast(1f)
+    val widthRatio = min(widthA, widthB) / max(widthA, widthB)
+    if (widthRatio < BUBBLE_DEDUP_VERTICAL_SPLIT_WIDTH_RATIO) return false
+
+    val overlapX = max(0f, min(a.right, b.right) - max(a.left, b.left))
+    if (overlapX / min(widthA, widthB) < BUBBLE_DEDUP_VERTICAL_SPLIT_AXIS_X_RATIO) return false
+
+    val centerAX = (a.left + a.right) * 0.5f
+    val centerBX = (b.left + b.right) * 0.5f
+    if (abs(centerAX - centerBX) > max(widthA, widthB) * BUBBLE_DEDUP_VERTICAL_SPLIT_CENTER_X_RATIO) {
+        return false
+    }
+
+    val verticalGap = when {
+        a.bottom <= b.top -> b.top - a.bottom
+        b.bottom <= a.top -> a.top - b.bottom
+        else -> 0f
+    }
+    if (verticalGap > BUBBLE_DEDUP_VERTICAL_SPLIT_MAX_GAP_PX) return false
+
+    val unionTop = min(a.top, b.top)
+    val unionBottom = max(a.bottom, b.bottom)
+    val unionHeight = (unionBottom - unionTop).coerceAtLeast(1f)
+    // Require a real vertical extension, not two nearly-identical duplicates.
+    if (unionHeight <= max(heightA, heightB) * 1.08f) return false
+    // Avoid gluing two full stacked bubbles that barely touch: each half should cover a
+    // substantial share of the union (typical for tile-truncated pairs).
+    if (heightA / unionHeight < 0.28f || heightB / unionHeight < 0.28f) return false
+    return true
+}
+
+private fun rectsApproximatelyEqual(a: RectF, b: RectF): Boolean {
+    val eps = BUBBLE_DEDUP_RECT_EQUAL_EPS_PX
+    return abs(a.left - b.left) <= eps &&
+        abs(a.top - b.top) <= eps &&
+        abs(a.right - b.right) <= eps &&
+        abs(a.bottom - b.bottom) <= eps
 }
