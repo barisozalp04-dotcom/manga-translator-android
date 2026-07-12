@@ -271,6 +271,10 @@
     <string name="library_quick_actions_title">导入与工具</string>
     <string name="library_collection_label">Collection</string>
     <string name="library_collection_title">漫画项目</string>
+    <string name="library_sort_by_name">名称</string>
+    <string name="library_sort_by_time">时间</string>
+    <string name="library_sort_order_asc">升序</string>
+    <string name="library_sort_order_desc">降序</string>
     <string name="library_action_panel_label">操作面板</string>
     <string name="library_translation_settings_hint">为当前文件夹单独配置翻译语言与全文速译策略。</string>
     <string name="library_pages_label">页面列表</string>

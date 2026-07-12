@@ -271,6 +271,10 @@
     <string name="library_quick_actions_title">匯入與工具</string>
     <string name="library_collection_label">Collection</string>
     <string name="library_collection_title">漫畫專案</string>
+    <string name="library_sort_by_name">名稱</string>
+    <string name="library_sort_by_time">時間</string>
+    <string name="library_sort_order_asc">升序</string>
+    <string name="library_sort_order_desc">降序</string>
     <string name="library_action_panel_label">操作面板</string>
     <string name="library_translation_settings_hint">為目前資料夾單獨配置翻譯語言與全文速譯策略。</string>
     <string name="library_pages_label">頁面列表</string>

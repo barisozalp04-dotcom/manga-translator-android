@@ -256,6 +256,10 @@ For example: if the primary provider is 10, provider A is 5, and provider B is 5
     <string name="library_quick_actions_title">Import &amp; Tools</string>
     <string name="library_collection_label">Collection</string>
     <string name="library_collection_title">Manga Project</string>
+    <string name="library_sort_by_name">Name</string>
+    <string name="library_sort_by_time">Time</string>
+    <string name="library_sort_order_asc">Ascending</string>
+    <string name="library_sort_order_desc">Descending</string>
     <string name="library_action_panel_label">Operation panel</string>
     <string name="library_translation_settings_hint">Configure the translation language and full-text quick translation strategy separately for the current folder.</string>
     <string name="library_pages_label">Page list</string>

@@ -154,6 +154,22 @@ internal class LibraryPreferencesGateway(
         }
     }
 
+    fun getLibrarySortField(): LibrarySortField {
+        return LibrarySortField.fromPref(prefs.getString(librarySortFieldKey, null))
+    }
+
+    fun setLibrarySortField(field: LibrarySortField) {
+        prefs.edit { putString(librarySortFieldKey, field.prefValue) }
+    }
+
+    fun isLibrarySortAscending(): Boolean {
+        return prefs.getBoolean(librarySortAscendingKey, false)
+    }
+
+    fun setLibrarySortAscending(ascending: Boolean) {
+        prefs.edit { putBoolean(librarySortAscendingKey, ascending) }
+    }
+
     fun getImportTreeUri(): Uri? {
         return prefs.getString(importTreeKey, null)?.let(Uri::parse)
     }
@@ -242,6 +258,8 @@ internal class LibraryPreferencesGateway(
     private companion object {
         private const val importTreeKey = "ehviewer_tree_uri"
         private const val exportTreeKey = "export_tree_uri"
+        private const val librarySortFieldKey = "library_sort_field"
+        private const val librarySortAscendingKey = "library_sort_ascending"
         private const val fullTranslateKeyPrefix = "full_translate_enabled_"
         private const val glossaryProcessingKeyPrefix = "glossary_processing_enabled_"
         private const val languageKeyPrefix = "translation_language_"
@@ -257,5 +275,16 @@ internal class LibraryPreferencesGateway(
         )
         private const val READING_MODE_SAMPLE_COUNT = 6
         private const val WEBTOON_ASPECT_RATIO_THRESHOLD = 2.4f
+    }
+}
+
+enum class LibrarySortField(val prefValue: String) {
+    NAME("name"),
+    TIME("time");
+
+    companion object {
+        fun fromPref(value: String?): LibrarySortField {
+            return entries.firstOrNull { it.prefValue == value } ?: TIME
+        }
     }
 }

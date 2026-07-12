@@ -382,6 +382,9 @@ class LibraryFragment : Fragment() {
         binding.libraryDeleteSelected.setOnClickListener { confirmDeleteSelectedLibraryFolders() }
         binding.libraryCancelSelection.setOnClickListener { exitLibrarySelectionMode() }
         binding.libraryActiveFilter.setOnClickListener { applyFolderFilter(null) }
+        binding.librarySortField.setOnClickListener { toggleLibrarySortField() }
+        binding.librarySortOrder.setOnClickListener { toggleLibrarySortOrder() }
+        updateLibrarySortControl()
         binding.folderBackButton.setOnClickListener { navigateBackFromDetail() }
         binding.folderAddImages.setOnClickListener { handleAddContentClick() }
         binding.folderCollectionAddChapter.setOnClickListener { handleAddContentClick() }
@@ -799,7 +802,9 @@ class LibraryFragment : Fragment() {
     }
 
     private fun loadFolders() {
-        val folders = repository.listFolders()
+        val sortField = preferencesGateway.getLibrarySortField()
+        val ascending = preferencesGateway.isLibrarySortAscending()
+        val folders = repository.listFolders(sortField, ascending)
         val items = folders.map(::buildFolderItem).filter { item ->
             when (val filter = activeFolderFilter) {
                 null -> true
@@ -813,9 +818,41 @@ class LibraryFragment : Fragment() {
         )
         binding.libraryEmpty.visibility = if (items.isEmpty()) View.VISIBLE else View.GONE
         updateActiveFolderFilter()
+        updateLibrarySortControl()
         if (isLibrarySelectionMode) {
             updateLibrarySelectionActions()
         }
+    }
+
+    private fun toggleLibrarySortField() {
+        val next = when (preferencesGateway.getLibrarySortField()) {
+            LibrarySortField.NAME -> LibrarySortField.TIME
+            LibrarySortField.TIME -> LibrarySortField.NAME
+        }
+        preferencesGateway.setLibrarySortField(next)
+        loadFolders()
+    }
+
+    private fun toggleLibrarySortOrder() {
+        preferencesGateway.setLibrarySortAscending(!preferencesGateway.isLibrarySortAscending())
+        loadFolders()
+    }
+
+    private fun updateLibrarySortControl() {
+        val field = preferencesGateway.getLibrarySortField()
+        val ascending = preferencesGateway.isLibrarySortAscending()
+        binding.librarySortField.setText(
+            when (field) {
+                LibrarySortField.NAME -> R.string.library_sort_by_name
+                LibrarySortField.TIME -> R.string.library_sort_by_time
+            }
+        )
+        binding.librarySortOrder.setImageResource(
+            if (ascending) R.drawable.ic_sort_arrow_up else R.drawable.ic_sort_arrow_down
+        )
+        binding.librarySortOrder.contentDescription = getString(
+            if (ascending) R.string.library_sort_order_asc else R.string.library_sort_order_desc
+        )
     }
 
     private fun loadImages(folder: File) {
@@ -1053,7 +1090,7 @@ class LibraryFragment : Fragment() {
 
     private fun showMoveFolderPicker(folder: File) {
         val collections = repository
-            .listFolders()
+            .listFolders(LibrarySortField.NAME, ascending = true)
             .filter { it.absolutePath != folder.absolutePath }
             .filter { repository.isCollectionFolder(it) }
             .filter { it.absolutePath != folder.parentFile?.absolutePath }

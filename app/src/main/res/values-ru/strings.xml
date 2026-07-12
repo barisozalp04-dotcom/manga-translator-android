@@ -256,6 +256,10 @@
     <string name="library_quick_actions_title">Импорт и инструменты</string>
     <string name="library_collection_label">Коллекция</string>
     <string name="library_collection_title">Проект манги</string>
+    <string name="library_sort_by_name">Имя</string>
+    <string name="library_sort_by_time">Время</string>
+    <string name="library_sort_order_asc">По возрастанию</string>
+    <string name="library_sort_order_desc">По убыванию</string>
     <string name="library_action_panel_label">Панель управления</string>
     <string name="library_translation_settings_hint">Настройте язык перевода и стратегию быстрого полнотекстового перевода отдельно для текущей папки.</string>
     <string name="library_pages_label">Список страниц</string>

@@ -21,9 +21,28 @@ class LibraryRepository(private val context: Context) {
         }
     }
 
-    fun listFolders(): List<File> {
+    fun listFolders(
+        sortField: LibrarySortField = LibrarySortField.TIME,
+        ascending: Boolean = false
+    ): List<File> {
         val folders = rootDir.listFiles { file -> file.isDirectory }?.toList().orEmpty()
-        return folders.sortedBy { it.name.lowercase(Locale.getDefault()) }
+        return sortFolders(folders, sortField, ascending)
+    }
+
+    fun sortFolders(
+        folders: List<File>,
+        sortField: LibrarySortField,
+        ascending: Boolean
+    ): List<File> {
+        val comparator = when (sortField) {
+            LibrarySortField.NAME -> compareBy<File> { it.name.lowercase(Locale.getDefault()) }
+            LibrarySortField.TIME -> compareBy<File> { it.lastModified() }
+        }
+        return if (ascending) {
+            folders.sortedWith(comparator)
+        } else {
+            folders.sortedWith(comparator.reversed())
+        }
     }
 
     fun listChildFolders(folder: File): List<File> {

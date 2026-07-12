@@ -221,6 +221,7 @@ sourceSets["main"].assets.srcDirs("src/main/assets", "../assets")
 - 导入导出：`LibraryImportExportCoordinator.kt`
 - 批量翻译：`LibraryFragment.kt` 发起任务，`TranslationKeepAliveService.kt` 托管后台执行，`FolderTranslationCoordinator.kt` 负责编排具体翻译流程。
 - 首页普通文件夹和文件夹集合右侧统一提供三点菜单，包含重命名、删除和编辑标签；长按仍进入批量选择，但批量栏不再提供重命名。
+- 首页「漫画项目」标题右侧提供排序控件：左侧文案在「名称 / 时间」间切换排序字段，右侧箭头切换正序/倒序；默认按添加时间降序（新的在上）。排序偏好经 `LibraryPreferencesGateway.kt` 持久化（`library_sort_field`、`library_sort_ascending`），列表排序在 `LibraryRepository.listFolders` / `sortFolders`。
 - 用户标签通过 `LibraryPreferencesGateway.kt` 按文件夹路径持久化，显示样式复用 `bg_status_chip`。点击内置状态标签或用户标签会筛选首页列表，再次点击同一标签或点击当前筛选标签可清除筛选。
 
 当前库页支持普通文件夹和文件夹集合两类目录，集合用于组织子章节，不直接存放图片。
@@ -396,6 +397,7 @@ sourceSets["main"].assets.srcDirs("src/main/assets", "../assets")
 - 全局字体配置：`bubble_font`、`bubble_custom_font_file`、`bubble_font_bold`
 - 文件夹级配置：`full_translate_enabled_<folder>`、`glossary_processing_enabled_<folder>`、`translation_language_<folder>`、`vl_direct_translate_enabled_<folder>`、`reading_mode_<folder>`
 - 漫画库用户标签：`folder_tags_<folder>`
+- 漫画库首页排序：`library_sort_field`（`name` / `time`，默认 `time`）、`library_sort_ascending`（默认 `false`，时间降序）
 - 应用级配置：`app_language`、`link_source`、主题、并发、超时等
 
 ---
