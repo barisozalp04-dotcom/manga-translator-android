@@ -32,12 +32,18 @@ internal data class DetectionTile(
 internal data class BubblePriorityCandidate(
     val confidence: Float,
     val hasMaskContour: Boolean,
-    val area: Float
+    val area: Float,
+    val touchesInternalTileBoundary: Boolean = false
 )
 
 private data class DeduplicatedBubbleGroup(
     val detection: BubbleDetection,
     val suppressionRect: RectF
+)
+
+private data class TiledBubbleDetection(
+    val detection: BubbleDetection,
+    val touchesInternalTileBoundary: Boolean
 )
 
 internal fun shouldUseLongImageTiling(pageWidth: Int, pageHeight: Int): Boolean {
@@ -108,6 +114,97 @@ internal fun remapTileMaskContourToPage(
         index += 2
     }
     return result
+}
+
+/**
+ * Merges page-normalized tile contours into the single polygon representation used by renderers.
+ * The horizontal union envelope preserves the full extent of masks split by adjacent tile edges.
+ */
+internal fun mergePageMaskContours(
+    contours: List<FloatArray>,
+    pageHeight: Int
+): FloatArray? {
+    val validContours = contours.filter { it.size >= 6 && it.size % 2 == 0 }
+    if (validContours.isEmpty()) return null
+    if (validContours.size == 1) return validContours.first().copyOf()
+
+    var minY = 1f
+    var maxY = 0f
+    for (contour in validContours) {
+        var index = 1
+        while (index < contour.size) {
+            val y = contour[index].coerceIn(0f, 1f)
+            minY = min(minY, y)
+            maxY = max(maxY, y)
+            index += 2
+        }
+    }
+    if (maxY - minY <= CONTOUR_COORD_EPSILON) return null
+
+    val estimatedPixelRows = ((maxY - minY) * pageHeight.coerceAtLeast(1)).roundToInt()
+    val sampleCount = estimatedPixelRows.coerceIn(
+        MERGED_CONTOUR_MIN_SAMPLE_ROWS,
+        MERGED_CONTOUR_MAX_SAMPLE_ROWS
+    )
+    val leftEdge = ArrayList<Float>((sampleCount + 1) * 2)
+    val rightEdge = ArrayList<Float>((sampleCount + 1) * 2)
+    for (sample in 0..sampleCount) {
+        val y = minY + (maxY - minY) * sample / sampleCount.toFloat()
+        var rowLeft = Float.POSITIVE_INFINITY
+        var rowRight = Float.NEGATIVE_INFINITY
+        for (contour in validContours) {
+            val bounds = contourHorizontalBounds(contour, y) ?: continue
+            rowLeft = min(rowLeft, bounds.first)
+            rowRight = max(rowRight, bounds.second)
+        }
+        if (!rowLeft.isFinite() || !rowRight.isFinite() || rowRight <= rowLeft) continue
+        leftEdge.add(rowLeft.coerceIn(0f, 1f))
+        leftEdge.add(y.coerceIn(0f, 1f))
+        rightEdge.add(rowRight.coerceIn(0f, 1f))
+        rightEdge.add(y.coerceIn(0f, 1f))
+    }
+    if (leftEdge.size < 4) return null
+
+    val polygon = FloatArray(leftEdge.size + rightEdge.size)
+    leftEdge.toFloatArray().copyInto(polygon)
+    var outputIndex = leftEdge.size
+    for (index in rightEdge.size - 2 downTo 0 step 2) {
+        polygon[outputIndex] = rightEdge[index]
+        polygon[outputIndex + 1] = rightEdge[index + 1]
+        outputIndex += 2
+    }
+    return polygon
+}
+
+private fun contourHorizontalBounds(contour: FloatArray, y: Float): Pair<Float, Float>? {
+    var minX = Float.POSITIVE_INFINITY
+    var maxX = Float.NEGATIVE_INFINITY
+    val pointCount = contour.size / 2
+    for (pointIndex in 0 until pointCount) {
+        val nextPointIndex = (pointIndex + 1) % pointCount
+        val x1 = contour[pointIndex * 2]
+        val y1 = contour[pointIndex * 2 + 1]
+        val x2 = contour[nextPointIndex * 2]
+        val y2 = contour[nextPointIndex * 2 + 1]
+        val deltaY = y2 - y1
+        if (abs(deltaY) <= CONTOUR_COORD_EPSILON) {
+            if (abs(y - y1) <= CONTOUR_COORD_EPSILON) {
+                minX = min(minX, min(x1, x2))
+                maxX = max(maxX, max(x1, x2))
+            }
+            continue
+        }
+        val edgeMinY = min(y1, y2)
+        val edgeMaxY = max(y1, y2)
+        if (y < edgeMinY - CONTOUR_COORD_EPSILON || y > edgeMaxY + CONTOUR_COORD_EPSILON) {
+            continue
+        }
+        val ratio = ((y - y1) / deltaY).coerceIn(0f, 1f)
+        val x = x1 + (x2 - x1) * ratio
+        minX = min(minX, x)
+        maxX = max(maxX, x)
+    }
+    return if (minX.isFinite() && maxX.isFinite()) minX to maxX else null
 }
 
 internal fun choosePreferredBubbleCandidateIndex(
@@ -235,7 +332,7 @@ internal class PageRegionDetector(
                 detectionMode = PageRegionDetectionMode.TILED_LONG
             )
         }
-        val bubbleDetections = ArrayList<BubbleDetection>()
+        val bubbleDetections = ArrayList<TiledBubbleDetection>()
         val textRects = ArrayList<RectF>()
         var failedTileCount = 0
         for ((index, tile) in tiles.withIndex()) {
@@ -292,7 +389,7 @@ internal class PageRegionDetector(
             AppLogger.log(logTag, "Skipped $failedTileCount/${tiles.size} long-image tiles")
         }
         val deduplicatedGroups = filterLongImageBubbleGroups(
-            deduplicateBubbleDetections(bubbleDetections),
+            deduplicateBubbleDetections(bubbleDetections, pageHeight),
             pageWidth,
             pageHeight,
             logTag
@@ -397,23 +494,55 @@ internal class PageRegionDetector(
         tile: DetectionTile,
         pageWidth: Int,
         pageHeight: Int
-    ): List<BubbleDetection> {
+    ): List<TiledBubbleDetection> {
         val scaleX = tile.width / tileBitmapWidth.toFloat().coerceAtLeast(1f)
         val scaleY = tile.height / tileBitmapHeight.toFloat().coerceAtLeast(1f)
         return detections.map { detection ->
-            detection.copy(
-                rect = detection.rect.scaleBy(scaleX, scaleY).offsetBy(0f, tile.top.toFloat()),
-                maskContour = detection.maskContour?.let {
-                    remapTileMaskContourToPage(
-                        contour = it,
-                        tileTop = tile.top,
-                        tileHeight = tile.height,
-                        pageWidth = pageWidth,
-                        pageHeight = pageHeight
-                    )
-                }
+            TiledBubbleDetection(
+                detection = detection.copy(
+                    rect = detection.rect.scaleBy(scaleX, scaleY).offsetBy(0f, tile.top.toFloat()),
+                    maskContour = detection.maskContour?.let {
+                        remapTileMaskContourToPage(
+                            contour = it,
+                            tileTop = tile.top,
+                            tileHeight = tile.height,
+                            pageWidth = pageWidth,
+                            pageHeight = pageHeight
+                        )
+                    }
+                ),
+                touchesInternalTileBoundary = touchesInternalTileBoundary(
+                    detection = detection,
+                    tileBitmapHeight = tileBitmapHeight,
+                    tile = tile,
+                    pageHeight = pageHeight
+                )
             )
         }
+    }
+
+    private fun touchesInternalTileBoundary(
+        detection: BubbleDetection,
+        tileBitmapHeight: Int,
+        tile: DetectionTile,
+        pageHeight: Int
+    ): Boolean {
+        if (tileBitmapHeight <= 0) return false
+        val margin = (tileBitmapHeight * TILE_BOUNDARY_MARGIN_RATIO)
+            .coerceIn(TILE_BOUNDARY_MARGIN_MIN_PX, TILE_BOUNDARY_MARGIN_MAX_PX)
+        val contour = detection.maskContour
+        val contourMinY = contour?.let { values ->
+            values.indices.asSequence().filter { it % 2 == 1 }.minOfOrNull { values[it] }
+        }?.times(tileBitmapHeight)
+        val contourMaxY = contour?.let { values ->
+            values.indices.asSequence().filter { it % 2 == 1 }.maxOfOrNull { values[it] }
+        }?.times(tileBitmapHeight)
+        val touchesTop = tile.top > 0 &&
+            (detection.rect.top <= margin || (contourMinY != null && contourMinY <= margin))
+        val touchesBottom = tile.bottom < pageHeight &&
+            (detection.rect.bottom >= tileBitmapHeight - margin ||
+                (contourMaxY != null && contourMaxY >= tileBitmapHeight - margin))
+        return touchesTop || touchesBottom
     }
 
     private fun remapTileRectsToPage(
@@ -430,10 +559,18 @@ internal class PageRegionDetector(
     }
 
     private fun deduplicateBubbleDetections(
-        detections: List<BubbleDetection>
+        detections: List<TiledBubbleDetection>,
+        pageHeight: Int
     ): List<DeduplicatedBubbleGroup> {
         if (detections.size <= 1) {
-            return detections.map { DeduplicatedBubbleGroup(it, RectF(it.rect)) }
+            return detections.map { tiled ->
+                val detection = if (tiled.touchesInternalTileBoundary) {
+                    tiled.detection.copy(maskContour = null)
+                } else {
+                    tiled.detection
+                }
+                DeduplicatedBubbleGroup(detection, RectF(detection.rect))
+            }
         }
         val visited = BooleanArray(detections.size)
         val result = ArrayList<DeduplicatedBubbleGroup>(detections.size)
@@ -448,27 +585,32 @@ internal class PageRegionDetector(
                 component.add(current)
                 for (next in detections.indices) {
                     if (visited[next]) continue
-                    if (!shouldTreatAsSameBubble(detections[current].rect, detections[next].rect)) continue
+                    if (!shouldTreatAsSameBubble(
+                            detections[current].detection.rect,
+                            detections[next].detection.rect
+                        )
+                    ) continue
                     visited[next] = true
                     queue.add(next)
                 }
             }
             val candidates = component.map { index ->
                 BubblePriorityCandidate(
-                    confidence = detections[index].confidence,
-                    hasMaskContour = detections[index].maskContour != null,
-                    area = rectAreaValue(detections[index].rect)
+                    confidence = detections[index].detection.confidence,
+                    hasMaskContour = detections[index].detection.maskContour != null,
+                    area = rectAreaValue(detections[index].detection.rect),
+                    touchesInternalTileBoundary = detections[index].touchesInternalTileBoundary
                 )
             }
             val bestOffset = choosePreferredBubbleCandidateIndex(candidates).coerceAtLeast(0)
-            val best = detections[component[bestOffset]]
-            val firstRect = detections[component.first()].rect
+            val best = detections[component[bestOffset]].detection
+            val firstRect = detections[component.first()].detection.rect
             var left = firstRect.left
             var top = firstRect.top
             var right = firstRect.right
             var bottom = firstRect.bottom
             for (offset in 1 until component.size) {
-                val rect = detections[component[offset]].rect
+                val rect = detections[component[offset]].detection.rect
                 left = min(left, rect.left)
                 top = min(top, rect.top)
                 right = max(right, rect.right)
@@ -477,12 +619,24 @@ internal class PageRegionDetector(
             // Multi-tile detections of one balloon often only cover partial heights.
             // Keep the union rect so OCR/render are not truncated to a single tile half.
             val unionRect = RectF(left, top, right, bottom)
+            val componentContours = component.mapNotNull { index ->
+                detections[index].detection.maskContour
+            }
+            val mergedContour = if (componentContours.size >= 2) {
+                mergePageMaskContours(componentContours, pageHeight)
+            } else {
+                null
+            }
+            val fallbackContour = component.asSequence()
+                .map { detections[it] }
+                .filterNot { it.touchesInternalTileBoundary }
+                .mapNotNull { it.detection.maskContour }
+                .firstOrNull()
             result.add(
                 DeduplicatedBubbleGroup(
                     detection = best.copy(
                         rect = unionRect,
-                        // Tile contours are already remapped to page-normalized coordinates.
-                        maskContour = best.maskContour
+                        maskContour = mergedContour ?: fallbackContour
                     ),
                     suppressionRect = unionRect
                 )
@@ -696,6 +850,9 @@ private fun compareBubblePriority(
     candidate: BubblePriorityCandidate,
     currentBest: BubblePriorityCandidate
 ): Int {
+    if (candidate.touchesInternalTileBoundary != currentBest.touchesInternalTileBoundary) {
+        return if (candidate.touchesInternalTileBoundary) -1 else 1
+    }
     val confidenceDiff = candidate.confidence - currentBest.confidence
     if (abs(confidenceDiff) >= 0.02f) {
         return if (confidenceDiff > 0f) 1 else -1
@@ -760,6 +917,12 @@ private const val BUBBLE_DEDUP_VERTICAL_SPLIT_WIDTH_RATIO = 0.72f
 private const val BUBBLE_DEDUP_VERTICAL_SPLIT_CENTER_X_RATIO = 0.28f
 private const val BUBBLE_DEDUP_VERTICAL_SPLIT_AXIS_X_RATIO = 0.60f
 private const val BUBBLE_DEDUP_VERTICAL_SPLIT_MAX_GAP_PX = 12f
+private const val TILE_BOUNDARY_MARGIN_RATIO = 0.015f
+private const val TILE_BOUNDARY_MARGIN_MIN_PX = 4f
+private const val TILE_BOUNDARY_MARGIN_MAX_PX = 20f
+private const val MERGED_CONTOUR_MIN_SAMPLE_ROWS = 8
+private const val MERGED_CONTOUR_MAX_SAMPLE_ROWS = 160
+private const val CONTOUR_COORD_EPSILON = 1e-5f
 
 private fun rectIou(a: RectF, b: RectF): Float {
     val inter = rectIntersectionArea(a, b)

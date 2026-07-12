@@ -173,6 +173,54 @@ class PageRegionDetectorTest {
     }
 
     @Test
+    fun `bubble priority rejects tile boundary contour even when confidence is higher`() {
+        val best = choosePreferredBubbleCandidateIndex(
+            listOf(
+                BubblePriorityCandidate(
+                    confidence = 0.78f,
+                    hasMaskContour = true,
+                    area = 180f,
+                    touchesInternalTileBoundary = false
+                ),
+                BubblePriorityCandidate(
+                    confidence = 0.91f,
+                    hasMaskContour = true,
+                    area = 220f,
+                    touchesInternalTileBoundary = true
+                )
+            )
+        )
+
+        assertEquals(0, best)
+    }
+
+    @Test
+    fun `tile contour merge covers upper and lower partial masks`() {
+        val upper = floatArrayOf(
+            0.20f, 0.20f,
+            0.20f, 0.52f,
+            0.60f, 0.52f,
+            0.60f, 0.20f
+        )
+        val lower = floatArrayOf(
+            0.22f, 0.46f,
+            0.22f, 0.80f,
+            0.62f, 0.80f,
+            0.62f, 0.46f
+        )
+
+        val merged = mergePageMaskContours(listOf(upper, lower), pageHeight = 7000)
+
+        requireNotNull(merged)
+        val xs = merged.indices.filter { it % 2 == 0 }.map { merged[it] }
+        val ys = merged.indices.filter { it % 2 == 1 }.map { merged[it] }
+        assertEquals(0.20f, xs.min(), 1e-4f)
+        assertEquals(0.62f, xs.max(), 1e-4f)
+        assertEquals(0.20f, ys.min(), 1e-4f)
+        assertEquals(0.80f, ys.max(), 1e-4f)
+    }
+
+    @Test
     fun `bubble dedup matches highly overlapping or contained rectangles`() {
         val overlappingA = RectF(0f, 0f, 100f, 100f)
         val overlappingB = RectF(5f, 5f, 95f, 95f)
@@ -205,6 +253,6 @@ class PageRegionDetectorTest {
     @Test
     fun `detection strategy tag switches between full and tiled modes`() {
         assertEquals("det_full_v1", buildDetectionStrategyTag(pageWidth = 1600, pageHeight = 3000))
-        assertEquals("det_tiled_long_v6", buildDetectionStrategyTag(pageWidth = 1000, pageHeight = 4096))
+        assertEquals("det_tiled_long_v7", buildDetectionStrategyTag(pageWidth = 1000, pageHeight = 4096))
     }
 }
