@@ -70,7 +70,10 @@ class TranslationKeepAliveService : Service() {
             ACTION_START_TRANSLATION_TASK -> {
                 val descriptor = loadDescriptor(intent)
                 if (descriptor == null) {
-                    stopIdleTranslationTask(clearPersistedTask = false)
+                    finishIdleTask(
+                        clearPersistedTask = false,
+                        reEnableTranslationActions = true
+                    )
                     return START_NOT_STICKY
                 }
                 startTranslationTask(descriptor)
@@ -79,16 +82,37 @@ class TranslationKeepAliveService : Service() {
                 if (translationJob?.isActive != true) {
                     val descriptor = taskPersistence.load()
                     if (descriptor == null) {
-                        stopIdleTranslationTask(clearPersistedTask = true)
+                        finishIdleTask(
+                            clearPersistedTask = true,
+                            reEnableTranslationActions = true
+                        )
                         return START_NOT_STICKY
                     }
                     startTranslationTask(descriptor)
                 }
             }
             else -> {
-                // null intent (STICKY restart with no pending task) or unknown action
-                stopIdleTranslationTask(clearPersistedTask = false)
-                return START_NOT_STICKY
+                // Keep an in-flight translation running; export/unknown starts must not kill it.
+                if (translationJob?.isActive == true) {
+                    return START_STICKY
+                }
+                if (intent == null) {
+                    // System STICKY restart: resume persisted task if present.
+                    val pending = taskPersistence.load()
+                    if (pending != null) {
+                        currentTaskLabel = describeTaskLabel(this, pending)
+                        startTranslationTask(pending)
+                        return START_STICKY
+                    }
+                    finishIdleTask(
+                        clearPersistedTask = false,
+                        reEnableTranslationActions = true
+                    )
+                    return START_NOT_STICKY
+                }
+                // Export / legacy keep-alive: hold the foreground service without touching
+                // translation persistence or auto-resuming a pending translation task.
+                return START_STICKY
             }
         }
         return START_STICKY
@@ -96,7 +120,13 @@ class TranslationKeepAliveService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
-        translationJob?.cancel()
+        val activeJob = translationJob
+        translationJob = null
+        if (activeJob?.isActive == true) {
+            // Service teardown is not a user cancel; still free UI and drop this process's job.
+            activeJob.cancel()
+            LibraryUiBridge.setTranslationActionsEnabled(true)
+        }
         releaseLocalModelLease()
         serviceScope.cancel()
         releaseWakeLock()
@@ -138,12 +168,21 @@ class TranslationKeepAliveService : Service() {
         }.getOrNull()
     }
 
-    private fun stopIdleTranslationTask(clearPersistedTask: Boolean) {
+    private fun finishIdleTask(
+        clearPersistedTask: Boolean,
+        reEnableTranslationActions: Boolean
+    ) {
+        // Never tear down while a translation job is still running.
+        if (translationJob?.isActive == true) return
         cancelActionEnabled = false
         if (clearPersistedTask) {
             taskPersistence.clear()
         }
+        if (reEnableTranslationActions) {
+            LibraryUiBridge.setTranslationActionsEnabled(true)
+        }
         GlobalTaskProgressStore.hide()
+        releaseLocalModelLease()
         releaseWakeLock()
         stopSelf()
     }
@@ -167,11 +206,10 @@ class TranslationKeepAliveService : Service() {
                 getString(R.string.translation_keepalive_title),
                 getString(R.string.translation_failed)
             )
-            translationActionsCallback(true)
-            taskPersistence.clear()
-            releaseLocalModelLease()
-            releaseWakeLock()
-            stopSelf()
+            finishIdleTask(
+                clearPersistedTask = true,
+                reEnableTranslationActions = true
+            )
             return
         }
         translationJob = when (descriptor.mode) {
@@ -182,11 +220,10 @@ class TranslationKeepAliveService : Service() {
                         getString(R.string.translation_keepalive_title),
                         getString(R.string.translation_failed)
                     )
-                    translationActionsCallback(true)
-                    taskPersistence.clear()
-                    releaseLocalModelLease()
-                    releaseWakeLock()
-                    stopSelf()
+                    finishIdleTask(
+                        clearPersistedTask = true,
+                        reEnableTranslationActions = true
+                    )
                     return
                 }
                 coordinator.translateCollection(
@@ -221,9 +258,10 @@ class TranslationKeepAliveService : Service() {
         if (translationJob == null) {
             // The coordinator may return null when everything is already done,
             // inputs are empty, or startup validation fails before launching a job.
-            translationActionsCallback(true)
-            releaseLocalModelLease()
-            stopIdleTranslationTask(clearPersistedTask = true)
+            finishIdleTask(
+                clearPersistedTask = true,
+                reEnableTranslationActions = true
+            )
             return
         }
         translationJob?.invokeOnCompletion {

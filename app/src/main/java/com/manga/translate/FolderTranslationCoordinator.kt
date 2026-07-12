@@ -17,6 +17,7 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
@@ -1016,7 +1017,15 @@ internal class FolderTranslationCoordinator(
                 }
             )
         }
-        return resolution.await()
+        val action = withTimeoutOrNull(MODEL_ERROR_RESOLUTION_TIMEOUT_MS) {
+            resolution.await()
+        }
+        if (action == null) {
+            AppLogger.log("Library", "Model error dialog timed out; skipping page")
+            TranslationKeepAliveService.clearModelErrorAttention(appContext)
+            return ModelErrorAction.SKIP
+        }
+        return action
     }
 
     private suspend fun executeConcurrentStandardPages(
@@ -1927,6 +1936,7 @@ internal class FolderTranslationCoordinator(
 
     private companion object {
         private const val USER_CANCELED_REASON = "user_canceled_translation"
+        private const val MODEL_ERROR_RESOLUTION_TIMEOUT_MS = 120_000L
         private const val STANDARD_PROMPT_ASSET = "prompts/llm_prompts.json"
     }
 }

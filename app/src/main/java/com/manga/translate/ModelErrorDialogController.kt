@@ -52,9 +52,7 @@ internal class ModelErrorDialogController(
     }
 
     fun onDestroy() {
-        activeDialog?.dismiss()
-        activeDialog = null
-        activeRequest = null
+        resolveAllAsSkip()
     }
 
     private fun showNext() {
@@ -91,14 +89,37 @@ internal class ModelErrorDialogController(
     }
 
     private fun requeue(request: PendingRequest) {
-        if (!fragment.isAdded) return
+        if (!fragment.isAdded) {
+            request.onSkip?.invoke()
+            return
+        }
         activeRequest = null
         activeDialog = null
         fragment.viewLifecycleOwner.lifecycleScope.launch {
             delay(15_000L)
-            if (!fragment.isAdded || fragment.view == null) return@launch
+            if (!fragment.isAdded || fragment.view == null) {
+                request.onSkip?.invoke()
+                return@launch
+            }
             pending.addFirst(request)
             showNext()
+        }
+    }
+
+    private fun resolveAllAsSkip() {
+        val toSkip = ArrayList<PendingRequest>(pending.size + 1)
+        activeRequest?.let(toSkip::add)
+        toSkip.addAll(pending)
+        pending.clear()
+        activeRequest = null
+        val dialog = activeDialog
+        activeDialog = null
+        if (dialog != null) {
+            dialog.setOnDismissListener(null)
+            runCatching { dialog.dismiss() }
+        }
+        toSkip.forEach { request ->
+            runCatching { request.onSkip?.invoke() }
         }
     }
 }

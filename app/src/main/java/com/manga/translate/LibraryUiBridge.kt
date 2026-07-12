@@ -51,10 +51,16 @@ internal object LibraryUiBridge {
             onSkip?.invoke()
             return
         }
+        var delivered = false
         for (callback in snapshot) {
             if (!callbacks.contains(callback)) continue
             if (!callback.isUiAttached()) continue
             callback.showModelError(content, useSystemOverlay, onRetry, onSkip)
+            delivered = true
+        }
+        // Avoid hanging reportModelError().await() when callbacks exist but none can show UI.
+        if (!delivered) {
+            onSkip?.invoke()
         }
     }
 

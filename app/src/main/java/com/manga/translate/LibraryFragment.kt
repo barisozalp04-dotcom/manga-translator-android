@@ -1405,7 +1405,10 @@ class LibraryFragment : Fragment() {
     }
 
     private fun isImageTranslated(image: File, folder: File): Boolean {
-        return translationStore.translationFileFor(image).exists()
+        // Align list/folder badges with engine skip rules: only SUCCESS or manual counts.
+        val result = translationStore.load(image) ?: return false
+        if (result.metadata.isManual()) return true
+        return result.metadata.status == PageTranslationStatus.SUCCESS
     }
 
     private fun buildFolderTitle(folder: File): String {
