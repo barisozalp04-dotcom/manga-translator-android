@@ -1,6 +1,7 @@
 package com.manga.translate
 
 import android.content.Context
+import android.util.Log
 import java.io.BufferedOutputStream
 import java.io.File
 import java.io.FileOutputStream
@@ -47,13 +48,57 @@ object AppLogger {
         writeLog(LEVEL_ERROR, tag, message, throwable)
     }
 
+    /**
+     * Write a crash/fatal record and force it onto disk before the process dies.
+     * Also mirrors to a dedicated `crash_latest.log` so the last crash is easy to find.
+     * Call this from uncaught-exception handlers only.
+     */
+    fun logFatal(tag: String, message: String, throwable: Throwable? = null) {
+        writeLog(LEVEL_ERROR, tag, message, throwable, forceSync = true)
+        writeCrashSnapshot(tag, message, throwable)
+    }
+
+    private fun writeCrashSnapshot(tag: String, message: String, throwable: Throwable?) {
+        val dir = logDir ?: return
+        val time = formatter.format(Date())
+        val body = buildString {
+            append('[')
+            append(LEVEL_ERROR)
+            append("][")
+            append(tag)
+            append("] ")
+            append(time)
+            append("  ")
+            append(message)
+            if (throwable != null) {
+                append(" | ")
+                append(throwable::class.java.simpleName)
+                append(": ")
+                append(throwable.message ?: "no message")
+                append('\n')
+                append(stackTraceString(throwable))
+            }
+            append('\n')
+        }
+        try {
+            val snapshot = File(dir, "crash_latest.log")
+            FileOutputStream(snapshot, false).use { out ->
+                out.write(body.toByteArray(Charsets.UTF_8))
+                out.flush()
+                out.fd.sync()
+            }
+        } catch (e: Exception) {
+            Log.e("MangaTranslate/AppLogger", "Failed to write crash_latest.log", e)
+        }
+    }
+
     private fun writeLog(
         level: String,
         tag: String,
         message: String,
-        throwable: Throwable? = null
+        throwable: Throwable? = null,
+        forceSync: Boolean = false
     ) {
-        val file = logFile ?: return
         val time = formatter.format(Date())
         val separator = "  "
         val line = buildString {
@@ -76,11 +121,37 @@ object AppLogger {
             }
             append('\n')
         }
+        // Always mirror to logcat so adb/tombstone paths still have a trail.
+        if (throwable != null || level == LEVEL_ERROR) {
+            Log.e("MangaTranslate/$tag", message, throwable)
+        } else {
+            Log.i("MangaTranslate/$tag", message)
+        }
+        val file = logFile ?: return
         synchronized(this) {
-            if (file.exists() && file.length() > MAX_LOG_BYTES) {
-                file.writeText("[AppLogger] $time${separator}Log rotated\n")
+            try {
+                if (file.exists() && file.length() > MAX_LOG_BYTES) {
+                    // Truncate oversized log; keep a rotation marker.
+                    FileOutputStream(file, false).use { out ->
+                        val marker = "[AppLogger] $time${separator}Log rotated\n".toByteArray(Charsets.UTF_8)
+                        out.write(marker)
+                        out.flush()
+                        if (forceSync) {
+                            out.fd.sync()
+                        }
+                    }
+                }
+                FileOutputStream(file, true).use { out ->
+                    out.write(line.toByteArray(Charsets.UTF_8))
+                    out.flush()
+                    if (forceSync || throwable != null) {
+                        // Best-effort durability: crash/error lines should survive process death.
+                        out.fd.sync()
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("MangaTranslate/AppLogger", "Failed to write log file", e)
             }
-            file.appendText(line)
         }
     }
 

@@ -249,7 +249,7 @@ sourceSets["main"].assets.srcDirs("src/main/assets", "../assets")
 - `TranslationKeepAliveService.kt` 持有自己的 `CoroutineScope` 和 `Job`，真正负责文件夹翻译、合集翻译和批量翻译的执行生命周期。
 - `TranslationKeepAliveService.kt` 在后台翻译结束后会补发系统通知（成功 / 失败 / 取消），点击后回到漫画库页查看结果。
 - `FolderTranslationCoordinator.kt` 仍负责翻译编排，但不再负责启动/停止保活服务；它现在向上返回真实任务 `Job`，由 Service 持有。
-- `TranslationTaskPersistence.kt` 会持久化当前任务描述；`MangaTranslateApp.kt` 启动时如果发现有未完成任务，会调用 `resumePendingTask(...)` 尝试恢复。
+- `TranslationTaskPersistence.kt` 会持久化当前任务描述；`MangaTranslateApp.kt` 启动时如果发现有未完成任务且上次运行未崩溃，会调用 `resumePendingTask(...)` 尝试恢复。崩溃时（未捕获异常）会立即清空任务描述；下次启动若仍带有崩溃标记，也会丢弃待恢复任务，避免反复自动恢复导致崩溃循环。
 - `LibraryUiBridge.kt` 与 `ServiceLibraryUiCallbacks.kt` 用来把后台 Service 中的状态、Toast、刷新请求和模型错误对话框转发给当前附着的 Library UI。
 
 当前文本气泡翻译逻辑已做一轮收敛：
@@ -419,6 +419,7 @@ sourceSets["main"].assets.srcDirs("src/main/assets", "../assets")
 
 - 日志入口：`AppLogger.kt`
 - 日志目录优先位于外部私有目录上级的 `log/`，回退到 `files/logs/`
+- 崩溃：`Thread` 未捕获异常会 `AppLogger.logFatal`（`fd.sync` 刷盘）并写 `crash_latest.log`；协程未捕获异常由 `TranslationKeepAliveService` 的 `CoroutineExceptionHandler` 同样落盘。Native 崩溃（如 ONNX SIGSEGV）不会进入 Java handler，需用 `adb logcat` / tombstone 排查。
 - 构建或运行问题优先检查：
   - Gradle / SDK 版本
   - `AndroidManifest.xml` 权限声明

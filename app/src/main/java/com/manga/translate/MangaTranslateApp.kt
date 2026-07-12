@@ -42,19 +42,29 @@ class MangaTranslateApp : Application() {
         AppCompatDelegate.setDefaultNightMode(themeMode.nightMode)
         val crashStateStore = appContainer.crashStateStore
         val previousHandler = Thread.getDefaultUncaughtExceptionHandler()
+        val taskPersistence = TranslationTaskPersistence(this)
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
-            AppLogger.log("Crash", "Uncaught exception on ${thread.name}", throwable)
+            // Force-sync so the stack survives process death (appendText alone is often lost).
+            AppLogger.logFatal("Crash", "Uncaught exception on ${thread.name}", throwable)
             crashStateStore.markCrashed()
+            // Drop in-flight translation so the next cold start does not resume a crashing task.
+            taskPersistence.clear()
             previousHandler?.uncaughtException(thread, throwable)
         }
-        val taskPersistence = TranslationTaskPersistence(this)
         val pendingTask = taskPersistence.load()
         if (pendingTask != null) {
             val ageMs = System.currentTimeMillis() - pendingTask.startedAtEpochMs
-            if (ageMs < 24 * 60 * 60 * 1000L) {
-                TranslationKeepAliveService.resumePendingTask(this)
-            } else {
+            val crashedLastRun = crashStateStore.wasCrashedLastRun()
+            if (crashedLastRun || ageMs >= 24 * 60 * 60 * 1000L) {
+                if (crashedLastRun) {
+                    AppLogger.log(
+                        "Library",
+                        "Discarding pending translation after crash: mode=${pendingTask.mode}"
+                    )
+                }
                 taskPersistence.clear()
+            } else {
+                TranslationKeepAliveService.resumePendingTask(this)
             }
         }
     }

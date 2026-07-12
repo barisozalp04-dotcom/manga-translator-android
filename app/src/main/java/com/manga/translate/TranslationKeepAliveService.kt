@@ -15,6 +15,7 @@ import android.os.PowerManager
 import androidx.core.app.NotificationCompat
 import com.manga.translate.di.appContainer
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -24,7 +25,13 @@ import java.io.File
 
 class TranslationKeepAliveService : Service() {
     private var wakeLock: PowerManager.WakeLock? = null
-    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private val serviceExceptionHandler = CoroutineExceptionHandler { _, throwable ->
+        AppLogger.logFatal("TranslationKeepAlive", "Uncaught coroutine exception", throwable)
+        applicationContext.appContainer.crashStateStore.markCrashed()
+        taskPersistence.clear()
+    }
+    private val serviceScope =
+        CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate + serviceExceptionHandler)
     private val taskPersistence by lazy(LazyThreadSafetyMode.NONE) {
         TranslationTaskPersistence(applicationContext)
     }
@@ -80,6 +87,14 @@ class TranslationKeepAliveService : Service() {
             }
             ACTION_RESUME_TRANSLATION_TASK -> {
                 if (translationJob?.isActive != true) {
+                    if (applicationContext.appContainer.crashStateStore.wasCrashedLastRun()) {
+                        AppLogger.log("Library", "Skip resume: last run crashed")
+                        finishIdleTask(
+                            clearPersistedTask = true,
+                            reEnableTranslationActions = true
+                        )
+                        return START_NOT_STICKY
+                    }
                     val descriptor = taskPersistence.load()
                     if (descriptor == null) {
                         finishIdleTask(
@@ -97,8 +112,17 @@ class TranslationKeepAliveService : Service() {
                     return START_STICKY
                 }
                 if (intent == null) {
-                    // System STICKY restart: resume persisted task if present.
+                    // System STICKY restart: resume only if task is still valid and last run did not crash.
+                    val crashedLastRun = applicationContext.appContainer.crashStateStore.wasCrashedLastRun()
                     val pending = taskPersistence.load()
+                    if (crashedLastRun) {
+                        AppLogger.log("Library", "STICKY restart after crash — discarding pending translation")
+                        finishIdleTask(
+                            clearPersistedTask = true,
+                            reEnableTranslationActions = true
+                        )
+                        return START_NOT_STICKY
+                    }
                     if (pending != null) {
                         currentTaskLabel = describeTaskLabel(this, pending)
                         startTranslationTask(pending)
