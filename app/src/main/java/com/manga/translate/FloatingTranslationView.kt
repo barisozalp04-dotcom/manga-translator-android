@@ -6,6 +6,7 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Path
+import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.Typeface
 import android.text.Layout
@@ -17,7 +18,6 @@ import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
-import androidx.core.graphics.withTranslation
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -108,9 +108,17 @@ class FloatingTranslationView @JvmOverloads constructor(
     private val hitRect = RectF()
     private val deleteRect = RectF()
     private val resizeRect = RectF()
+    private val localVisibleRect = Rect()
+    private val cullRect = RectF()
     private val offsets = mutableMapOf<Int, Pair<Float, Float>>()
+    private val pathCache = mutableMapOf<Int, CachedBubblePath>()
     private var scaleX = 1f
     private var scaleY = 1f
+    private var drawInvalidateScheduled = false
+    private val drawInvalidateRunnable = Runnable {
+        drawInvalidateScheduled = false
+        invalidate()
+    }
     private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
     private val swipeThreshold = touchSlop * 2f
     private var downX = 0f
@@ -170,6 +178,12 @@ class FloatingTranslationView @JvmOverloads constructor(
     private var hadMultiplePointers = false
     private var interactionActive = false
 
+    private data class CachedBubblePath(
+        val signature: Long,
+        val path: Path,
+        val bounds: RectF
+    )
+
     init {
         isClickable = true
         isFocusable = true
@@ -195,12 +209,15 @@ class FloatingTranslationView @JvmOverloads constructor(
         typefaceLoadJob?.cancel()
         viewJob.cancel()
         removeCallbacks(longPressRunnable)
+        removeCallbacks(drawInvalidateRunnable)
+        drawInvalidateScheduled = false
+        pathCache.clear()
     }
 
     fun setGestureInteracting(active: Boolean) {
         if (interactionActive == active) return
         interactionActive = active
-        invalidate()
+        requestFullRedraw()
     }
 
     fun setTranslations(result: TranslationResult?) {
@@ -209,8 +226,9 @@ class FloatingTranslationView @JvmOverloads constructor(
         imageHeight = result?.height ?: 0
         currentImageName = result?.imageName
         bubbleColorCache.clear()
+        pathCache.clear()
         updateScale()
-        invalidate()
+        requestFullRedraw()
     }
 
     fun setCurrentImageName(imageName: String?) {
@@ -221,38 +239,40 @@ class FloatingTranslationView @JvmOverloads constructor(
         if (sourceBitmap === bitmap) return
         sourceBitmap = bitmap
         bubbleColorCache.clear()
-        invalidate()
+        requestFullRedraw()
     }
 
     fun setSourceImageFile(imageFile: java.io.File?) {
         if (sourceImageFile?.absolutePath == imageFile?.absolutePath) return
         sourceImageFile = imageFile
         bubbleColorCache.clear()
-        invalidate()
+        requestFullRedraw()
     }
 
     fun setDisplayRect(rect: RectF) {
         displayRect.set(rect)
+        pathCache.clear()
         updateScale()
-        invalidate()
+        requestFullRedraw()
     }
 
     fun setOffsets(values: Map<Int, Pair<Float, Float>>) {
         offsets.clear()
         offsets.putAll(values)
-        invalidate()
+        pathCache.clear()
+        requestFullRedraw()
     }
 
     fun setVerticalLayoutEnabled(enabled: Boolean) {
         verticalLayoutEnabled = enabled
-        invalidate()
+        requestFullRedraw()
     }
 
     fun setContentZoomScale(scale: Float) {
         val normalized = scale.coerceAtLeast(1f)
         if (kotlin.math.abs(contentZoomScale - normalized) < 0.001f) return
         contentZoomScale = normalized
-        invalidate()
+        requestFullRedraw()
     }
 
     fun setEditMode(enabled: Boolean) {
@@ -274,7 +294,7 @@ class FloatingTranslationView @JvmOverloads constructor(
         longPressTriggered = false
         removeCallbacks(longPressRunnable)
         parent?.requestDisallowInterceptTouchEvent(false)
-        invalidate()
+        requestFullRedraw()
     }
 
     fun setCreateBubbleMode(enabled: Boolean) {
@@ -284,7 +304,7 @@ class FloatingTranslationView @JvmOverloads constructor(
         createDrawingRect.setEmpty()
         createPreviewRect.setEmpty()
         exitResizeMode(animate = false)
-        invalidate()
+        requestFullRedraw()
     }
 
     fun isInCreateBubbleMode(): Boolean = createBubbleMode
@@ -318,7 +338,8 @@ class FloatingTranslationView @JvmOverloads constructor(
         if (typefaceSourceChanged || cachedTypeface == null) {
             loadTypefaceAsync()
         }
-        invalidate()
+        pathCache.clear()
+        requestFullRedraw()
     }
 
     fun setTouchPassthroughEnabled(enabled: Boolean) {
@@ -335,7 +356,7 @@ class FloatingTranslationView @JvmOverloads constructor(
         if (editOverflowTop == normalizedTop && editOverflowBottom == normalizedBottom) return
         editOverflowTop = normalizedTop
         editOverflowBottom = normalizedBottom
-        invalidate()
+        requestFullRedraw()
     }
 
     fun getOffsets(): Map<Int, Pair<Float, Float>> {
@@ -351,11 +372,13 @@ class FloatingTranslationView @JvmOverloads constructor(
         super.onDraw(canvas)
         if (bubbles.isEmpty() && !createBubbleMode) return
         if (imageWidth <= 0 || imageHeight <= 0) return
+        updateCullRect(canvas)
         for (bubble in bubbles) {
             // User-created empty frames stay visible outside edit mode so failed OCR
             // does not look like the bubble vanished.
             if (!bubble.hasDisplayText() && !editMode && bubble.source != BubbleSource.MANUAL) continue
             updateBubbleRect(bubbleRect, bubble)
+            if (!RectF.intersects(bubbleRect, cullRect)) continue
             drawBubble(canvas, bubble)
             if (editMode && bubble.isOwnedBy(currentImageName)) {
                 drawDeleteIcon(canvas, bubbleRect)
@@ -370,8 +393,10 @@ class FloatingTranslationView @JvmOverloads constructor(
             }
             if (targetBubble != null) {
                 updateBubbleRect(bubbleRect, targetBubble)
-                drawResizeModeHighlight(canvas, bubbleRect)
-                drawResizeModeHandle(canvas, bubbleRect)
+                if (RectF.intersects(bubbleRect, cullRect)) {
+                    drawResizeModeHighlight(canvas, bubbleRect)
+                    drawResizeModeHandle(canvas, bubbleRect)
+                }
             }
         }
         if (editMode && createBubbleMode && !createPreviewRect.isEmpty) {
@@ -518,7 +543,7 @@ class FloatingTranslationView @JvmOverloads constructor(
                     resizeDragBaseRect = null
                     resizeDragWorkingRect.setEmpty()
                     activeId = null
-                    invalidate()
+                    requestFullRedraw()
                     return true
                 }
                 if (resizeModeId != null) {
@@ -608,7 +633,7 @@ class FloatingTranslationView @JvmOverloads constructor(
                 resizeDragBaseRect = null
                 resizeDragWorkingRect.setEmpty()
                 pendingResizeEntry = null
-                invalidate()
+                requestFullRedraw()
                 return true
             }
         }
@@ -623,7 +648,7 @@ class FloatingTranslationView @JvmOverloads constructor(
     private fun endInteraction() {
         if (!interactionActive) return
         interactionActive = false
-        invalidate()
+        requestFullRedraw()
     }
 
     private fun updateOffset(dx: Float, dy: Float) {
@@ -646,8 +671,9 @@ class FloatingTranslationView @JvmOverloads constructor(
         newX = min(max(newX, minX), maxX)
         newY = min(max(newY, minY), maxY)
         offsets[id] = newX to newY
+        pathCache.remove(id)
         onOffsetChanged?.invoke(id, newX, newY)
-        invalidate()
+        requestInteractionRedraw()
     }
 
     private fun screenToImageX(screenX: Float): Float {
@@ -674,7 +700,7 @@ class FloatingTranslationView @JvmOverloads constructor(
                 createDrawingRect.set(createDownImageX, createDownImageY, createDownImageX, createDownImageY)
                 createPreviewRect.setEmpty()
                 parent?.requestDisallowInterceptTouchEvent(true)
-                invalidate()
+                requestInteractionRedraw()
                 return true
             }
             MotionEvent.ACTION_MOVE -> {
@@ -693,7 +719,7 @@ class FloatingTranslationView @JvmOverloads constructor(
                     imageToScreenX(createDrawingRect.right),
                     imageToScreenY(createDrawingRect.bottom)
                 )
-                invalidate()
+                requestInteractionRedraw()
                 return true
             }
             MotionEvent.ACTION_UP -> {
@@ -704,7 +730,7 @@ class FloatingTranslationView @JvmOverloads constructor(
                 createDrawingRect.setEmpty()
                 createPreviewRect.setEmpty()
                 parent?.requestDisallowInterceptTouchEvent(false)
-                invalidate()
+                requestFullRedraw()
                 val minSize = 24f * resources.displayMetrics.density
                 val screenWidth = created.width() * scaleX
                 val screenHeight = created.height() * scaleY
@@ -719,7 +745,7 @@ class FloatingTranslationView @JvmOverloads constructor(
                 createDrawingRect.setEmpty()
                 createPreviewRect.setEmpty()
                 parent?.requestDisallowInterceptTouchEvent(false)
-                invalidate()
+                requestFullRedraw()
                 return true
             }
         }
@@ -737,7 +763,7 @@ class FloatingTranslationView @JvmOverloads constructor(
         newRight = max(base.left + minImageSize, newRight).coerceAtMost(imageWidth.toFloat() + overflowW)
         newBottom = max(base.top + minImageSize, newBottom).coerceAtMost(imageHeight.toFloat() + overflowH)
         resizeDragWorkingRect.set(base.left, base.top, newRight, newBottom)
-        invalidate()
+        requestInteractionRedraw()
     }
 
     fun enterResizeMode(bubbleId: Int) {
@@ -774,7 +800,7 @@ class FloatingTranslationView @JvmOverloads constructor(
             animateResizeModeExit()
         } else {
             resizeModeAlpha = 0f
-            invalidate()
+            requestFullRedraw()
         }
     }
 
@@ -785,7 +811,7 @@ class FloatingTranslationView @JvmOverloads constructor(
             interpolator = android.view.animation.DecelerateInterpolator()
             addUpdateListener {
                 resizeModeAlpha = it.animatedValue as Float
-                invalidate()
+                requestInteractionRedraw()
             }
             start()
         }
@@ -798,12 +824,12 @@ class FloatingTranslationView @JvmOverloads constructor(
             interpolator = android.view.animation.AccelerateInterpolator()
             addUpdateListener {
                 resizeModeAlpha = it.animatedValue as Float
-                invalidate()
+                requestInteractionRedraw()
             }
             addListener(object : android.animation.AnimatorListenerAdapter() {
                 override fun onAnimationEnd(animation: android.animation.Animator) {
                     resizeModeAlpha = 0f
-                    invalidate()
+                    requestFullRedraw()
                 }
             })
             start()
@@ -920,8 +946,39 @@ class FloatingTranslationView @JvmOverloads constructor(
         val shrinkPercent = resolveBubbleShrinkPercent(bubble)
         val opacityAlpha = resolveBubbleOpacityAlpha(bubble)
         resolveBubbleFillColor(bubble, offset, opacityAlpha)
+        val drawPath = resolveBubblePath(bubble, offset, shrinkPercent) ?: return
+        if (bubbleBounds.width() <= 0f || bubbleBounds.height() <= 0f) return
+        // Empty bubbles still need a filled frame in edit mode; text layout can exit early.
+        val hasText = bubble.hasDisplayText()
+        if (interactionActive || !hasText) {
+            canvas.drawPath(drawPath, fillPaint)
+            return
+        }
+        val effectiveMinArea = bubbleRenderSettings.minAreaPerCharSp * contentZoomScale * contentZoomScale
+        val textRect = BubbleTextScaling.resolveAreaAdjustedTextRect(
+            bubble.text, drawPath, effectiveMinArea, resources.displayMetrics.density
+        )
+        canvas.drawPath(drawPath, fillPaint)
+        if (textRect.width() <= 0f || textRect.height() <= 0f) return
+        drawTextInRect(canvas, bubble.text, textRect)
+    }
+
+    private fun resolveBubblePath(
+        bubble: BubbleTranslation,
+        offset: Pair<Float, Float>,
+        shrinkPercent: Int
+    ): Path? {
+        // Resize drag only updates highlight/handle via working rect; fill path stays on
+        // the committed bubble geometry until onBubbleResized commits a new rect.
+        val signature = pathCacheSignature(bubble, offset, shrinkPercent)
+        val cached = pathCache[bubble.id]
+        if (cached != null && cached.signature == signature) {
+            bubbleBounds.set(cached.bounds)
+            return cached.path
+        }
+        val path = Path()
         BubbleShapePaths.buildPath(
-            outPath = bubblePath,
+            outPath = path,
             bubble = bubble,
             sourceWidth = imageWidth,
             sourceHeight = imageHeight,
@@ -933,21 +990,91 @@ class FloatingTranslationView @JvmOverloads constructor(
             offsetY = offset.second,
             shrinkPercent = shrinkPercent
         )
-        bubblePath.computeBounds(bubbleBounds, true)
-        if (bubbleBounds.width() <= 0f || bubbleBounds.height() <= 0f) return
-        // Empty bubbles still need a filled frame in edit mode; text layout can exit early.
-        val hasText = bubble.hasDisplayText()
-        if (interactionActive || !hasText) {
-            canvas.drawPath(bubblePath, fillPaint)
+        path.computeBounds(bubbleBounds, true)
+        if (bubbleBounds.width() <= 0f || bubbleBounds.height() <= 0f) {
+            pathCache.remove(bubble.id)
+            return null
+        }
+        pathCache[bubble.id] = CachedBubblePath(
+            signature = signature,
+            path = path,
+            bounds = RectF(bubbleBounds)
+        )
+        return path
+    }
+
+    private fun pathCacheSignature(
+        bubble: BubbleTranslation,
+        offset: Pair<Float, Float>,
+        shrinkPercent: Int
+    ): Long {
+        var hash = bubble.id.toLong()
+        hash = hash * 31 + imageWidth
+        hash = hash * 31 + imageHeight
+        hash = hash * 31 + floatBits(displayRect.left)
+        hash = hash * 31 + floatBits(displayRect.top)
+        hash = hash * 31 + floatBits(displayRect.right)
+        hash = hash * 31 + floatBits(displayRect.bottom)
+        hash = hash * 31 + floatBits(scaleX)
+        hash = hash * 31 + floatBits(scaleY)
+        hash = hash * 31 + floatBits(offset.first)
+        hash = hash * 31 + floatBits(offset.second)
+        hash = hash * 31 + shrinkPercent
+        hash = hash * 31 + floatBits(bubble.rect.left)
+        hash = hash * 31 + floatBits(bubble.rect.top)
+        hash = hash * 31 + floatBits(bubble.rect.right)
+        hash = hash * 31 + floatBits(bubble.rect.bottom)
+        val contour = bubble.maskContour
+        hash = hash * 31 + (contour?.size ?: 0)
+        if (contour != null && contour.isNotEmpty()) {
+            hash = hash * 31 + floatBits(contour[0])
+            hash = hash * 31 + floatBits(contour[contour.size / 2])
+            hash = hash * 31 + floatBits(contour[contour.lastIndex])
+        }
+        return hash
+    }
+
+    private fun floatBits(value: Float): Int = java.lang.Float.floatToIntBits(value)
+
+    private fun updateCullRect(canvas: Canvas) {
+        // Prefer the on-screen portion: clipBounds alone is often the full tall view.
+        val pad = 64f * resources.displayMetrics.density
+        if (getLocalVisibleRect(localVisibleRect)) {
+            cullRect.set(
+                localVisibleRect.left - pad,
+                localVisibleRect.top - pad,
+                localVisibleRect.right + pad,
+                localVisibleRect.bottom + pad
+            )
+            val clip = canvas.clipBounds
+            if (!clip.isEmpty) {
+                cullRect.left = max(cullRect.left, clip.left.toFloat())
+                cullRect.top = max(cullRect.top, clip.top.toFloat())
+                cullRect.right = min(cullRect.right, clip.right.toFloat())
+                cullRect.bottom = min(cullRect.bottom, clip.bottom.toFloat())
+            }
             return
         }
-        val effectiveMinArea = bubbleRenderSettings.minAreaPerCharSp * contentZoomScale * contentZoomScale
-        val textRect = BubbleTextScaling.resolveAreaAdjustedTextRect(
-            bubble.text, bubblePath, effectiveMinArea, resources.displayMetrics.density
-        )
-        canvas.drawPath(bubblePath, fillPaint)
-        if (textRect.width() <= 0f || textRect.height() <= 0f) return
-        drawTextInRect(canvas, bubble.text, textRect)
+        val clip = canvas.clipBounds
+        if (!clip.isEmpty) {
+            cullRect.set(clip)
+            return
+        }
+        cullRect.set(0f, 0f, width.toFloat(), height.toFloat())
+    }
+
+    private fun requestFullRedraw() {
+        if (drawInvalidateScheduled) {
+            removeCallbacks(drawInvalidateRunnable)
+            drawInvalidateScheduled = false
+        }
+        invalidate()
+    }
+
+    private fun requestInteractionRedraw() {
+        if (drawInvalidateScheduled) return
+        drawInvalidateScheduled = true
+        postOnAnimation(drawInvalidateRunnable)
     }
 
     private fun resolveBubbleShrinkPercent(bubble: BubbleTranslation): Int {
@@ -1120,7 +1247,7 @@ class FloatingTranslationView @JvmOverloads constructor(
             cachedTypeface = resolved
             cachedTypefaceSignature = signature
             applyTypefaceSettings()
-            invalidate()
+            requestFullRedraw()
         }
     }
 
