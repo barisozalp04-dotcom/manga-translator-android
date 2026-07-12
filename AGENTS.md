@@ -51,6 +51,10 @@ export PATH=$PATH:$ANDROID_HOME/platform-tools
 ./gradlew :app:lint
 ```
 
+### 命令超时建议
+- Gradle 冷启动、Kotlin 编译和定向单元测试可能超过默认的 120 秒；执行 `:app:compileDebugKotlin` 或 `:app:testDebugUnitTest` 时，工具超时至少设置为 `300000ms`（5 分钟）。
+- 执行 `:app:assembleDebug`、`:app:assembleRelease`、完整单元测试和 `:app:lint` 时，工具超时至少设置为 `600000ms`（10 分钟）。
+
 ### 构建产物
 - Debug APK：`app/build/outputs/apk/debug/`
 - Release APK：`app/build/outputs/apk/release/`

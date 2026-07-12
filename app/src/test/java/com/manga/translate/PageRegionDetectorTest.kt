@@ -205,6 +205,6 @@ class PageRegionDetectorTest {
     @Test
     fun `detection strategy tag switches between full and tiled modes`() {
         assertEquals("det_full_v1", buildDetectionStrategyTag(pageWidth = 1600, pageHeight = 3000))
-        assertEquals("det_tiled_long_v5", buildDetectionStrategyTag(pageWidth = 1000, pageHeight = 4096))
+        assertEquals("det_tiled_long_v6", buildDetectionStrategyTag(pageWidth = 1000, pageHeight = 4096))
     }
 }

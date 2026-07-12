@@ -477,13 +477,12 @@ internal class PageRegionDetector(
             // Multi-tile detections of one balloon often only cover partial heights.
             // Keep the union rect so OCR/render are not truncated to a single tile half.
             val unionRect = RectF(left, top, right, bottom)
-            val rectExpanded = component.size > 1 && !rectsApproximatelyEqual(best.rect, unionRect)
             result.add(
                 DeduplicatedBubbleGroup(
                     detection = best.copy(
                         rect = unionRect,
-                        // Mask is relative to the tile-local detection; drop when expanded.
-                        maskContour = if (rectExpanded) null else best.maskContour
+                        // Tile contours are already remapped to page-normalized coordinates.
+                        maskContour = best.maskContour
                     ),
                     suppressionRect = unionRect
                 )
@@ -761,7 +760,6 @@ private const val BUBBLE_DEDUP_VERTICAL_SPLIT_WIDTH_RATIO = 0.72f
 private const val BUBBLE_DEDUP_VERTICAL_SPLIT_CENTER_X_RATIO = 0.28f
 private const val BUBBLE_DEDUP_VERTICAL_SPLIT_AXIS_X_RATIO = 0.60f
 private const val BUBBLE_DEDUP_VERTICAL_SPLIT_MAX_GAP_PX = 12f
-private const val BUBBLE_DEDUP_RECT_EQUAL_EPS_PX = 2f
 
 private fun rectIou(a: RectF, b: RectF): Float {
     val inter = rectIntersectionArea(a, b)
@@ -852,12 +850,4 @@ private fun shouldTreatVerticallySplitTileRectsAsSameBubble(a: RectF, b: RectF):
     // substantial share of the union (typical for tile-truncated pairs).
     if (heightA / unionHeight < 0.28f || heightB / unionHeight < 0.28f) return false
     return true
-}
-
-private fun rectsApproximatelyEqual(a: RectF, b: RectF): Boolean {
-    val eps = BUBBLE_DEDUP_RECT_EQUAL_EPS_PX
-    return abs(a.left - b.left) <= eps &&
-        abs(a.top - b.top) <= eps &&
-        abs(a.right - b.right) <= eps &&
-        abs(a.bottom - b.bottom) <= eps
 }
