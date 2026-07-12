@@ -70,21 +70,33 @@ internal class LibrarySelectionController(
             return
         }
         dialogs.confirmDeleteSelectedImages(context, selected.size) {
-            var failed = false
+            val failedFiles = mutableListOf<File>()
             for (file in selected) {
-                if (!file.delete()) {
-                    failed = true
+                if (!deleteImageAndSidecars(
+                        imageFile = file,
+                        translationFile = translationStore.translationFileFor(file),
+                        ocrFile = ocrStore.ocrFileFor(file)
+                    )
+                ) {
+                    failedFiles += file
+                    AppLogger.log(
+                        "Library",
+                        "Failed to delete ${file.name}; translation and OCR sidecars were retained"
+                    )
                 }
-                translationStore.translationFileFor(file).delete()
-                ocrStore.ocrFileFor(file).delete()
             }
-            if (failed) {
-                AppLogger.log("Library", "Delete selected images failed in ${folder.name}")
-                Toast.makeText(context, R.string.delete_images_failed, Toast.LENGTH_SHORT).show()
+            if (failedFiles.isNotEmpty()) {
+                AppLogger.log(
+                    "Library",
+                    "Failed to delete ${failedFiles.size} selected images from ${folder.name}"
+                )
+                val message = context.getString(R.string.delete_images_failed) + ": " +
+                    failedFiles.joinToString { it.name }
+                Toast.makeText(context, message, Toast.LENGTH_LONG).show()
             } else {
                 AppLogger.log("Library", "Deleted ${selected.size} images from ${folder.name}")
+                exitSelectionMode()
             }
-            exitSelectionMode()
             ui.refreshImages(folder)
             ui.refreshFolders()
         }
@@ -101,4 +113,15 @@ internal class LibrarySelectionController(
         exitSelectionMode()
         onRetranslateRequested(folder, selected, true)
     }
+}
+
+internal fun deleteImageAndSidecars(
+    imageFile: File,
+    translationFile: File,
+    ocrFile: File
+): Boolean {
+    if (!imageFile.delete()) return false
+    translationFile.delete()
+    ocrFile.delete()
+    return true
 }
