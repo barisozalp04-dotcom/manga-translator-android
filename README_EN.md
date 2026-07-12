@@ -81,7 +81,6 @@ Place the following model files into the corresponding subdirectories under `ass
 - `models/ocr/manga_ocr_mobile/encoder.tflite`, `models/ocr/manga_ocr_mobile/decoder.tflite` and tokenizer/config files (currently the default Japanese OCR: MangaOcr Mobile)
 - `models/ocr/PP-OCRv6_small_rec.onnx` (English/Chinese/mixed OCR)
 - `models/ocr/korean_PP-OCRv3_rec_infer.onnx` (Korean OCR)
-- `models/text_detection/ysgyolo_1.2_OS1.0.onnx` (floating-window text detection; page pipeline uses manga109-seg)
 - `models/detection/PP-OCRv6_det_mobile_infer.onnx` (English line detection)
 
 Model download links:

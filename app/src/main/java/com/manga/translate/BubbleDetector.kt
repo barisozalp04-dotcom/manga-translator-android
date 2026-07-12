@@ -126,8 +126,8 @@ class BubbleDetector(
                             freeTexts.add(
                                 expandTextRect(
                                     rect,
-                                    TranslationCoreDefaults.TextDetectorOutputExpandRatio,
-                                    TranslationCoreDefaults.TextDetectorOutputExpandMin,
+                                    TranslationCoreDefaults.FreeTextOutputExpandRatio,
+                                    TranslationCoreDefaults.FreeTextOutputExpandMin,
                                     bitmap
                                 )
                             )

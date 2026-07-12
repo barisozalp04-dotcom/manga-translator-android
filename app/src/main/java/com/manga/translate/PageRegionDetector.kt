@@ -110,49 +110,6 @@ internal fun remapTileMaskContourToPage(
     return result
 }
 
-internal fun buildTileBubbleSuppressionMasks(
-    bubbleRects: List<RectF>,
-    tile: DetectionTile,
-    tileBitmapWidth: Int,
-    tileBitmapHeight: Int
-): List<TextSuppressionMask> {
-    if (bubbleRects.isEmpty() || tileBitmapWidth <= 0 || tileBitmapHeight <= 0 || tile.height <= 0) {
-        return emptyList()
-    }
-    val scaleX = tileBitmapWidth / tile.width.toFloat().coerceAtLeast(1f)
-    val scaleY = tileBitmapHeight / tile.height.toFloat().coerceAtLeast(1f)
-    val masks = ArrayList<TextSuppressionMask>(bubbleRects.size)
-    for (rect in bubbleRects) {
-        val intersectionLeft = max(0f, rect.left)
-        val intersectionTop = max(tile.top.toFloat(), rect.top)
-        val intersectionRight = min(tile.width.toFloat(), rect.right)
-        val intersectionBottom = min(tile.bottom.toFloat(), rect.bottom)
-        if (intersectionRight <= intersectionLeft || intersectionBottom <= intersectionTop) continue
-
-        val localRect = RectF(
-            rect.left * scaleX,
-            (rect.top - tile.top) * scaleY,
-            rect.right * scaleX,
-            (rect.bottom - tile.top) * scaleY
-        )
-        val pad = max(
-            TranslationCoreDefaults.PageRegionMaskExpandMin,
-            max(1f, localRect.height()) * TranslationCoreDefaults.PageRegionMaskExpandRatio
-        )
-        masks.add(
-            TextSuppressionMask.Rect(
-                RectF(
-                    (localRect.left - pad).coerceIn(0f, tileBitmapWidth.toFloat()),
-                    (localRect.top - pad).coerceIn(0f, tileBitmapHeight.toFloat()),
-                    (localRect.right + pad).coerceIn(0f, tileBitmapWidth.toFloat()),
-                    (localRect.bottom + pad).coerceIn(0f, tileBitmapHeight.toFloat())
-                )
-            )
-        )
-    }
-    return masks
-}
-
 internal fun choosePreferredBubbleCandidateIndex(
     candidates: List<BubblePriorityCandidate>
 ): Int {

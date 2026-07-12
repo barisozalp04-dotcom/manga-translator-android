@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RectF
@@ -433,32 +434,18 @@ class FloatingDetectionOverlayView @JvmOverloads constructor(
         val radius = cornerRadius()
         for (bubble in bubbles) {
             val rect = bubble.rect
-            updateDisplayRect(rect, sourceRect)
+            resolveBubbleDisplayPath(bubble, radius)
+            bubblePath.computeBounds(sourceRect, true)
             if (sourceRect.width() < 2f || sourceRect.height() < 2f) continue
             applyBubbleFillColor(bubble)
-            if (bubbleRenderSettings.shape == FloatingBubbleShape.INSCRIBED_ELLIPSE) {
-                canvas.drawOval(sourceRect, boxPaint)
-            } else {
-                canvas.drawRoundRect(sourceRect, radius, radius, boxPaint)
-            }
+            canvas.drawPath(bubblePath, boxPaint)
             if (editMode) {
-                if (bubbleRenderSettings.shape == FloatingBubbleShape.INSCRIBED_ELLIPSE) {
-                    canvas.drawOval(sourceRect, editBorderPaint)
-                } else {
-                    canvas.drawRoundRect(sourceRect, radius, radius, editBorderPaint)
-                }
+                canvas.drawPath(bubblePath, editBorderPaint)
                 computeDeleteRect(rect, tempRect)
                 updateDisplayRect(tempRect, tempRect)
                 drawDeleteIcon(canvas, tempRect)
             }
             val text = bubble.text.ifBlank { context.getString(R.string.floating_bubble_placeholder) }
-            if (bubbleRenderSettings.shape == FloatingBubbleShape.INSCRIBED_ELLIPSE) {
-                bubblePath.reset()
-                bubblePath.addOval(sourceRect, Path.Direction.CW)
-            } else {
-                bubblePath.reset()
-                bubblePath.addRoundRect(sourceRect, radius, radius, Path.Direction.CW)
-            }
             val textRect = BubbleTextScaling.resolveAreaAdjustedTextRect(
                 text, bubblePath, bubbleRenderSettings.minAreaPerCharSp, resources.displayMetrics.density
             )
@@ -488,6 +475,48 @@ class FloatingDetectionOverlayView @JvmOverloads constructor(
                 drawVerticalTextInRect(canvas, VerticalTextSymbolConverter.convert(text), textRect)
             }
         }
+    }
+
+    /**
+     * Builds [bubblePath] in view coordinates.
+     * Balloon detections with maskContour use the shared contour path (manga109-seg);
+     * free-text / manual boxes keep floating shape settings (rect / ellipse).
+     */
+    private fun resolveBubbleDisplayPath(bubble: BubbleTranslation, radius: Float) {
+        val contour = bubble.maskContour
+        if (contour != null && contour.size >= 6 && sourceWidth > 0 && sourceHeight > 0) {
+            BubbleShapePaths.buildPath(
+                outPath = bubblePath,
+                bubble = bubble,
+                sourceWidth = sourceWidth,
+                sourceHeight = sourceHeight,
+                originX = 0f,
+                originY = 0f,
+                scaleX = scaleX(),
+                scaleY = scaleY(),
+                shrinkPercent = 0
+            )
+            applySizeAdjustToPath(bubblePath)
+            return
+        }
+        updateDisplayRect(bubble.rect, sourceRect)
+        bubblePath.reset()
+        if (bubbleRenderSettings.shape == FloatingBubbleShape.INSCRIBED_ELLIPSE) {
+            bubblePath.addOval(sourceRect, Path.Direction.CW)
+        } else {
+            bubblePath.addRoundRect(sourceRect, radius, radius, Path.Direction.CW)
+        }
+    }
+
+    private fun applySizeAdjustToPath(path: Path) {
+        val percent = bubbleRenderSettings.sizeAdjustPercent.coerceIn(-90, 90)
+        if (percent == 0) return
+        path.computeBounds(shapeRect, true)
+        if (shapeRect.width() <= 0f || shapeRect.height() <= 0f) return
+        val scale = (100f + percent) / 100f
+        val matrix = Matrix()
+        matrix.setScale(scale, scale, shapeRect.centerX(), shapeRect.centerY())
+        path.transform(matrix)
     }
 
     private fun drawDeleteIcon(canvas: Canvas, rect: RectF) {

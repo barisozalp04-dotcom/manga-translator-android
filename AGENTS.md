@@ -140,22 +140,21 @@ export PATH=$PATH:$ANDROID_HOME/platform-tools
 - `EnglishLineDetector.kt`：英/韩行检测模型封装。
 
 ### 检测与模型支持
-- `PageRegionDetector.kt`：页面区域检测编排层，对上提供统一 `PageRegion` 列表；页面路径使用 `BubbleDetector` 一步输出 balloon+text。
+- `PageRegionDetector.kt`：页面区域检测编排层，对上提供统一 `PageRegion` 列表；主翻译与悬浮窗均调用该模块，内部用 `BubbleDetector` 一步输出 balloon+text。
 - `BubbleDetector.kt`：`models/detection/manga109-seg.onnx` 一步分割检测（class：frame 忽略 / text 游离 / balloon 气泡）。
-- `TextDetector.kt`、`YsgYoloTextDetector.kt`：悬浮窗等仍可能使用的独立文本检测（页面主流程不再调用）。
 - `OnnxRuntimeSupport.kt`：ONNX Runtime 会话与线程相关支持。
 - `VerticalTextSymbolConverter.kt`：竖排文本辅助处理。
 
 ### 悬浮窗翻译
-- `FloatingBallOverlayService.kt`：悬浮窗服务主入口。
-- `FloatingDetectionOverlayView.kt`：悬浮结果绘制与编辑。
+- `FloatingBallOverlayService.kt`：悬浮窗服务主入口；区域检测复用 `PageRegionDetector`（manga109-seg），气泡带 `BubbleSource` / `maskContour`。
+- `FloatingDetectionOverlayView.kt`：悬浮结果绘制与编辑；有 `maskContour` 的 balloon 走轮廓 path，游离/手动框仍按悬浮窗形状设置绘制。
 - `FloatingEmptyBubbleCoordinator.kt`：悬浮编辑态补翻。
 - `ProjectionCaptureSession.kt`：抓屏会话封装。
-- `FloatingTranslationView.kt`：悬浮翻译视图。
+- `FloatingTranslationView.kt`：阅读页 / 条漫页翻译覆盖层（非悬浮窗 overlay）。
 
 当前气泡框绘制已拆成两条独立分支：
 - 普通气泡框：用于阅读页、条漫页和导出图片，设置入口在 `SettingsFragment.kt` 的“普通气泡框设置”，渲染主入口是 `FloatingTranslationView.kt`、`BubbleRenderer.kt`、`BubbleShapePaths.kt`。
-- 悬浮窗气泡框：仅用于悬浮窗 overlay，设置入口在 `SettingsFragment.kt` 的”悬浮窗气泡设置”，渲染主入口是 `FloatingDetectionOverlayView.kt`；拥有独立的最小字号设置。
+- 悬浮窗气泡框：仅用于悬浮窗 overlay，设置入口在 `SettingsFragment.kt` 的”悬浮窗气泡设置”，渲染主入口是 `FloatingDetectionOverlayView.kt`；拥有独立的最小字号设置；检测侧已与主流程共用 manga109-seg 普通/游离气泡区分。
 - 字体设置：普通气泡框与悬浮窗气泡框共用一套全局字体设置，设置入口在 `SettingsFragment.kt` 的“字体设置”；当前保留系统默认、已上传字体列表（可切换/删除）与字体加粗，上传的字体会持久保存在私有 `custom_fonts` 目录。
 
 ### 数据与状态存储
@@ -282,7 +281,7 @@ sourceSets["main"].assets.srcDirs("src/main/assets", "../assets")
 当前页面区域检测链路也已独立成公共模块：
 - `PageRegionDetector.kt` 使用 manga109-seg 一步检测：`balloon` → `BubbleSource.BUBBLE_DETECTOR`，`text` → `BubbleSource.TEXT_DETECTOR`（游离气泡），`frame` 忽略；再对 text 与 balloon 做 overlap/filter 与合并。
 - 长图分块检测每个 tile 只跑一次统一模型，再在整页维度做气泡去重与游离文本过滤/合并；tile 取近方形（约 1.05×宽、高度约 960–1400px、重叠约 32%），避免固定 640 输入 letterbox 后有效宽度过低导致漏检；跨 tile 同一气泡去重时写回并集矩形，避免只保留半框。
-- `TranslationPipeline.kt` 现在主要保留缓存判断、OCR 调用、落盘和翻译编排，不再直接维护检测细节。
+- `TranslationPipeline.kt` 与 `FloatingBallOverlayService.kt` 均调用该模块；主流程保留缓存/OCR/落盘编排，悬浮窗对抓屏 bitmap 直接 `detect(bitmap)`。
 - 如果后续要调整去重阈值、`BubbleSource` 或 `maskContour` 的组装逻辑，优先修改 `PageRegionDetector.kt` / `BubbleDetector.kt`。
 
 当前网络请求链路说明：

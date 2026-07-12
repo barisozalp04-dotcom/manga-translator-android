@@ -142,55 +142,6 @@ class PageRegionDetectorTest {
     }
 
     @Test
-    fun `global bubble creates suppression masks in every overlapping tile`() {
-        val tiles = planLongImageDetectionTiles(pageWidth = 1000, pageHeight = 7000)
-        // Place bubble inside the overlap band of two consecutive tiles.
-        val seam = tiles.zipWithNext().first { (a, b) -> b.top < a.bottom }
-        val bubbleTop = (seam.first.bottom + seam.second.top) / 2f - 80f
-        val bubble = RectF(200f, bubbleTop, 700f, bubbleTop + 160f)
-        val overlapping = tiles.filter { it.top < bubble.bottom && it.bottom > bubble.top }
-        assertTrue(overlapping.size >= 2)
-        val first = overlapping[0]
-        val second = overlapping[1]
-
-        val firstMasks = buildTileBubbleSuppressionMasks(
-            bubbleRects = listOf(bubble),
-            tile = first,
-            tileBitmapWidth = 1000,
-            tileBitmapHeight = first.height
-        )
-        val secondMasks = buildTileBubbleSuppressionMasks(
-            bubbleRects = listOf(bubble),
-            tile = second,
-            tileBitmapWidth = 500,
-            tileBitmapHeight = second.height / 2
-        )
-
-        assertEquals(1, firstMasks.size)
-        assertEquals(1, secondMasks.size)
-        val firstRect = (firstMasks.single() as TextSuppressionMask.Rect).rect
-        val secondRect = (secondMasks.single() as TextSuppressionMask.Rect).rect
-        assertTrue(firstRect.top < bubble.top - first.top + 1f)
-        assertTrue(firstRect.bottom > bubble.bottom - first.top - 1f)
-        assertTrue(secondRect.top < (bubble.top - second.top) / 2f + 1f)
-        assertTrue(secondRect.bottom > (bubble.bottom - second.top) / 2f - 1f)
-    }
-
-    @Test
-    fun `global bubble outside tile does not create suppression mask`() {
-        val tile = planLongImageDetectionTiles(pageWidth = 1000, pageHeight = 7000).last()
-
-        val masks = buildTileBubbleSuppressionMasks(
-            bubbleRects = listOf(RectF(200f, 100f, 700f, 300f)),
-            tile = tile,
-            tileBitmapWidth = 1000,
-            tileBitmapHeight = tile.height
-        )
-
-        assertTrue(masks.isEmpty())
-    }
-
-    @Test
     fun `bubble priority prefers higher confidence when gap exceeds threshold`() {
         val best = choosePreferredBubbleCandidateIndex(
             listOf(

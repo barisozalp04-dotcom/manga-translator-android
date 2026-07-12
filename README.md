@@ -83,7 +83,6 @@
 - `models/ocr/manga_ocr_mobile/encoder.tflite`、`models/ocr/manga_ocr_mobile/decoder.tflite` 及 tokenizer/config（当前默认日文 OCR：MangaOcr Mobile）
 - `models/ocr/PP-OCRv6_small_rec.onnx`（英文/中文/中英混合 OCR）
 - `models/ocr/korean_PP-OCRv3_rec_infer.onnx`（韩文 OCR）
-- `models/text_detection/ysgyolo_1.2_OS1.0.onnx`（悬浮窗文本检测；页面检测已改用 manga109-seg）
 - `models/detection/PP-OCRv6_det_mobile_infer.onnx`（英文行检测）
 
 模型下载链接：
