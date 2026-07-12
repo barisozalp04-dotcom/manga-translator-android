@@ -1835,7 +1835,17 @@ class ReadingFragment : Fragment() {
                     imageFile,
                     folder,
                     translation
-                ) ?: return@launch
+                )
+                if (outcome == null) {
+                    if (isAdded) {
+                        Toast.makeText(
+                            requireContext(),
+                            R.string.reading_empty_bubble_failed,
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
+                    return@launch
+                }
                 if (currentImageFile?.absolutePath == imageFile.absolutePath) {
                     currentTranslation = outcome.updatedTranslation
                     if (folderReadingMode == FolderReadingMode.WEBTOON_SCROLL) {
@@ -1847,6 +1857,12 @@ class ReadingFragment : Fragment() {
                         Toast.makeText(
                             requireContext(),
                             R.string.reading_empty_bubble_translated,
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    } else if (outcome.ocrFailedCount > 0) {
+                        Toast.makeText(
+                            requireContext(),
+                            R.string.reading_empty_bubble_failed,
                             Toast.LENGTH_SHORT
                         ).show()
                     }

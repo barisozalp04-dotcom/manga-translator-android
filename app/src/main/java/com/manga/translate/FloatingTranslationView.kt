@@ -352,7 +352,9 @@ class FloatingTranslationView @JvmOverloads constructor(
         if (bubbles.isEmpty() && !createBubbleMode) return
         if (imageWidth <= 0 || imageHeight <= 0) return
         for (bubble in bubbles) {
-            if (!bubble.hasDisplayText() && !editMode) continue
+            // User-created empty frames stay visible outside edit mode so failed OCR
+            // does not look like the bubble vanished.
+            if (!bubble.hasDisplayText() && !editMode && bubble.source != BubbleSource.MANUAL) continue
             updateBubbleRect(bubbleRect, bubble)
             drawBubble(canvas, bubble)
             if (editMode && bubble.isOwnedBy(currentImageName)) {

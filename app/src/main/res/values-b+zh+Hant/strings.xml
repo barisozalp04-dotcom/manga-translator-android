@@ -536,6 +536,7 @@
     <string name="reading_empty_bubble_hint">留空則軟體會自動在對應區域識別文字。</string>
     <string name="reading_empty_bubble_translating">正在翻譯氣泡…</string>
     <string name="reading_empty_bubble_translated">氣泡翻譯完成</string>
+    <string name="reading_empty_bubble_failed">氣泡識別/翻譯失敗，已保留空白氣泡，可重試或手動編輯</string>
     <string name="reading_bubble_resize_done">確認</string>
     <string name="reading_bubble_action_resize">調整氣泡大小</string>
     <string name="reading_bubble_action_delete">刪除氣泡</string>

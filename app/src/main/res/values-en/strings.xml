@@ -501,6 +501,7 @@ Long press the floating ball: pop up menu</string>
     <string name="reading_empty_bubble_hint">Leave it blank and the software will automatically recognize the text in the corresponding area.</string>
     <string name="reading_empty_bubble_translating">Translating Bubbles…</string>
     <string name="reading_empty_bubble_translated">Bubble Translation Complete</string>
+    <string name="reading_empty_bubble_failed">Bubble recognition/translation failed. Empty bubbles were kept for retry or manual edit.</string>
     <string name="reading_bubble_resize_done">Confirm</string>
     <string name="reading_bubble_action_resize">Resize Bubble</string>
     <string name="reading_bubble_action_delete">Delete Bubble</string>

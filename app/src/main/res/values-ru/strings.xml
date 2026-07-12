@@ -501,6 +501,7 @@
     <string name="reading_empty_bubble_hint">Оставьте это поле пустым, и программа автоматически распознает текст в соответствующей области.</string>
     <string name="reading_empty_bubble_translating">Перевод пузырьков…</string>
     <string name="reading_empty_bubble_translated">Перевод пузырьков завершен</string>
+    <string name="reading_empty_bubble_failed">Распознавание/перевод пузырька не удался. Пустые пузырьки сохранены — можно повторить или отредактировать вручную.</string>
     <string name="reading_bubble_resize_done">Подтвердить</string>
     <string name="reading_bubble_action_resize">Изменить размер пузыря</string>
     <string name="reading_bubble_action_delete">Удалить пузырь</string>

@@ -53,7 +53,6 @@ internal class ReadingEmptyBubbleCoordinator(
         try {
             cropSource.use {
                 val candidates = ArrayList<OcrBubble>(targets.size)
-                val removedIds = HashSet<Int>()
                 if (!useLocalOcr && !ocrSettings.isValid()) {
                     AppLogger.log("Reading", "Missing OCR API settings")
                     return@withContext null
@@ -67,9 +66,9 @@ internal class ReadingEmptyBubbleCoordinator(
                         language = language,
                         useLocalOcr = useLocalOcr
                     ).trim()
-                    if (text.length <= 2) {
-                        removedIds.add(bubble.id)
-                    } else {
+                    // Keep short/empty OCR bubbles (especially user-created MANUAL ones).
+                    // Never hard-delete here; failed recognition leaves the frame for retry/edit.
+                    if (text.isNotBlank()) {
                         candidates.add(
                             OcrBubble(
                                 bubble.id,
@@ -82,13 +81,16 @@ internal class ReadingEmptyBubbleCoordinator(
                     }
                 }
 
-                val remainingBubbles = baseTranslation.bubbles.filterNot { removedIds.contains(it.id) }
                 if (candidates.isEmpty()) {
-                    val updated = baseTranslation.copy(bubbles = remainingBubbles)
-                    withContext(Dispatchers.IO) {
-                        translationStore.save(imageFile, updated)
-                    }
-                    return@withContext EmptyBubbleProcessOutcome(updated, translatedByLlm = false)
+                    AppLogger.log(
+                        "Reading",
+                        "Empty bubble OCR produced no usable text for ${targets.size} pending bubble(s), keep frames"
+                    )
+                    return@withContext EmptyBubbleProcessOutcome(
+                        updatedTranslation = baseTranslation,
+                        translatedByLlm = false,
+                        ocrFailedCount = targets.size
+                    )
                 }
 
                 val translated = translateOcrBubbles(imageFile, candidates, glossary, language)
@@ -103,14 +105,19 @@ internal class ReadingEmptyBubbleCoordinator(
                     }
                 }
                 val translationMap = translated.bubbles.associateBy { it.id }
-                val merged = remainingBubbles.map { bubble ->
+                val merged = baseTranslation.bubbles.map { bubble ->
                     translationMap[bubble.id]?.let { bubble.withContentFrom(it) } ?: bubble
                 }
                 val updated = baseTranslation.copy(bubbles = merged)
                 withContext(Dispatchers.IO) {
                     translationStore.save(imageFile, updated)
                 }
-                EmptyBubbleProcessOutcome(updated, translatedByLlm = true)
+                val remainingEmpty = updated.bubbles.count { it.needsTranslationRetry() }
+                EmptyBubbleProcessOutcome(
+                    updatedTranslation = updated,
+                    translatedByLlm = true,
+                    ocrFailedCount = remainingEmpty
+                )
             }
         } finally {
             localModelLease.close()
@@ -258,5 +265,6 @@ private fun LlmResponseException.withPageName(context: Context, pageName: String
 
 data class EmptyBubbleProcessOutcome(
     val updatedTranslation: TranslationResult,
-    val translatedByLlm: Boolean
+    val translatedByLlm: Boolean,
+    val ocrFailedCount: Int = 0
 )
