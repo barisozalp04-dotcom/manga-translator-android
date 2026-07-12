@@ -238,7 +238,7 @@
     <string name="llm_param_top_p">top_p</string>
     <string name="llm_param_top_k">top_k</string>
     <string name="llm_param_max_output_tokens">max_output_tokens</string>
-    <string name="llm_param_enable_thinking">включить_мышление</string>
+    <string name="llm_param_enable_thinking">Включить мышление</string>
     <string name="llm_param_thinking_budget">мышление_бюджет</string>
     <string name="llm_param_frequency_penalty">частота_пенальти</string>
     <string name="llm_param_presence_penalty">присутствие_пенальти</string>
