@@ -14,10 +14,10 @@ class PageRegionDetectorTest {
 
     @Test
     fun `long image tiling only enables for threshold-matching vertical pages`() {
-        assertFalse(shouldUseLongImageTiling(pageWidth = 1400, pageHeight = 4095))
-        assertFalse(shouldUseLongImageTiling(pageWidth = 1400, pageHeight = 4199))
-        assertTrue(shouldUseLongImageTiling(pageWidth = 1400, pageHeight = 4200))
-        assertTrue(shouldUseLongImageTiling(pageWidth = 1000, pageHeight = 4096))
+        assertFalse(shouldUseLongImageTiling(pageWidth = 1400, pageHeight = 2047))
+        assertFalse(shouldUseLongImageTiling(pageWidth = 1400, pageHeight = 3000))
+        assertTrue(shouldUseLongImageTiling(pageWidth = 1400, pageHeight = 3080))
+        assertTrue(shouldUseLongImageTiling(pageWidth = 1000, pageHeight = 2200))
     }
 
     @Test
@@ -26,7 +26,7 @@ class PageRegionDetectorTest {
         val tileHeight = longImageDetectionTileHeight(pageWidth = 1000, pageHeight = 7000)
 
         // Near-square tiles for fixed 640 manga109-seg input (not tall 2.25:1 strips).
-        assertTrue(tileHeight in 960..1400)
+        assertTrue(tileHeight in 480..1200)
         assertTrue(tiles.size >= 6)
         assertEquals(0, tiles.first().top)
         assertEquals(7000, tiles.last().bottom)
@@ -35,10 +35,22 @@ class PageRegionDetectorTest {
         // Adjacent tiles must overlap so seam balloons can be merged.
         assertTrue(tiles.zipWithNext().all { (a, b) -> b.top < a.bottom })
         val minOverlap = tiles.zipWithNext().minOf { (a, b) -> a.bottom - b.top }
-        assertTrue(minOverlap >= 300)
+        assertTrue(minOverlap >= 192)
         // Letterbox effective width into 640 should stay high for these tiles.
         val gain = minOf(640f / 1000f, 640f / tileHeight)
-        assertTrue(gain * 1000f >= 450f)
+        assertTrue(gain * 1000f >= 600f)
+    }
+
+    @Test
+    fun `wide long image uses overlapping horizontal tiles`() {
+        val tiles = planLongImageDetectionTiles(pageWidth = 1800, pageHeight = 5000)
+        val firstRow = tiles.filter { it.top == 0 }
+
+        assertTrue(firstRow.size >= 2)
+        assertEquals(0, firstRow.minOf { it.left })
+        assertEquals(1800, firstRow.maxOf { it.right })
+        assertTrue(firstRow.all { it.width <= 1200 && it.height <= 1200 })
+        assertTrue(firstRow.zipWithNext().all { (a, b) -> b.left < a.right })
     }
 
     @Test
@@ -66,8 +78,8 @@ class PageRegionDetectorTest {
         assertFalse(
             shouldFilterLongImageRegion(
                 RectF(100f, 100f, 900f, 2050f),
-                pageWidth = 1000,
-                pageHeight = 3000
+                pageWidth = 1400,
+                pageHeight = 2800
             )
         )
     }
@@ -127,13 +139,15 @@ class PageRegionDetectorTest {
             tileTop = 2000,
             tileHeight = 2500,
             pageWidth = 1000,
-            pageHeight = 7000
+            pageHeight = 7000,
+            tileLeft = 200,
+            tileWidth = 600
         )
 
         assertArrayEquals(
             floatArrayOf(
-                0f, 2000f / 7000f,
-                1f, 4500f / 7000f,
+                0.2f, 2000f / 7000f,
+                0.8f, 4500f / 7000f,
                 0.5f, 3250f / 7000f
             ),
             remapped,
@@ -251,8 +265,35 @@ class PageRegionDetectorTest {
     }
 
     @Test
+    fun `tile dedup only merges duplicate candidates from different tiles`() {
+        val first = RectF(100f, 100f, 400f, 400f)
+        val intersecting = RectF(160f, 120f, 460f, 420f)
+
+        assertFalse(
+            shouldDeduplicateTileCandidates(
+                firstTileIndex = 2,
+                secondTileIndex = 2,
+                firstRect = first,
+                secondRect = intersecting
+            )
+        )
+        assertTrue(
+            shouldDeduplicateTileCandidates(
+                firstTileIndex = 2,
+                secondTileIndex = 3,
+                firstRect = first,
+                secondRect = intersecting
+            )
+        )
+        assertEquals(
+            RectF(100f, 100f, 460f, 420f),
+            unionDetectionRects(listOf(first, intersecting))
+        )
+    }
+
+    @Test
     fun `detection strategy tag switches between full and tiled modes`() {
-        assertEquals("det_full_v1", buildDetectionStrategyTag(pageWidth = 1600, pageHeight = 3000))
-        assertEquals("det_tiled_long_v7", buildDetectionStrategyTag(pageWidth = 1000, pageHeight = 4096))
+        assertEquals("det_full_v2", buildDetectionStrategyTag(pageWidth = 1600, pageHeight = 3000))
+        assertEquals("det_tiled_long_v8", buildDetectionStrategyTag(pageWidth = 1000, pageHeight = 2200))
     }
 }

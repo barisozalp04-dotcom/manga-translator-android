@@ -286,7 +286,7 @@ sourceSets["main"].assets.srcDirs("src/main/assets", "../assets")
 
 当前页面区域检测链路也已独立成公共模块：
 - `PageRegionDetector.kt` 使用 manga109-seg 一步检测：`balloon` → `BubbleSource.BUBBLE_DETECTOR`，`text` → `BubbleSource.TEXT_DETECTOR`（游离气泡），`frame` 忽略；再对 text 与 balloon 做 overlap/filter 与合并。
-- 长图分块检测每个 tile 只跑一次统一模型，再在整页维度做气泡去重与游离文本过滤/合并；tile 取近方形（约 1.05×宽、高度约 960–1400px、重叠约 32%），避免固定 640 输入 letterbox 后有效宽度过低导致漏检；跨 tile 同一气泡去重时写回并集矩形，避免只保留半框。
+- 长图分块检测每个 tile 只跑一次统一模型，再在整页维度做气泡去重与游离文本过滤/合并；高宽比达到约 2.2 且高度至少 2048px 时进入长图路径，使用最大约 1200×1200px 的二维近方形 tile 和约 30% 重叠，宽图也会横向分块，避免固定 640 输入下小气泡细节丢失。同一 tile 内的检测结果始终保持独立；只有跨 tile 的重复/截断气泡才按重叠与边界规则合并并写回并集。
 - `TranslationPipeline.kt` 与 `FloatingBallOverlayService.kt` 均调用该模块；主流程保留缓存/OCR/落盘编排，悬浮窗对抓屏 bitmap 直接 `detect(bitmap)`。
 - 如果后续要调整去重阈值、`BubbleSource` 或 `maskContour` 的组装逻辑，优先修改 `PageRegionDetector.kt` / `BubbleDetector.kt`。
 

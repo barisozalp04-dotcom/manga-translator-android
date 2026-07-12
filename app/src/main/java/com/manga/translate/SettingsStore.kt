@@ -442,7 +442,8 @@ class SettingsStore(context: Context) {
         internal const val KEY_READING_PAGE_ANIMATION_MODE = "reading_page_animation_mode"
         internal const val KEY_TRANSLATION_BUBBLE_OPACITY_PERCENT =
             "translation_bubble_opacity_percent"
-        internal const val KEY_BUBBLE_CONF_THRESHOLD_PERCENT = "bubble_conf_threshold_percent"
+        internal const val KEY_BUBBLE_CONF_THRESHOLD_PERCENT =
+            "manga109_bubble_conf_threshold_percent_v2"
         internal const val KEY_LINK_SOURCE = "link_source"
         internal const val KEY_LLM_TEMPERATURE = "llm_temperature"
         internal const val KEY_LLM_TOP_P = "llm_top_p"
@@ -522,7 +523,7 @@ class SettingsStore(context: Context) {
         internal const val DEFAULT_TRANSLATION_BUBBLE_OPACITY_PERCENT = 100
         internal const val MIN_TRANSLATION_BUBBLE_OPACITY_PERCENT = 0
         internal const val MAX_TRANSLATION_BUBBLE_OPACITY_PERCENT = 100
-        internal const val DEFAULT_BUBBLE_CONF_THRESHOLD_PERCENT = 20
+        internal const val DEFAULT_BUBBLE_CONF_THRESHOLD_PERCENT = 10
         internal const val MIN_BUBBLE_CONF_THRESHOLD_PERCENT = 1
         internal const val MAX_BUBBLE_CONF_THRESHOLD_PERCENT = 95
     }
