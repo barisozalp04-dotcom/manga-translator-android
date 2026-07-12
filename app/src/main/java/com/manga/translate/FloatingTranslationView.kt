@@ -372,13 +372,19 @@ class FloatingTranslationView @JvmOverloads constructor(
         super.onDraw(canvas)
         if (bubbles.isEmpty() && !createBubbleMode) return
         if (imageWidth <= 0 || imageHeight <= 0) return
-        updateCullRect(canvas)
+        // A hardware-accelerated View can reuse this display list when an ancestor scrolls.
+        // Normal draws must therefore record the whole page; otherwise bubbles outside a
+        // transient visible rect stay missing until another interaction invalidates the View.
+        val cullForInteraction = interactionActive
+        if (cullForInteraction) {
+            updateCullRect(canvas)
+        }
         for (bubble in bubbles) {
             // User-created empty frames stay visible outside edit mode so failed OCR
             // does not look like the bubble vanished.
             if (!bubble.hasDisplayText() && !editMode && bubble.source != BubbleSource.MANUAL) continue
             updateBubbleRect(bubbleRect, bubble)
-            if (!RectF.intersects(bubbleRect, cullRect)) continue
+            if (cullForInteraction && !RectF.intersects(bubbleRect, cullRect)) continue
             drawBubble(canvas, bubble)
             if (editMode && bubble.isOwnedBy(currentImageName)) {
                 drawDeleteIcon(canvas, bubbleRect)
@@ -393,7 +399,7 @@ class FloatingTranslationView @JvmOverloads constructor(
             }
             if (targetBubble != null) {
                 updateBubbleRect(bubbleRect, targetBubble)
-                if (RectF.intersects(bubbleRect, cullRect)) {
+                if (!cullForInteraction || RectF.intersects(bubbleRect, cullRect)) {
                     drawResizeModeHighlight(canvas, bubbleRect)
                     drawResizeModeHandle(canvas, bubbleRect)
                 }
@@ -1037,10 +1043,8 @@ class FloatingTranslationView @JvmOverloads constructor(
     private fun floatBits(value: Float): Int = java.lang.Float.floatToIntBits(value)
 
     private fun updateCullRect(canvas: Canvas) {
-        // getLocalVisibleRect already accounts for parent scrolling and clipping. Canvas
-        // clip bounds can be reported in a different space by hardware-accelerated parents;
-        // intersecting the two may produce an empty rect and hide every bubble until the
-        // next matrix update.
+        // Interaction redraws are issued every frame, so viewport culling is safe here and
+        // avoids rebuilding/drawing every bubble while dragging on a long image.
         val pad = 64f * resources.displayMetrics.density
         if (getLocalVisibleRect(localVisibleRect)) {
             cullRect.set(
