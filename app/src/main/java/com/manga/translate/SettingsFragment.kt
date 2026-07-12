@@ -1147,6 +1147,20 @@ class SettingsFragment : Fragment() {
             dialogBinding.aiProviderProfilesDeleteButton.isEnabled = selectedName != null
             adapter.notifyDataSetChanged()
         }
+        dialogBinding.aiProviderProfilesList.setOnTouchListener { view, event ->
+            when (event.actionMasked) {
+                android.view.MotionEvent.ACTION_DOWN,
+                android.view.MotionEvent.ACTION_MOVE -> {
+                    val canScroll = view.canScrollVertically(-1) || view.canScrollVertically(1)
+                    view.parent?.requestDisallowInterceptTouchEvent(canScroll)
+                }
+                android.view.MotionEvent.ACTION_UP,
+                android.view.MotionEvent.ACTION_CANCEL -> {
+                    view.parent?.requestDisallowInterceptTouchEvent(false)
+                }
+            }
+            false
+        }
 
         val dialog = AlertDialog.Builder(requireContext())
             .setTitle(R.string.ai_provider_profiles_title)
@@ -1243,7 +1257,37 @@ class SettingsFragment : Fragment() {
         }
 
         refreshProfiles()
+        dialog.setOnShowListener {
+            dialogBinding.root.doOnLayout {
+                constrainAiProviderProfilesDialogList(dialog, dialogBinding)
+            }
+        }
         dialog.show()
+    }
+
+    private fun constrainAiProviderProfilesDialogList(
+        dialog: AlertDialog,
+        dialogBinding: DialogAiProviderProfilesBinding
+    ) {
+        val window = dialog.window ?: return
+        val visibleFrame = android.graphics.Rect()
+        window.decorView.getWindowVisibleDisplayFrame(visibleFrame)
+        val availableHeight = visibleFrame.height().takeIf { it > 0 }
+            ?: resources.displayMetrics.heightPixels
+        val maxDialogHeight = (availableHeight * 0.85f).roundToInt()
+        val listView = dialogBinding.aiProviderProfilesList
+        val rootHeight = dialogBinding.root.height.takeIf { it > 0 } ?: return
+        val fixedHeight = (rootHeight - listView.height).coerceAtLeast(0)
+        val minListHeight = (160 * resources.displayMetrics.density).roundToInt()
+        val maxListHeight = (maxDialogHeight - fixedHeight).coerceAtLeast(minListHeight)
+        val preferredListHeight = (240 * resources.displayMetrics.density).roundToInt()
+        val targetListHeight = preferredListHeight.coerceAtMost(maxListHeight)
+        if (listView.layoutParams.height != targetListHeight) {
+            listView.layoutParams = listView.layoutParams.apply {
+                height = targetListHeight
+            }
+            listView.requestLayout()
+        }
     }
 
     private fun showCreateAiProviderProfileDialog(onConfirm: (String) -> Unit) {
