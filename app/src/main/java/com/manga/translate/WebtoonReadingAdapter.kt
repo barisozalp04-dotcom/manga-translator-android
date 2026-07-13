@@ -96,6 +96,7 @@ class WebtoonReadingAdapter(
     var onLockedBubbleRemove: ((Int) -> Unit)? = null
     var onLockedBubbleTap: ((Int) -> Unit)? = null
     var onLockedBubbleResizeTap: ((Int) -> Unit)? = null
+    var onLockedBubbleResized: ((Int, RectF) -> Unit)? = null
     var onLockedBubbleResizeModeChanged: ((Int?) -> Unit)? = null
     var onLockedBubbleLongPress: ((Int) -> Unit)? = null
     var onDisplayStructureChanging: (() -> Unit)? = null
@@ -586,6 +587,7 @@ class WebtoonReadingAdapter(
             binding.readingPageOverlay.onBubbleRemove = null
             binding.readingPageOverlay.onBubbleTap = null
             binding.readingPageOverlay.onBubbleResizeTap = null
+            binding.readingPageOverlay.onBubbleResized = null
             binding.readingPageOverlay.onResizeModeChanged = null
             binding.readingPageOverlay.onBubbleLongPress = null
             binding.readingPageOverlay.visibility = View.GONE
@@ -772,6 +774,7 @@ class WebtoonReadingAdapter(
             binding.readingPageOverlay.onBubbleRemove = null
             binding.readingPageOverlay.onBubbleTap = null
             binding.readingPageOverlay.onBubbleResizeTap = null
+            binding.readingPageOverlay.onBubbleResized = null
             binding.readingPageOverlay.onResizeModeChanged = null
             binding.readingPageOverlay.onBubbleLongPress = null
             binding.readingPageOverlay.visibility = View.GONE
@@ -891,6 +894,11 @@ class WebtoonReadingAdapter(
             }
             binding.readingPageOverlay.onBubbleResizeTap = if (lockedForEdit) {
                 { bubbleId -> onLockedBubbleResizeTap?.invoke(bubbleId) }
+            } else {
+                null
+            }
+            binding.readingPageOverlay.onBubbleResized = if (lockedForEdit) {
+                { bubbleId, newRect -> onLockedBubbleResized?.invoke(bubbleId, newRect) }
             } else {
                 null
             }

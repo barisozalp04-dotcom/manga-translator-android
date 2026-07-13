@@ -147,6 +147,9 @@ class ReadingFragment : Fragment() {
         webtoonAdapter.onLockedBubbleResizeTap = { bubbleId ->
             enterBubbleResizeMode(bubbleId)
         }
+        webtoonAdapter.onLockedBubbleResized = { bubbleId, newRect ->
+            handleBubbleResized(bubbleId, newRect)
+        }
         webtoonAdapter.onLockedBubbleResizeModeChanged = {
             updateBubbleSizeFloatingControls()
         }
