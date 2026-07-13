@@ -909,14 +909,14 @@ internal class TranslationPipeline(
         }
         val strategyTag = PipelineBitmapDecoder.readImageSize(imageFile)?.let { size ->
             buildDetectionStrategyTag(size.width, size.height)
-        } ?: "det_full_v2"
+        } ?: "det_full_balloon_conf_v3"
         return "$baseMode|$strategyTag"
     }
 
     private fun buildBaiduFullPageOcrCacheMode(imageFile: File): String {
         val strategyTag = PipelineBitmapDecoder.readImageSize(imageFile)?.let { size ->
             buildDetectionStrategyTag(size.width, size.height)
-        } ?: "det_full_v2"
+        } ?: "det_full_balloon_conf_v3"
         return "${BAIDU_FULL_PAGE_CACHE_MODE}|$strategyTag"
     }
 
@@ -971,9 +971,9 @@ internal fun buildDetectionStrategyTag(
     pageHeight: Int
 ): String {
     return if (shouldUseHighResolutionTiling(pageWidth, pageHeight)) {
-        "det_tiled_high_res_v10"
+        "det_tiled_640_balloon_conf_v11"
     } else {
-        "det_full_v2"
+        "det_full_balloon_conf_v3"
     }
 }
 

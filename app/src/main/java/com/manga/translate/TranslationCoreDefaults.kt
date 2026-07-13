@@ -5,6 +5,7 @@ object TranslationCoreDefaults {
     const val DefaultLineDetectionInputSize = 960
 
     const val BubbleDetectorNmsIouThreshold = 0.7f
+    const val MinBalloonConfidence = 0.15f
     const val FreeTextOutputExpandRatio = 0.08f
     const val FreeTextOutputExpandMin = 1.0f
 

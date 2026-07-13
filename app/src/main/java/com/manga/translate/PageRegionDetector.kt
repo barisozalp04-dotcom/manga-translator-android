@@ -1015,8 +1015,8 @@ private fun RectF.offsetBy(offsetX: Float, offsetY: Float): RectF {
 
 private const val LONG_IMAGE_ASPECT_THRESHOLD = 2.2f
 private const val LONG_IMAGE_MIN_HEIGHT_PX = 2048
-// The fixed 640 model input needs a smaller source window to preserve small bubbles.
-private const val DETECTION_TILE_EDGE_PX = 500
+// Match the source tile to the model input so each inference uses source pixels one-to-one.
+private const val DETECTION_TILE_EDGE_PX = 640
 private const val DETECTION_TILE_OVERLAP_RATIO = 0.30f
 private const val DETECTION_TILE_OVERLAP_MIN_PX = 192
 private const val FULL_PAGE_CANDIDATE_TILE_INDEX = -1

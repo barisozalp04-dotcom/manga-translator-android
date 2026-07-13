@@ -22,14 +22,14 @@ class PageRegionDetectorTest {
 
     @Test
     fun `high resolution tiling applies to regular pages above source tile size`() {
-        assertFalse(shouldUseHighResolutionTiling(pageWidth = 500, pageHeight = 500))
-        assertTrue(shouldUseHighResolutionTiling(pageWidth = 501, pageHeight = 500))
+        assertFalse(shouldUseHighResolutionTiling(pageWidth = 640, pageHeight = 640))
+        assertTrue(shouldUseHighResolutionTiling(pageWidth = 641, pageHeight = 640))
         assertTrue(shouldUseHighResolutionTiling(pageWidth = 1080, pageHeight = 1600))
     }
 
     @Test
     fun `regular pages combine full and tiled detection while long pages only use tiles`() {
-        assertFalse(shouldCombineFullPageDetection(pageWidth = 500, pageHeight = 500))
+        assertFalse(shouldCombineFullPageDetection(pageWidth = 640, pageHeight = 640))
         assertTrue(shouldCombineFullPageDetection(pageWidth = 1080, pageHeight = 1600))
         assertFalse(shouldCombineFullPageDetection(pageWidth = 1080, pageHeight = 28800))
     }
@@ -40,8 +40,8 @@ class PageRegionDetectorTest {
         val tileHeight = highResolutionDetectionTileHeight(pageWidth = 1000, pageHeight = 7000)
         val rows = tiles.groupBy { it.top }
 
-        assertEquals(500, tileHeight)
-        assertTrue(tiles.size >= 60)
+        assertEquals(640, tileHeight)
+        assertEquals(32, tiles.size)
         assertEquals(0, tiles.first().top)
         assertEquals(7000, tiles.last().bottom)
         assertEquals(7000, tiles.maxOf { it.bottom })
@@ -51,10 +51,10 @@ class PageRegionDetectorTest {
         assertTrue(firstColumn.zipWithNext().all { (a, b) -> b.top < a.bottom })
         val minOverlap = firstColumn.zipWithNext().minOf { (a, b) -> a.bottom - b.top }
         assertTrue(minOverlap >= 192)
-        // The 500px source window is slightly upscaled into the fixed 640 model input.
+        // The source window maps one-to-one into the fixed 640 model input.
         val firstTile = tiles.first()
         val gain = minOf(640f / firstTile.width, 640f / firstTile.height)
-        assertEquals(1.28f, gain, 1e-4f)
+        assertEquals(1f, gain, 1e-4f)
     }
 
     @Test
@@ -65,7 +65,7 @@ class PageRegionDetectorTest {
         assertTrue(firstRow.size >= 2)
         assertEquals(0, firstRow.minOf { it.left })
         assertEquals(1800, firstRow.maxOf { it.right })
-        assertTrue(firstRow.all { it.width <= 500 && it.height <= 500 })
+        assertTrue(firstRow.all { it.width <= 640 && it.height <= 640 })
         assertTrue(firstRow.zipWithNext().all { (a, b) -> b.left < a.right })
     }
 
@@ -75,10 +75,10 @@ class PageRegionDetectorTest {
         val firstRow = tiles.filter { it.top == 0 }
         val firstColumn = tiles.filter { it.left == 0 }
 
-        assertEquals(15, tiles.size)
-        assertEquals(listOf(0, 308, 580), firstRow.map { it.left })
-        assertEquals(listOf(0, 308, 616, 924, 1100), firstColumn.map { it.top })
-        assertTrue(tiles.all { it.width == 500 && it.height == 500 })
+        assertEquals(8, tiles.size)
+        assertEquals(listOf(0, 440), firstRow.map { it.left })
+        assertEquals(listOf(0, 448, 896, 960), firstColumn.map { it.top })
+        assertTrue(tiles.all { it.width == 640 && it.height == 640 })
     }
 
     @Test
@@ -86,9 +86,9 @@ class PageRegionDetectorTest {
         val tiles = planHighResolutionDetectionTiles(pageWidth = 1080, pageHeight = 28800)
         val firstRow = tiles.filter { it.top == 0 }
 
-        assertEquals(279, tiles.size)
-        assertEquals(listOf(0, 308, 580), firstRow.map { it.left })
-        assertTrue(tiles.all { it.width == 500 && it.height == 500 })
+        assertEquals(128, tiles.size)
+        assertEquals(listOf(0, 440), firstRow.map { it.left })
+        assertTrue(tiles.all { it.width == 640 && it.height == 640 })
         assertEquals(28800, tiles.maxOf { it.bottom })
     }
 
@@ -332,13 +332,16 @@ class PageRegionDetectorTest {
 
     @Test
     fun `detection strategy tag switches between full and tiled modes`() {
-        assertEquals("det_full_v2", buildDetectionStrategyTag(pageWidth = 500, pageHeight = 500))
         assertEquals(
-            "det_tiled_high_res_v10",
+            "det_full_balloon_conf_v3",
+            buildDetectionStrategyTag(pageWidth = 640, pageHeight = 640)
+        )
+        assertEquals(
+            "det_tiled_640_balloon_conf_v11",
             buildDetectionStrategyTag(pageWidth = 1080, pageHeight = 1600)
         )
         assertEquals(
-            "det_tiled_high_res_v10",
+            "det_tiled_640_balloon_conf_v11",
             buildDetectionStrategyTag(pageWidth = 1000, pageHeight = 2200)
         )
     }

@@ -88,10 +88,14 @@ class BubbleDetector(
                 val confThreshold = settingsStore.loadBubbleConfThresholdPercent() / 100f
                 if (settingsStore.loadModelIoLogging()) {
                     val maxConf = rawDetections.maxOfOrNull { it.confidence } ?: 0f
-                    val aboveThreshold = rawDetections.count { it.confidence >= confThreshold }
+                    val aboveThreshold = rawDetections.count {
+                        it.confidence >= effectiveDetectionConfidenceThreshold(it.classId, confThreshold)
+                    }
                     AppLogger.log(
                         "BubbleDetector",
-                        "Raw detections: ${rawDetections.size}, above $confThreshold: $aboveThreshold, max conf: ${"%.3f".format(maxConf)}"
+                        "Raw detections: ${rawDetections.size}, above configured=$confThreshold " +
+                            "(balloon floor=${TranslationCoreDefaults.MinBalloonConfidence}): " +
+                            "$aboveThreshold, max conf: ${"%.3f".format(maxConf)}"
                     )
                 }
 
@@ -303,7 +307,9 @@ class BubbleDetector(
         originalWidth: Int,
         originalHeight: Int
     ): List<RawDetection> {
-        val filtered = detections.filter { it.confidence >= confThreshold }
+        val filtered = detections.filter {
+            it.confidence >= effectiveDetectionConfidenceThreshold(it.classId, confThreshold)
+        }
             .sortedByDescending { it.confidence }
         val selected = ArrayList<RawDetection>()
         val taken = BooleanArray(filtered.size)
@@ -527,6 +533,18 @@ class BubbleDetector(
         const val CLASS_TEXT = 1
         const val CLASS_BALLOON = 2
         private const val MASK_COEFFS = 32
+    }
+}
+
+internal fun effectiveDetectionConfidenceThreshold(
+    classId: Int,
+    configuredThreshold: Float
+): Float {
+    val normalized = configuredThreshold.coerceIn(0f, 1f)
+    return if (classId == BubbleDetector.CLASS_BALLOON) {
+        max(normalized, TranslationCoreDefaults.MinBalloonConfidence)
+    } else {
+        normalized
     }
 }
 
