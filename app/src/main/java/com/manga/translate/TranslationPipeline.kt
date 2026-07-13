@@ -970,8 +970,8 @@ internal fun buildDetectionStrategyTag(
     pageWidth: Int,
     pageHeight: Int
 ): String {
-    return if (shouldUseLongImageTiling(pageWidth, pageHeight)) {
-        "det_tiled_long_v8"
+    return if (shouldUseHighResolutionTiling(pageWidth, pageHeight)) {
+        "det_tiled_high_res_v10"
     } else {
         "det_full_v2"
     }

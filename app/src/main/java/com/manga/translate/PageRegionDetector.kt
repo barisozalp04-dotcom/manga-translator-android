@@ -13,7 +13,7 @@ import kotlin.math.roundToInt
 
 internal enum class PageRegionDetectionMode {
     FULL,
-    TILED_LONG
+    TILED
 }
 
 internal data class DetectionTile(
@@ -57,13 +57,23 @@ internal fun shouldUseLongImageTiling(pageWidth: Int, pageHeight: Int): Boolean 
     return pageHeight / pageWidth.toFloat() >= LONG_IMAGE_ASPECT_THRESHOLD
 }
 
-internal fun planLongImageDetectionTiles(
+internal fun shouldUseHighResolutionTiling(pageWidth: Int, pageHeight: Int): Boolean {
+    if (pageWidth <= 0 || pageHeight <= 0) return false
+    return pageWidth > DETECTION_TILE_EDGE_PX || pageHeight > DETECTION_TILE_EDGE_PX
+}
+
+internal fun shouldCombineFullPageDetection(pageWidth: Int, pageHeight: Int): Boolean {
+    return shouldUseHighResolutionTiling(pageWidth, pageHeight) &&
+        !shouldUseLongImageTiling(pageWidth, pageHeight)
+}
+
+internal fun planHighResolutionDetectionTiles(
     pageWidth: Int,
     pageHeight: Int
 ): List<DetectionTile> {
     if (pageWidth <= 0 || pageHeight <= 0) return emptyList()
-    val tileWidth = min(pageWidth, LONG_IMAGE_TILE_MAX_EDGE_PX)
-    val tileHeight = longImageDetectionTileHeight(pageWidth, pageHeight)
+    val tileWidth = min(pageWidth, DETECTION_TILE_EDGE_PX)
+    val tileHeight = highResolutionDetectionTileHeight(pageWidth, pageHeight)
     val lefts = planDetectionAxisStarts(pageWidth, tileWidth)
     val tops = planDetectionAxisStarts(pageHeight, tileHeight)
     return tops.flatMap { tileTop ->
@@ -82,8 +92,8 @@ internal fun planDetectionAxisStarts(length: Int, tileSize: Int): List<Int> {
     if (length <= 0 || tileSize <= 0) return emptyList()
     if (tileSize >= length) return listOf(0)
     val overlap = max(
-        (tileSize * LONG_IMAGE_TILE_OVERLAP_RATIO).roundToInt(),
-        LONG_IMAGE_TILE_OVERLAP_MIN_PX
+        (tileSize * DETECTION_TILE_OVERLAP_RATIO).roundToInt(),
+        DETECTION_TILE_OVERLAP_MIN_PX
     ).coerceAtMost(tileSize - 1)
     val step = max(1, tileSize - overlap)
     val lastStart = length - tileSize
@@ -97,12 +107,9 @@ internal fun planDetectionAxisStarts(length: Int, tileSize: Int): List<Int> {
     return starts.sorted()
 }
 
-internal fun longImageDetectionTileHeight(pageWidth: Int, pageHeight: Int): Int {
+internal fun highResolutionDetectionTileHeight(pageWidth: Int, pageHeight: Int): Int {
     if (pageWidth <= 0 || pageHeight <= 0) return 0
-    val tileWidth = min(pageWidth, LONG_IMAGE_TILE_MAX_EDGE_PX)
-    return (tileWidth * LONG_IMAGE_TILE_HEIGHT_WIDTH_RATIO).roundToInt()
-        .coerceIn(LONG_IMAGE_TILE_MIN_HEIGHT_PX, LONG_IMAGE_TILE_MAX_HEIGHT_PX)
-        .coerceAtMost(pageHeight)
+    return min(min(pageWidth, DETECTION_TILE_EDGE_PX), pageHeight)
 }
 
 internal fun shouldDeduplicateTileCandidates(
@@ -309,8 +316,13 @@ internal class PageRegionDetector(
     private val appContext = context.applicationContext
     private var bubbleDetector: BubbleDetector? = null
 
-    fun detect(bitmap: Bitmap, logTag: String = "PageRegionDetector"): PageRegionDetectionResult? {
-        return detectSingleBitmap(bitmap, logTag, PageRegionDetectionMode.FULL)
+    suspend fun detect(
+        bitmap: Bitmap,
+        logTag: String = "PageRegionDetector"
+    ): PageRegionDetectionResult? {
+        return PipelineBitmapDecoder.openCropSource(bitmap).use { cropSource ->
+            detect(cropSource, bitmap.width, bitmap.height, logTag)
+        }
     }
 
     suspend fun detect(
@@ -319,21 +331,21 @@ internal class PageRegionDetector(
         pageHeight: Int,
         logTag: String = "PageRegionDetector"
     ): PageRegionDetectionResult? {
-        if (!shouldUseLongImageTiling(pageWidth, pageHeight)) {
+        if (!shouldUseHighResolutionTiling(pageWidth, pageHeight)) {
             return detectFullPage(cropSource, pageWidth, pageHeight, logTag)
         }
         return try {
-            detectTiledLongImage(cropSource, pageWidth, pageHeight, logTag)
+            detectTiledPage(cropSource, pageWidth, pageHeight, logTag)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            AppLogger.log(logTag, "Long-image tiled detection failed; returning empty result", e)
+            AppLogger.log(logTag, "Tiled page detection failed; returning empty result", e)
             buildDetectionResult(
                 width = pageWidth,
                 height = pageHeight,
                 detections = emptyList(),
                 textRects = emptyList(),
-                detectionMode = PageRegionDetectionMode.TILED_LONG
+                detectionMode = PageRegionDetectionMode.TILED
             )
         }
     }
@@ -349,7 +361,7 @@ internal class PageRegionDetector(
             maxEdge = DETECTION_MAX_EDGE
         ) ?: return null
         return try {
-            detectSingleBitmap(fullBitmap, logTag, PageRegionDetectionMode.FULL)
+            detectSingleBitmap(fullBitmap, logTag)
                 ?.remapToSource(pageWidth, pageHeight)
                 ?.copy(detectionMode = PageRegionDetectionMode.FULL)
         } finally {
@@ -357,24 +369,34 @@ internal class PageRegionDetector(
         }
     }
 
-    private suspend fun detectTiledLongImage(
+    private suspend fun detectTiledPage(
         cropSource: BitmapCropSource,
         pageWidth: Int,
         pageHeight: Int,
         logTag: String
     ): PageRegionDetectionResult {
-        val tiles = planLongImageDetectionTiles(pageWidth, pageHeight)
+        val tiles = planHighResolutionDetectionTiles(pageWidth, pageHeight)
         if (tiles.isEmpty()) {
             return buildDetectionResult(
                 width = pageWidth,
                 height = pageHeight,
                 detections = emptyList(),
                 textRects = emptyList(),
-                detectionMode = PageRegionDetectionMode.TILED_LONG
+                detectionMode = PageRegionDetectionMode.TILED
             )
         }
         val bubbleDetections = ArrayList<TiledBubbleDetection>()
         val textRects = ArrayList<RectF>()
+        if (shouldCombineFullPageDetection(pageWidth, pageHeight)) {
+            appendFullPageCandidates(
+                cropSource = cropSource,
+                pageWidth = pageWidth,
+                pageHeight = pageHeight,
+                bubbleDetections = bubbleDetections,
+                textRects = textRects,
+                logTag = logTag
+            )
+        }
         var failedTileCount = 0
         for ((index, tile) in tiles.withIndex()) {
             currentCoroutineContext().ensureActive()
@@ -385,18 +407,18 @@ internal class PageRegionDetector(
                 throw e
             } catch (e: Exception) {
                 failedTileCount++
-                AppLogger.log(tileTag, "Long-image tile decode failed; skipping tile", e)
+                AppLogger.log(tileTag, "Detection tile decode failed; skipping tile", e)
                 continue
             }
             if (tileBitmap == null) {
                 failedTileCount++
-                AppLogger.log(tileTag, "Long-image tile decode returned null; skipping tile")
+                AppLogger.log(tileTag, "Detection tile decode returned null; skipping tile")
                 continue
             }
             try {
                 val local = detectUnifiedRegions(tileBitmap, tileTag) ?: run {
                     failedTileCount++
-                    AppLogger.log(tileTag, "Long-image unified detection returned null; skipping tile")
+                    AppLogger.log(tileTag, "Tiled unified detection returned null; skipping tile")
                     continue
                 }
                 bubbleDetections.addAll(
@@ -422,13 +444,13 @@ internal class PageRegionDetector(
                 throw e
             } catch (e: Exception) {
                 failedTileCount++
-                AppLogger.log(tileTag, "Long-image unified detection failed; skipping tile", e)
+                AppLogger.log(tileTag, "Tiled unified detection failed; skipping tile", e)
             } finally {
                 tileBitmap.recycleSafely()
             }
         }
         if (failedTileCount > 0) {
-            AppLogger.log(logTag, "Skipped $failedTileCount/${tiles.size} long-image tiles")
+            AppLogger.log(logTag, "Skipped $failedTileCount/${tiles.size} detection tiles")
         }
         val deduplicatedGroups = filterLongImageBubbleGroups(
             deduplicateBubbleDetections(bubbleDetections, pageHeight),
@@ -444,11 +466,16 @@ internal class PageRegionDetector(
             threshold = TEXT_IOU_THRESHOLD,
             includeSameBubbleCheck = true
         )
+        val maxMergedHeight = if (shouldUseLongImageTiling(pageWidth, pageHeight)) {
+            longImageMaxRegionHeight(pageWidth, pageHeight)
+        } else {
+            null
+        }
         val mergedTextRects = RectGeometryDeduplicator.mergeSupplementRects(
             filteredTextRects,
             pageWidth,
             pageHeight,
-            maxMergedHeight = longImageMaxRegionHeight(pageWidth, pageHeight)
+            maxMergedHeight = maxMergedHeight
         )
         if (mergedTextRects.isNotEmpty()) {
             AppLogger.log(logTag, "Free-text regions after tile merge: ${mergedTextRects.size}")
@@ -458,21 +485,58 @@ internal class PageRegionDetector(
             height = pageHeight,
             detections = deduplicatedBubbles,
             textRects = mergedTextRects,
-            detectionMode = PageRegionDetectionMode.TILED_LONG
+            detectionMode = PageRegionDetectionMode.TILED
         )
+    }
+
+    private suspend fun appendFullPageCandidates(
+        cropSource: BitmapCropSource,
+        pageWidth: Int,
+        pageHeight: Int,
+        bubbleDetections: MutableList<TiledBubbleDetection>,
+        textRects: MutableList<RectF>,
+        logTag: String
+    ) {
+        val fullTag = "$logTag[full]"
+        val fullBitmap = try {
+            cropSource.decodeRegion(
+                RectF(0f, 0f, pageWidth.toFloat(), pageHeight.toFloat()),
+                maxEdge = DETECTION_MAX_EDGE
+            )
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            AppLogger.log(fullTag, "Full-page detection decode failed; continuing with tiles", e)
+            null
+        } ?: return
+        try {
+            val fullResult = detectSingleBitmap(fullBitmap, fullTag)
+                ?.remapToSource(pageWidth, pageHeight)
+                ?: return
+            bubbleDetections.addAll(
+                fullResult.bubbleDetections.map { detection ->
+                    TiledBubbleDetection(
+                        detection = detection,
+                        touchesInternalTileBoundary = false,
+                        tileIndex = FULL_PAGE_CANDIDATE_TILE_INDEX
+                    )
+                }
+            )
+            textRects.addAll(fullResult.textRects)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            AppLogger.log(fullTag, "Full-page detection failed; continuing with tiles", e)
+        } finally {
+            fullBitmap.recycleSafely()
+        }
     }
 
     private fun detectSingleBitmap(
         bitmap: Bitmap,
-        logTag: String,
-        detectionMode: PageRegionDetectionMode
+        logTag: String
     ): PageRegionDetectionResult? {
         val unified = detectUnifiedRegions(bitmap, logTag) ?: return null
-        val maxMergedHeight = if (detectionMode == PageRegionDetectionMode.TILED_LONG) {
-            bitmap.height * LONG_IMAGE_REGION_SCREEN_HEIGHT_RATIO
-        } else {
-            null
-        }
         val filteredTextRects = filterOverlapping(
             textRects = unified.freeTextRects,
             bubbleRects = unified.balloons.map { it.rect },
@@ -482,7 +546,7 @@ internal class PageRegionDetector(
             filteredTextRects,
             bitmap.width,
             bitmap.height,
-            maxMergedHeight = maxMergedHeight
+            maxMergedHeight = null
         )
         if (textRects.isNotEmpty()) {
             AppLogger.log(logTag, "Free-text regions: ${textRects.size}")
@@ -492,7 +556,7 @@ internal class PageRegionDetector(
             height = bitmap.height,
             detections = unified.balloons,
             textRects = textRects,
-            detectionMode = detectionMode
+            detectionMode = PageRegionDetectionMode.FULL
         )
     }
 
@@ -951,16 +1015,11 @@ private fun RectF.offsetBy(offsetX: Float, offsetY: Float): RectF {
 
 private const val LONG_IMAGE_ASPECT_THRESHOLD = 2.2f
 private const val LONG_IMAGE_MIN_HEIGHT_PX = 2048
-// Keep source tiles near-square and bounded in both axes so the fixed 640 input
-// retains enough pixels for small balloons on webtoons and high-resolution strips.
-private const val LONG_IMAGE_TILE_HEIGHT_WIDTH_RATIO = 1.0f
-private const val LONG_IMAGE_TILE_MIN_HEIGHT_PX = 480
-private const val LONG_IMAGE_TILE_MAX_HEIGHT_PX = 1200
-private const val LONG_IMAGE_TILE_MAX_EDGE_PX = 1200
-private const val LONG_IMAGE_TILE_OVERLAP_RATIO = 0.30f
-private const val LONG_IMAGE_TILE_OVERLAP_MIN_PX = 192
-// Keep for full-page TILED_LONG path (bitmap.height * ratio) if ever used.
-private const val LONG_IMAGE_REGION_SCREEN_HEIGHT_RATIO = 0.85f
+// The fixed 640 model input needs a smaller source window to preserve small bubbles.
+private const val DETECTION_TILE_EDGE_PX = 500
+private const val DETECTION_TILE_OVERLAP_RATIO = 0.30f
+private const val DETECTION_TILE_OVERLAP_MIN_PX = 192
+private const val FULL_PAGE_CANDIDATE_TILE_INDEX = -1
 // Reject only abnormal full-strip boxes (~1.8 page-widths tall), not normal tall balloons.
 private const val LONG_IMAGE_MAX_REGION_HEIGHT_WIDTH_RATIO = 1.8f
 private const val BUBBLE_DEDUP_IOU_THRESHOLD = TranslationCoreDefaults.BubbleDedupIouThreshold

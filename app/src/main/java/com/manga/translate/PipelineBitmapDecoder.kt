@@ -221,7 +221,8 @@ internal object PipelineBitmapDecoder {
         override suspend fun decodeRegion(rect: RectF, maxEdge: Int): Bitmap? {
             val source = ensureBitmap() ?: return null
             val crop = cropBitmap(source, rect) ?: return null
-            return scaleDownIfNeeded(crop, maxEdge)
+            val ownedCrop = ensureOwnedCrop(crop, source) ?: return null
+            return scaleDownIfNeeded(ownedCrop, maxEdge)
         }
 
         override fun close() {
@@ -246,10 +247,19 @@ internal object PipelineBitmapDecoder {
 
         override suspend fun decodeRegion(rect: RectF, maxEdge: Int): Bitmap? {
             val crop = cropBitmap(bitmap, rect) ?: return null
-            return scaleDownIfNeeded(crop, maxEdge)
+            val ownedCrop = ensureOwnedCrop(crop, bitmap) ?: return null
+            return scaleDownIfNeeded(ownedCrop, maxEdge)
         }
 
         override fun close() = Unit
+    }
+
+    private fun ensureOwnedCrop(crop: Bitmap, source: Bitmap): Bitmap? {
+        if (crop !== source) return crop
+        val copyConfig = source.config
+            ?.takeUnless { it == Bitmap.Config.HARDWARE }
+            ?: Bitmap.Config.ARGB_8888
+        return runCatching { source.copy(copyConfig, false) }.getOrNull()
     }
 
     internal suspend fun scaleDownIfNeeded(bitmap: Bitmap, maxEdge: Int = OCR_CROP_MAX_EDGE): Bitmap {
