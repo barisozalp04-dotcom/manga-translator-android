@@ -479,7 +479,7 @@ class FloatingDetectionOverlayView @JvmOverloads constructor(
 
     /**
      * Builds [bubblePath] in view coordinates.
-     * Balloon detections with maskContour use the shared contour path (manga109-seg);
+     * Balloon detections with maskContour use the shared contour path when available;
      * free-text / manual boxes keep floating shape settings (rect / ellipse).
      */
     private fun resolveBubbleDisplayPath(bubble: BubbleTranslation, radius: Float) {

@@ -28,10 +28,10 @@ class PageRegionDetectorTest {
     }
 
     @Test
-    fun `regular pages combine full and tiled detection while long pages only use tiles`() {
+    fun `all tiled pages retain full page detection`() {
         assertFalse(shouldCombineFullPageDetection(pageWidth = 640, pageHeight = 640))
         assertTrue(shouldCombineFullPageDetection(pageWidth = 1080, pageHeight = 1600))
-        assertFalse(shouldCombineFullPageDetection(pageWidth = 1080, pageHeight = 28800))
+        assertTrue(shouldCombineFullPageDetection(pageWidth = 1080, pageHeight = 28800))
     }
 
     @Test
@@ -51,7 +51,7 @@ class PageRegionDetectorTest {
         assertTrue(firstColumn.zipWithNext().all { (a, b) -> b.top < a.bottom })
         val minOverlap = firstColumn.zipWithNext().minOf { (a, b) -> a.bottom - b.top }
         assertTrue(minOverlap >= 192)
-        // The source window maps one-to-one into the fixed 640 model input.
+        // Supplement text tiles map one-to-one into the fixed 640 model input.
         val firstTile = tiles.first()
         val gain = minOf(640f / firstTile.width, 640f / firstTile.height)
         assertEquals(1f, gain, 1e-4f)
@@ -333,15 +333,15 @@ class PageRegionDetectorTest {
     @Test
     fun `detection strategy tag switches between full and tiled modes`() {
         assertEquals(
-            "det_full_balloon_conf_v3",
+            "det_full_comic1024_yolo11_v4",
             buildDetectionStrategyTag(pageWidth = 640, pageHeight = 640)
         )
         assertEquals(
-            "det_tiled_640_balloon_conf_v11",
+            "det_text_tiled_640_comic1024_yolo11_v12",
             buildDetectionStrategyTag(pageWidth = 1080, pageHeight = 1600)
         )
         assertEquals(
-            "det_tiled_640_balloon_conf_v11",
+            "det_text_tiled_640_comic1024_yolo11_v12",
             buildDetectionStrategyTag(pageWidth = 1000, pageHeight = 2200)
         )
     }

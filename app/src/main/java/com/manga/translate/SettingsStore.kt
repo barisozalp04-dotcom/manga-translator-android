@@ -443,7 +443,7 @@ class SettingsStore(context: Context) {
         internal const val KEY_TRANSLATION_BUBBLE_OPACITY_PERCENT =
             "translation_bubble_opacity_percent"
         internal const val KEY_BUBBLE_CONF_THRESHOLD_PERCENT =
-            "manga109_bubble_conf_threshold_percent_v2"
+            "comic_bubble_conf_threshold_percent_v3"
         internal const val KEY_LINK_SOURCE = "link_source"
         internal const val KEY_LLM_TEMPERATURE = "llm_temperature"
         internal const val KEY_LLM_TOP_P = "llm_top_p"

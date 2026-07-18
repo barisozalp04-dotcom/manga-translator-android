@@ -77,7 +77,8 @@
 
 ### 模型与资源
 将以下模型文件放入 `assets/` 对应子目录：
-- `models/detection/manga109-seg.onnx`（页面区域一步检测：balloon=气泡，text=游离气泡；frame 忽略）
+- `models/detection/comic-speech-bubble-detector.onnx`（普通气泡检测，1024×1024 ONNX，仅使用 `text_bubble`）
+- `models/detection/yolo11n-text.onnx`（游离文字补检；普通气泡区域会先被屏蔽）
 - `models/ocr/manga_ocr/encoder_model.onnx`、`models/ocr/manga_ocr/decoder_model.onnx`（日文 OCR：MangaOcr，可在设置中切换）
 - `models/ocr/manga_ocr/generation_config.json`、`models/ocr/manga_ocr/preprocessor_config.json`、`models/ocr/manga_ocr/tokenizer.json`、`models/ocr/manga_ocr/special_tokens_map.json`
 - `models/ocr/manga_ocr_mobile/encoder.tflite`、`models/ocr/manga_ocr_mobile/decoder.tflite` 及 tokenizer/config（当前默认日文 OCR：MangaOcr Mobile）
@@ -86,7 +87,8 @@
 - `models/detection/PP-OCRv6_det_mobile_infer.onnx`（英文行检测）
 
 模型下载链接：
-- 页面区域检测模型（manga109-seg）：https://huggingface.co/ShadowB/Manga109-panel-balloon-text-yolov26-segmentation
+- 普通气泡检测模型：https://huggingface.co/ogkalu/comic-speech-bubble-detector-yolov8m
+- 游离文字检测模型：https://huggingface.co/RoyRud1902/yolo11n-text
 - 英文识别模型：https://huggingface.co/PaddlePaddle/PP-OCRv6_small_rec_onnx
 - 英文检测模型：https://huggingface.co/PaddlePaddle/PP-OCRv6_small_det_onnx
 - 韩文 OCR 模型：https://huggingface.co/breezedeus/cnocr-ppocr-korean_PP-OCRv3

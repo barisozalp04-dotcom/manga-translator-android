@@ -26,4 +26,20 @@ class BubbleDetectorTest {
             1e-6f
         )
     }
+
+    @Test
+    fun `comic output chooses the strongest class score`() {
+        assertEquals(
+            YoloClassScore(classId = BubbleDetector.CLASS_TEXT, confidence = 0.82f),
+            bestYoloClassScore(floatArrayOf(320f, 320f, 100f, 80f, 0.12f, 0.82f))
+        )
+    }
+
+    @Test
+    fun `single class text output uses its only class score`() {
+        assertEquals(
+            YoloClassScore(classId = 0, confidence = 0.73f),
+            bestYoloClassScore(floatArrayOf(320f, 320f, 100f, 80f, 0.73f))
+        )
+    }
 }
