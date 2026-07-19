@@ -287,7 +287,7 @@ sourceSets["main"].assets.srcDirs("src/main/assets", "../assets")
 
 当前页面区域检测链路也已独立成公共模块：
 - `PageRegionDetector.kt` 先调用 Manga109 YOLO11n-seg：`balloon` → `BubbleSource.BUBBLE_DETECTOR`（同时保留分割轮廓）；随后屏蔽这些普通气泡区域并调用 yolo11n-text：补检结果 → `BubbleSource.TEXT_DETECTOR`（游离气泡），再做 overlap/filter 与合并。
-- Manga109 气泡模型固定使用 1600×1600 输入，应用侧按比例 letterbox 并传入 RGB 0–255 值，普通气泡候选使用 15% 的最低置信度下限；页面分辨率较高或为长图时由 `PageRegionDetector` 分块运行并在页面坐标去重。yolo11n-text 负责高分辨率补检：任一边超过 640px 时使用最大 640×640px 二维方形 tile 和至少 192px 重叠，固定使用 40% 阈值。每个文字 tile 会先按整页 Manga109 结果屏蔽普通气泡，再执行游离文字检测并在页面坐标中去重、合并。高宽比达到约 2.2 且高度至少 2048px 时，额外启用长图异常大框过滤。
+- Manga109 气泡模型固定使用 1600×1600 输入，应用侧按比例 letterbox 并传入 RGB 0–255 值，普通气泡候选使用 15% 的最低置信度下限。普通方图、横图和漫画页不再按分辨率二维切块，而是整页缩放后分别执行一次气泡检测与文字检测；只有高度至少 2048px 且高宽比超过 2.0 的超长竖图才分块。长图气泡与文字 tile 均覆盖整幅宽度，只沿 Y 轴重叠滑动，yolo11n-text 的文字 tile 高度约为页面宽度的 1.5 倍并保持 30% 重叠，检测结果回映射到页面坐标后去重、合并，并启用长图异常大框过滤。
 - `TranslationPipeline.kt` 与 `FloatingBallOverlayService.kt` 均调用该模块；主流程保留缓存/OCR/落盘编排，悬浮窗对抓屏 bitmap 直接 `detect(bitmap)`。
 - 如果后续要调整去重阈值、`BubbleSource` 或 `maskContour` 的组装逻辑，优先修改 `PageRegionDetector.kt` / `BubbleDetector.kt`。
 

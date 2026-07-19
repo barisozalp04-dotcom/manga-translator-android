@@ -3,6 +3,7 @@ package com.manga.translate
 import android.graphics.Bitmap
 import android.graphics.RectF
 import kotlinx.coroutines.runBlocking
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotSame
 import org.junit.Assert.assertNotNull
@@ -32,5 +33,26 @@ class PipelineBitmapDecoderTest {
         decoded.recycleSafely()
         assertFalse(source.isRecycled)
         source.recycleSafely()
+    }
+
+    @Test
+    fun `crop source scales decoded bitmap to exact max edge`() = runBlocking {
+        val source = Bitmap.createBitmap(1024, 768, Bitmap.Config.ARGB_8888)
+        try {
+            val decoded = requireNotNull(
+                PipelineBitmapDecoder.openCropSource(source).use { cropSource ->
+                    cropSource.decodeRegion(
+                        RectF(0f, 0f, cropSource.width.toFloat(), cropSource.height.toFloat()),
+                        maxEdge = 300
+                    )
+                }
+            )
+
+            assertEquals(300, maxOf(decoded.width, decoded.height))
+            decoded.recycleSafely()
+            assertFalse(source.isRecycled)
+        } finally {
+            source.recycleSafely()
+        }
     }
 }

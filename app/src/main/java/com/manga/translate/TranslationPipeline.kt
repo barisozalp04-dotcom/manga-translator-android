@@ -926,14 +926,14 @@ internal class TranslationPipeline(
         }
         val strategyTag = PipelineBitmapDecoder.readImageSize(imageFile)?.let { size ->
             buildDetectionStrategyTag(size.width, size.height)
-        } ?: "det_full_manga109seg1600_text_yolo11_v15"
+        } ?: "det_full_scaled_manga109seg1600_text_yolo11_v16"
         return "$baseMode|$strategyTag"
     }
 
     private fun buildBaiduFullPageOcrCacheMode(imageFile: File): String {
         val strategyTag = PipelineBitmapDecoder.readImageSize(imageFile)?.let { size ->
             buildDetectionStrategyTag(size.width, size.height)
-        } ?: "det_full_manga109seg1600_text_yolo11_v15"
+        } ?: "det_full_scaled_manga109seg1600_text_yolo11_v16"
         return "${BAIDU_FULL_PAGE_CACHE_MODE}|$strategyTag"
     }
 
@@ -988,13 +988,9 @@ internal fun buildDetectionStrategyTag(
     pageHeight: Int
 ): String {
     return if (shouldUseLongImageTiling(pageWidth, pageHeight)) {
-        "det_bubble_tiled_2x_text_tiled_640_manga109seg_yolo11_v15"
-    } else if (shouldUseHighResolutionBubbleTiling(pageWidth, pageHeight)) {
-        "det_bubble_full_plus_tiled_1600_text_tiled_640_manga109seg_yolo11_v15"
-    } else if (shouldUseHighResolutionTiling(pageWidth, pageHeight)) {
-        "det_bubble_full_text_tiled_640_manga109seg_yolo11_v15"
+        "det_vertical_tiled_bubble_2x_text_1_5x_manga109seg_yolo11_v17"
     } else {
-        "det_full_manga109seg1600_text_yolo11_v15"
+        "det_full_scaled_manga109seg1600_text_yolo11_v16"
     }
 }
 

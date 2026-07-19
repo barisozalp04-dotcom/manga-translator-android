@@ -13,7 +13,6 @@ import kotlin.math.roundToInt
 
 internal enum class PageRegionDetectionMode {
     FULL,
-    TILED,
     TILED_LONG
 }
 
@@ -58,16 +57,6 @@ internal fun shouldUseLongImageTiling(pageWidth: Int, pageHeight: Int): Boolean 
     return pageHeight / pageWidth.toFloat() > LONG_IMAGE_ASPECT_THRESHOLD
 }
 
-internal fun shouldUseHighResolutionTiling(pageWidth: Int, pageHeight: Int): Boolean {
-    if (pageWidth <= 0 || pageHeight <= 0) return false
-    return pageWidth > DETECTION_TILE_EDGE_PX || pageHeight > DETECTION_TILE_EDGE_PX
-}
-
-internal fun shouldCombineFullPageDetection(pageWidth: Int, pageHeight: Int): Boolean {
-    return shouldUseHighResolutionTiling(pageWidth, pageHeight) &&
-        !shouldUseLongImageTiling(pageWidth, pageHeight)
-}
-
 internal fun planLongImageBubbleDetectionTiles(
     pageWidth: Int,
     pageHeight: Int
@@ -108,74 +97,27 @@ internal fun longImageBubbleDetectionTileHeight(pageWidth: Int, pageHeight: Int)
     }
 }
 
-internal fun planHighResolutionDetectionTiles(
+internal fun planLongImageTextDetectionTiles(
     pageWidth: Int,
     pageHeight: Int
 ): List<DetectionTile> {
     if (pageWidth <= 0 || pageHeight <= 0) return emptyList()
-    val tileWidth = min(pageWidth, DETECTION_TILE_EDGE_PX)
-    val tileHeight = highResolutionDetectionTileHeight(pageWidth, pageHeight)
-    val lefts = planDetectionAxisStarts(pageWidth, tileWidth)
-    val tops = planDetectionAxisStarts(pageHeight, tileHeight)
-    return tops.flatMap { tileTop ->
-        lefts.map { tileLeft ->
-            DetectionTile(
-                left = tileLeft,
-                top = tileTop,
-                right = min(pageWidth, tileLeft + tileWidth),
-                bottom = min(pageHeight, tileTop + tileHeight)
-            )
-        }
-    }
-}
-
-internal fun shouldUseHighResolutionBubbleTiling(
-    pageWidth: Int,
-    pageHeight: Int
-): Boolean {
-    if (!shouldUseHighResolutionTiling(pageWidth, pageHeight)) return false
-    if (shouldUseLongImageTiling(pageWidth, pageHeight)) return false
-    return max(pageWidth, pageHeight) > DETECTION_MAX_EDGE + BUBBLE_TILE_OVERLAP_MIN_PX
-}
-
-internal fun planHighResolutionBubbleDetectionTiles(
-    pageWidth: Int,
-    pageHeight: Int
-): List<DetectionTile> {
-    if (pageWidth <= 0 || pageHeight <= 0) return emptyList()
-    val tileEdge = min(min(pageWidth, pageHeight), BUBBLE_TILE_EDGE_PX)
-    if (tileEdge <= 0) return emptyList()
-    val lefts = planDetectionAxisStarts(
-        length = pageWidth,
-        tileSize = tileEdge,
-        overlapRatio = BUBBLE_TILE_OVERLAP_RATIO,
-        overlapMinPx = BUBBLE_TILE_OVERLAP_MIN_PX
-    )
+    val tileHeight = longImageTextDetectionTileHeight(pageWidth, pageHeight)
+    if (tileHeight <= 0) return emptyList()
     val tops = planDetectionAxisStarts(
         length = pageHeight,
-        tileSize = tileEdge,
-        overlapRatio = BUBBLE_TILE_OVERLAP_RATIO,
-        overlapMinPx = BUBBLE_TILE_OVERLAP_MIN_PX
-    )
-    return tops.flatMap { tileTop ->
-        lefts.map { tileLeft ->
-            DetectionTile(
-                left = tileLeft,
-                top = tileTop,
-                right = min(pageWidth, tileLeft + tileEdge),
-                bottom = min(pageHeight, tileTop + tileEdge)
-            )
-        }
-    }
-}
-
-internal fun planDetectionAxisStarts(length: Int, tileSize: Int): List<Int> {
-    return planDetectionAxisStarts(
-        length = length,
-        tileSize = tileSize,
+        tileSize = tileHeight,
         overlapRatio = DETECTION_TILE_OVERLAP_RATIO,
-        overlapMinPx = DETECTION_TILE_OVERLAP_MIN_PX
+        overlapMinPx = 0
     )
+    return tops.map { tileTop ->
+        DetectionTile(
+            left = 0,
+            top = tileTop,
+            right = pageWidth,
+            bottom = min(pageHeight, tileTop + tileHeight)
+        )
+    }
 }
 
 private fun planDetectionAxisStarts(
@@ -201,9 +143,12 @@ private fun planDetectionAxisStarts(
     }.distinct()
 }
 
-internal fun highResolutionDetectionTileHeight(pageWidth: Int, pageHeight: Int): Int {
+internal fun longImageTextDetectionTileHeight(pageWidth: Int, pageHeight: Int): Int {
     if (pageWidth <= 0 || pageHeight <= 0) return 0
-    return min(min(pageWidth, DETECTION_TILE_EDGE_PX), pageHeight)
+    return min(
+        (pageWidth * LONG_IMAGE_TEXT_TILE_HEIGHT_WIDTH_RATIO).roundToInt(),
+        pageHeight
+    )
 }
 
 internal fun buildTileTextSuppressionRects(
@@ -472,14 +417,11 @@ internal class PageRegionDetector(
         pageHeight: Int,
         logTag: String = "PageRegionDetector"
     ): PageRegionDetectionResult? {
-        if (
-            !shouldUseHighResolutionTiling(pageWidth, pageHeight) &&
-            !shouldUseLongImageTiling(pageWidth, pageHeight)
-        ) {
+        if (!shouldUseLongImageTiling(pageWidth, pageHeight)) {
             return detectFullPage(cropSource, pageWidth, pageHeight, logTag)
         }
         return try {
-            detectTiledPage(cropSource, pageWidth, pageHeight, logTag)
+            detectLongImageTiledPage(cropSource, pageWidth, pageHeight, logTag)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -514,55 +456,31 @@ internal class PageRegionDetector(
         }
     }
 
-    private suspend fun detectTiledPage(
+    private suspend fun detectLongImageTiledPage(
         cropSource: BitmapCropSource,
         pageWidth: Int,
         pageHeight: Int,
         logTag: String
     ): PageRegionDetectionResult {
-        val textTiles = planHighResolutionDetectionTiles(pageWidth, pageHeight)
+        val textTiles = planLongImageTextDetectionTiles(pageWidth, pageHeight)
         if (textTiles.isEmpty()) {
             return buildDetectionResult(
                 width = pageWidth,
                 height = pageHeight,
                 detections = emptyList(),
                 textRects = emptyList(),
-                detectionMode = if (shouldUseLongImageTiling(pageWidth, pageHeight)) {
-                    PageRegionDetectionMode.TILED_LONG
-                } else {
-                    PageRegionDetectionMode.TILED
-                }
+                detectionMode = PageRegionDetectionMode.TILED_LONG
             )
         }
         val bubbleDetections = ArrayList<TiledBubbleDetection>()
         val textRects = ArrayList<RectF>()
-        if (shouldUseLongImageTiling(pageWidth, pageHeight)) {
-            appendLongImageBubbleCandidates(
-                cropSource = cropSource,
-                pageWidth = pageWidth,
-                pageHeight = pageHeight,
-                bubbleDetections = bubbleDetections,
-                logTag = logTag
-            )
-        } else if (shouldCombineFullPageDetection(pageWidth, pageHeight)) {
-            appendFullPageCandidates(
-                cropSource = cropSource,
-                pageWidth = pageWidth,
-                pageHeight = pageHeight,
-                bubbleDetections = bubbleDetections,
-                textRects = textRects,
-                logTag = logTag
-            )
-            if (shouldUseHighResolutionBubbleTiling(pageWidth, pageHeight)) {
-                appendHighResolutionBubbleCandidates(
-                    cropSource = cropSource,
-                    pageWidth = pageWidth,
-                    pageHeight = pageHeight,
-                    bubbleDetections = bubbleDetections,
-                    logTag = logTag
-                )
-            }
-        }
+        appendLongImageBubbleCandidates(
+            cropSource = cropSource,
+            pageWidth = pageWidth,
+            pageHeight = pageHeight,
+            bubbleDetections = bubbleDetections,
+            logTag = logTag
+        )
         val deduplicatedGroups = try {
             filterLongImageBubbleGroups(
                 deduplicateBubbleDetections(bubbleDetections, pageHeight),
@@ -646,11 +564,7 @@ internal class PageRegionDetector(
             bubbleRects = deduplicatedBubbles.map { it.rect },
             threshold = TEXT_IOU_THRESHOLD
         )
-        val maxMergedHeight = if (shouldUseLongImageTiling(pageWidth, pageHeight)) {
-            longImageMaxRegionHeight(pageWidth, pageHeight)
-        } else {
-            null
-        }
+        val maxMergedHeight = longImageMaxRegionHeight(pageWidth, pageHeight)
         val mergedTextRects = try {
             RectGeometryDeduplicator.mergeSupplementRects(
                 filteredTextRects,
@@ -672,11 +586,7 @@ internal class PageRegionDetector(
             height = pageHeight,
             detections = deduplicatedBubbles,
             textRects = mergedTextRects,
-            detectionMode = if (shouldUseLongImageTiling(pageWidth, pageHeight)) {
-                PageRegionDetectionMode.TILED_LONG
-            } else {
-                PageRegionDetectionMode.TILED
-            }
+            detectionMode = PageRegionDetectionMode.TILED_LONG
         )
     }
 
@@ -710,24 +620,6 @@ internal class PageRegionDetector(
             bubbleDetections = bubbleDetections,
             tiles = planLongImageBubbleDetectionTiles(pageWidth, pageHeight),
             tileLabel = "bubble tile",
-            logTag = logTag
-        )
-    }
-
-    private suspend fun appendHighResolutionBubbleCandidates(
-        cropSource: BitmapCropSource,
-        pageWidth: Int,
-        pageHeight: Int,
-        bubbleDetections: MutableList<TiledBubbleDetection>,
-        logTag: String
-    ) {
-        appendBubbleCandidatesFromTiles(
-            cropSource = cropSource,
-            pageWidth = pageWidth,
-            pageHeight = pageHeight,
-            bubbleDetections = bubbleDetections,
-            tiles = planHighResolutionBubbleDetectionTiles(pageWidth, pageHeight),
-            tileLabel = "hi-res bubble tile",
             logTag = logTag
         )
     }
@@ -791,49 +683,6 @@ internal class PageRegionDetector(
         }
         if (failedTileCount > 0) {
             AppLogger.log(logTag, "Skipped $failedTileCount/${tiles.size} $tileLabel(s)")
-        }
-    }
-
-    private suspend fun appendFullPageCandidates(
-        cropSource: BitmapCropSource,
-        pageWidth: Int,
-        pageHeight: Int,
-        bubbleDetections: MutableList<TiledBubbleDetection>,
-        textRects: MutableList<RectF>,
-        logTag: String
-    ) {
-        val fullTag = "$logTag[full]"
-        val fullBitmap = try {
-            cropSource.decodeRegion(
-                RectF(0f, 0f, pageWidth.toFloat(), pageHeight.toFloat()),
-                maxEdge = DETECTION_MAX_EDGE
-            )
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            AppLogger.log(fullTag, "Full-page detection decode failed; continuing with tiles", e)
-            null
-        } ?: return
-        try {
-            val fullResult = detectSingleBitmap(fullBitmap, fullTag)
-                ?.remapToSource(pageWidth, pageHeight)
-                ?: return
-            bubbleDetections.addAll(
-                fullResult.bubbleDetections.map { detection ->
-                    TiledBubbleDetection(
-                        detection = detection,
-                        touchesInternalTileBoundary = false,
-                        tileIndex = FULL_PAGE_CANDIDATE_TILE_INDEX
-                    )
-                }
-            )
-            textRects.addAll(fullResult.textRects)
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            AppLogger.log(fullTag, "Full-page detection failed; continuing with tiles", e)
-        } finally {
-            fullBitmap.recycleSafely()
         }
     }
 
@@ -1387,15 +1236,9 @@ private const val LONG_IMAGE_ASPECT_THRESHOLD = 2.0f
 private const val LONG_IMAGE_MIN_HEIGHT_PX = 2048
 private const val LONG_IMAGE_TILE_HEIGHT_WIDTH_RATIO = 2.0f
 private const val LONG_IMAGE_TILE_OVERLAP_RATIO = 0.20f
-// The supplement text model uses 640px square source tiles. The 1600-input
-// bubble model gets larger square fallback tiles only for very large regular pages.
-private const val DETECTION_TILE_EDGE_PX = 640
+private const val LONG_IMAGE_TEXT_TILE_HEIGHT_WIDTH_RATIO = 1.5f
+// Long pages use full-width text tiles and only split on the Y axis.
 private const val DETECTION_TILE_OVERLAP_RATIO = 0.30f
-private const val DETECTION_TILE_OVERLAP_MIN_PX = 192
-private const val BUBBLE_TILE_EDGE_PX = 1600
-private const val BUBBLE_TILE_OVERLAP_RATIO = 0.20f
-private const val BUBBLE_TILE_OVERLAP_MIN_PX = 320
-private const val FULL_PAGE_CANDIDATE_TILE_INDEX = -1
 // Reject only abnormal full-strip boxes (~1.8 page-widths tall), not normal tall balloons.
 private const val LONG_IMAGE_MAX_REGION_HEIGHT_WIDTH_RATIO = 1.8f
 private const val BUBBLE_DEDUP_IOU_THRESHOLD = TranslationCoreDefaults.BubbleDedupIouThreshold

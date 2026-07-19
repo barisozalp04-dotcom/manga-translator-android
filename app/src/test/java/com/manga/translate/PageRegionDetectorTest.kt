@@ -23,80 +23,25 @@ class PageRegionDetectorTest {
     }
 
     @Test
-    fun `high resolution tiling applies to regular pages above source tile size`() {
-        assertFalse(shouldUseHighResolutionTiling(pageWidth = 640, pageHeight = 640))
-        assertTrue(shouldUseHighResolutionTiling(pageWidth = 641, pageHeight = 640))
-        assertTrue(shouldUseHighResolutionTiling(pageWidth = 1080, pageHeight = 1600))
+    fun `large square portrait and wide pages stay on full page detection`() {
+        assertFalse(shouldUseLongImageTiling(pageWidth = 4096, pageHeight = 4096))
+        assertFalse(shouldUseLongImageTiling(pageWidth = 3000, pageHeight = 4000))
+        assertFalse(shouldUseLongImageTiling(pageWidth = 8192, pageHeight = 2048))
     }
 
     @Test
-    fun `regular tiled pages retain full page detection`() {
-        assertFalse(shouldCombineFullPageDetection(pageWidth = 640, pageHeight = 640))
-        assertTrue(shouldCombineFullPageDetection(pageWidth = 1080, pageHeight = 1600))
-        assertFalse(shouldCombineFullPageDetection(pageWidth = 1080, pageHeight = 28800))
-    }
+    fun `long image text tiles cover full width and only split vertically`() {
+        val tiles = planLongImageTextDetectionTiles(pageWidth = 1000, pageHeight = 7000)
+        val tileHeight = longImageTextDetectionTileHeight(pageWidth = 1000, pageHeight = 7000)
 
-    @Test
-    fun `high resolution tile plan fully covers page with overlap and unique starts`() {
-        val tiles = planHighResolutionDetectionTiles(pageWidth = 1000, pageHeight = 7000)
-        val tileHeight = highResolutionDetectionTileHeight(pageWidth = 1000, pageHeight = 7000)
-        val rows = tiles.groupBy { it.top }
-
-        assertEquals(640, tileHeight)
-        assertEquals(32, tiles.size)
+        assertEquals(1500, tileHeight)
+        assertEquals(7, tiles.size)
         assertEquals(0, tiles.first().top)
         assertEquals(7000, tiles.last().bottom)
-        assertEquals(7000, tiles.maxOf { it.bottom })
-        assertTrue(rows.values.all { row -> row.map { it.left }.distinct().size == row.size })
-        // Adjacent tiles must overlap so seam balloons can be merged.
-        val firstColumn = tiles.filter { it.left == 0 }
-        assertTrue(firstColumn.zipWithNext().all { (a, b) -> b.top < a.bottom })
-        val minOverlap = firstColumn.zipWithNext().minOf { (a, b) -> a.bottom - b.top }
-        assertTrue(minOverlap >= 192)
-        // Supplement text tiles map one-to-one into the fixed 640 model input.
-        val firstTile = tiles.first()
-        val gain = minOf(640f / firstTile.width, 640f / firstTile.height)
-        assertEquals(1f, gain, 1e-4f)
-    }
-
-    @Test
-    fun `wide page uses overlapping horizontal tiles`() {
-        val tiles = planHighResolutionDetectionTiles(pageWidth = 1800, pageHeight = 1080)
-        val firstRow = tiles.filter { it.top == 0 }
-
-        assertTrue(firstRow.size >= 2)
-        assertEquals(0, firstRow.minOf { it.left })
-        assertEquals(1800, firstRow.maxOf { it.right })
-        assertTrue(firstRow.all { it.width <= 640 && it.height <= 640 })
-        assertTrue(firstRow.zipWithNext().all { (a, b) -> b.left < a.right })
-    }
-
-    @Test
-    fun `regular manga page uses the validated tile size and overlap`() {
-        val tiles = planHighResolutionDetectionTiles(pageWidth = 1080, pageHeight = 1600)
-        val firstRow = tiles.filter { it.top == 0 }
-        val firstColumn = tiles.filter { it.left == 0 }
-
-        assertEquals(8, tiles.size)
-        assertEquals(listOf(0, 440), firstRow.map { it.left })
-        assertEquals(listOf(0, 320, 640, 960), firstColumn.map { it.top })
-        assertTrue(tiles.all { it.width == 640 && it.height == 640 })
-    }
-
-    @Test
-    fun `high resolution bubble tiles preserve coverage without tiny final gaps`() {
-        assertTrue(shouldUseHighResolutionBubbleTiling(pageWidth = 3000, pageHeight = 4000))
-        val tiles = planHighResolutionBubbleDetectionTiles(pageWidth = 3000, pageHeight = 4000)
-
-        assertEquals(9, tiles.size)
-        assertEquals(0, tiles.minOf { it.left })
-        assertEquals(0, tiles.minOf { it.top })
-        assertEquals(3000, tiles.maxOf { it.right })
-        assertEquals(4000, tiles.maxOf { it.bottom })
-        assertTrue(tiles.all { it.width <= 1600 && it.height <= 1600 })
-        val firstRow = tiles.filter { it.top == tiles.minOf { tile -> tile.top } }
-        assertTrue(firstRow.zipWithNext().all { (a, b) -> b.left < a.right })
-        assertTrue(firstRow.zipWithNext().all { (a, b) -> a.right - b.left >= 320 })
+        assertTrue(tiles.all { it.left == 0 && it.right == 1000 })
+        assertTrue(tiles.all { it.width == 1000 && it.height <= 1500 })
+        assertTrue(tiles.zipWithNext().all { (a, b) -> b.top < a.bottom })
+        assertTrue(tiles.zipWithNext().minOf { (a, b) -> a.bottom - b.top } >= 450)
     }
 
     @Test
@@ -125,13 +70,12 @@ class PageRegionDetectorTest {
     }
 
     @Test
-    fun `reference webtoon uses validated high resolution tile plan`() {
-        val tiles = planHighResolutionDetectionTiles(pageWidth = 1080, pageHeight = 28800)
-        val firstRow = tiles.filter { it.top == 0 }
+    fun `reference webtoon text plan has no horizontal tile multiplication`() {
+        val tiles = planLongImageTextDetectionTiles(pageWidth = 1080, pageHeight = 28800)
 
-        assertEquals(128, tiles.size)
-        assertEquals(listOf(0, 440), firstRow.map { it.left })
-        assertTrue(tiles.all { it.width == 640 && it.height == 640 })
+        assertEquals(25, tiles.size)
+        assertTrue(tiles.all { it.left == 0 && it.right == 1080 })
+        assertTrue(tiles.all { it.width == 1080 && it.height <= 1620 })
         assertEquals(28800, tiles.maxOf { it.bottom })
     }
 
@@ -427,19 +371,23 @@ class PageRegionDetectorTest {
     @Test
     fun `detection strategy tag switches between full and tiled modes`() {
         assertEquals(
-            "det_full_manga109seg1600_text_yolo11_v15",
+            "det_full_scaled_manga109seg1600_text_yolo11_v16",
             buildDetectionStrategyTag(pageWidth = 640, pageHeight = 640)
         )
         assertEquals(
-            "det_bubble_full_text_tiled_640_manga109seg_yolo11_v15",
+            "det_full_scaled_manga109seg1600_text_yolo11_v16",
             buildDetectionStrategyTag(pageWidth = 1080, pageHeight = 1600)
         )
         assertEquals(
-            "det_bubble_full_plus_tiled_1600_text_tiled_640_manga109seg_yolo11_v15",
-            buildDetectionStrategyTag(pageWidth = 3000, pageHeight = 4000)
+            "det_full_scaled_manga109seg1600_text_yolo11_v16",
+            buildDetectionStrategyTag(pageWidth = 4096, pageHeight = 4096)
         )
         assertEquals(
-            "det_bubble_tiled_2x_text_tiled_640_manga109seg_yolo11_v15",
+            "det_full_scaled_manga109seg1600_text_yolo11_v16",
+            buildDetectionStrategyTag(pageWidth = 8192, pageHeight = 2048)
+        )
+        assertEquals(
+            "det_vertical_tiled_bubble_2x_text_1_5x_manga109seg_yolo11_v17",
             buildDetectionStrategyTag(pageWidth = 1000, pageHeight = 2200)
         )
     }

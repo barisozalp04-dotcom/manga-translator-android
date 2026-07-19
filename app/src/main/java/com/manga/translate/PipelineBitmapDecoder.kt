@@ -179,7 +179,7 @@ internal object PipelineBitmapDecoder {
                 inSampleSize = sampleSize
                 inPreferredConfig = Bitmap.Config.ARGB_8888
             }
-            return ImageProcessingGuards.withDecodePermit(
+            val decoded = ImageProcessingGuards.withDecodePermit(
                 width = bounds.width(),
                 height = bounds.height(),
                 tag = "PipelineDecoder"
@@ -188,6 +188,7 @@ internal object PipelineBitmapDecoder {
                     runCatching { decoder.decodeRegion(bounds, options) }.getOrNull()
                 }
             }
+            return decoded?.let { scaleDownIfNeeded(it, maxEdge) }
         }
 
         override fun close() {
