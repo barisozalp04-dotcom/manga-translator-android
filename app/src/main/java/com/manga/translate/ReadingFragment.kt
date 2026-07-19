@@ -308,7 +308,7 @@ class ReadingFragment : Fragment() {
             val pinnedHeight = resolveViewportPinnedContentHeight(
                 readingMode = folderReadingMode,
                 isLongImage = isLongImage(decoded.sourceWidth, decoded.sourceHeight),
-                viewportHeight = bottom - top
+                viewportHeight = binding.readingScrollContainer.contentViewportHeight()
             ) ?: return@addOnLayoutChangeListener
             if (binding.readingContentContainer.layoutParams.height != pinnedHeight) {
                 updateReadingContentLayout(decoded)
@@ -860,7 +860,13 @@ class ReadingFragment : Fragment() {
         if (folderReadingMode == FolderReadingMode.WEBTOON_SCROLL) return
         val decoded = currentDecodedImage ?: return
         val mode = resolveReadingDisplayMode(decoded)
-        if (mode == readingDisplayMode) return
+        if (mode == readingDisplayMode) {
+            if (imageTransformController.isImageOutsideViewport()) {
+                imageTransformController.constrainToViewport()
+            }
+            updateOverlay(currentTranslation, currentBitmap)
+            return
+        }
         readingDisplayMode = mode
         imageTransformController.resetContent(decoded.displayWidth, decoded.displayHeight, readingDisplayMode)
         updateOverlay(currentTranslation, currentBitmap)
@@ -1170,7 +1176,7 @@ class ReadingFragment : Fragment() {
         } else if (decoded != null && isLongImage(decoded.sourceWidth, decoded.sourceHeight)) {
             // 横向长图：撑高到 FIT_WIDTH 全高，交给外层 ReadingScrollView 竖向滚动/fling；
             // 区域视图按滚动可视窗口解码，不持有整张大 bitmap。
-            val viewWidth = binding.readingScrollContainer.width
+            val viewWidth = binding.readingScrollContainer.contentViewportWidth()
                 .takeIf { it > 0 }
                 ?: binding.readingRoot.width.takeIf { it > 0 }
                 ?: resources.displayMetrics.widthPixels
@@ -1203,7 +1209,7 @@ class ReadingFragment : Fragment() {
                 resolveViewportPinnedContentHeight(
                     readingMode = folderReadingMode,
                     isLongImage = isLongImage(it.sourceWidth, it.sourceHeight),
-                    viewportHeight = binding.readingScrollContainer.height
+                    viewportHeight = binding.readingScrollContainer.contentViewportHeight()
                 )
             } ?: ViewGroup.LayoutParams.MATCH_PARENT
             imageParams.height = ViewGroup.LayoutParams.MATCH_PARENT

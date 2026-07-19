@@ -30,6 +30,19 @@ class ReadingScrollView @JvmOverloads constructor(
 ) : SafeNestedScrollView(context, attrs, defStyleAttr) {
     var scrollEnabled: Boolean = true
 
+    /**
+     * Returns the part of this view that can actually contain the reading page.
+     * System-window handling on some devices is represented as view padding, so
+     * using the raw view height can make a page extend below the visible area.
+     */
+    fun contentViewportHeight(): Int {
+        return (height - paddingTop - paddingBottom).coerceAtLeast(0)
+    }
+
+    fun contentViewportWidth(): Int {
+        return (width - paddingLeft - paddingRight).coerceAtLeast(0)
+    }
+
     override fun onInterceptTouchEvent(ev: MotionEvent): Boolean {
         return scrollEnabled && super.onInterceptTouchEvent(ev)
     }
