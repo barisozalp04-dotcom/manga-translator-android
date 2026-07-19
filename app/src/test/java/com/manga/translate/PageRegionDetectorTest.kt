@@ -15,9 +15,11 @@ class PageRegionDetectorTest {
     @Test
     fun `long image tiling only enables for threshold-matching vertical pages`() {
         assertFalse(shouldUseLongImageTiling(pageWidth = 1400, pageHeight = 2047))
-        assertFalse(shouldUseLongImageTiling(pageWidth = 1400, pageHeight = 3000))
-        assertTrue(shouldUseLongImageTiling(pageWidth = 1400, pageHeight = 3080))
+        assertFalse(shouldUseLongImageTiling(pageWidth = 1400, pageHeight = 2700))
+        assertFalse(shouldUseLongImageTiling(pageWidth = 1400, pageHeight = 2800))
+        assertTrue(shouldUseLongImageTiling(pageWidth = 1400, pageHeight = 2801))
         assertTrue(shouldUseLongImageTiling(pageWidth = 1000, pageHeight = 2200))
+        assertFalse(shouldUseLongImageTiling(pageWidth = 200, pageHeight = 500))
     }
 
     @Test
@@ -28,10 +30,10 @@ class PageRegionDetectorTest {
     }
 
     @Test
-    fun `all tiled pages retain full page detection`() {
+    fun `regular tiled pages retain full page detection`() {
         assertFalse(shouldCombineFullPageDetection(pageWidth = 640, pageHeight = 640))
         assertTrue(shouldCombineFullPageDetection(pageWidth = 1080, pageHeight = 1600))
-        assertTrue(shouldCombineFullPageDetection(pageWidth = 1080, pageHeight = 28800))
+        assertFalse(shouldCombineFullPageDetection(pageWidth = 1080, pageHeight = 28800))
     }
 
     @Test
@@ -107,6 +109,19 @@ class PageRegionDetectorTest {
         assertEquals(listOf(0, 440), firstRow.map { it.left })
         assertTrue(tiles.all { it.width == 640 && it.height == 640 })
         assertEquals(28800, tiles.maxOf { it.bottom })
+    }
+
+    @Test
+    fun `long image bubble plan uses full width 2x tiles and overlap`() {
+        val tiles = planLongImageBubbleDetectionTiles(pageWidth = 1080, pageHeight = 28800)
+
+        assertEquals(2160, longImageBubbleDetectionTileHeight(1080, 28800))
+        assertEquals(17, tiles.size)
+        assertTrue(tiles.all { it.left == 0 && it.right == 1080 && it.height <= 2160 })
+        assertEquals(0, tiles.first().top)
+        assertEquals(28800, tiles.last().bottom)
+        assertTrue(tiles.zipWithNext().all { (a, b) -> b.top < a.bottom })
+        assertTrue(tiles.zipWithNext().minOf { (a, b) -> a.bottom - b.top } >= 432)
     }
 
     @Test
@@ -265,6 +280,34 @@ class PageRegionDetectorTest {
     }
 
     @Test
+    fun `tile bubble union only applies when every duplicate is boundary-truncated`() {
+        assertFalse(
+            shouldUnionTileBubbleCandidates(
+                listOf(
+                    BubblePriorityCandidate(0.8f, true, 100f, touchesInternalTileBoundary = false),
+                    BubblePriorityCandidate(0.8f, true, 100f, touchesInternalTileBoundary = false)
+                )
+            )
+        )
+        assertFalse(
+            shouldUnionTileBubbleCandidates(
+                listOf(
+                    BubblePriorityCandidate(0.8f, true, 100f, touchesInternalTileBoundary = false),
+                    BubblePriorityCandidate(0.8f, true, 100f, touchesInternalTileBoundary = true)
+                )
+            )
+        )
+        assertTrue(
+            shouldUnionTileBubbleCandidates(
+                listOf(
+                    BubblePriorityCandidate(0.8f, true, 100f, touchesInternalTileBoundary = true),
+                    BubblePriorityCandidate(0.8f, true, 100f, touchesInternalTileBoundary = true)
+                )
+            )
+        )
+    }
+
+    @Test
     fun `tile contour merge covers upper and lower partial masks`() {
         val upper = floatArrayOf(
             0.20f, 0.20f,
@@ -358,7 +401,7 @@ class PageRegionDetectorTest {
             buildDetectionStrategyTag(pageWidth = 1080, pageHeight = 1600)
         )
         assertEquals(
-            "det_text_tiled_640_comic1024_yolo11_v12",
+            "det_bubble_tiled_2x_text_tiled_640_comic1024_yolo11_v13",
             buildDetectionStrategyTag(pageWidth = 1000, pageHeight = 2200)
         )
     }
