@@ -8,66 +8,68 @@ import org.junit.Test
 
 class ReadingScrollViewTest {
     @Test
-    fun `outer scroll is enabled only for standard long images`() {
+    fun `outer scroll is enabled only for standard pages with vertical overflow`() {
         assertFalse(
             shouldEnableReadingContainerScroll(
                 readingMode = FolderReadingMode.STANDARD,
                 isEditMode = false,
-                isLongImage = false
+                hasVerticalOverflow = false
             )
         )
         assertTrue(
             shouldEnableReadingContainerScroll(
                 readingMode = FolderReadingMode.STANDARD,
                 isEditMode = false,
-                isLongImage = true
+                hasVerticalOverflow = true
             )
         )
         assertFalse(
             shouldEnableReadingContainerScroll(
                 readingMode = FolderReadingMode.STANDARD,
                 isEditMode = true,
-                isLongImage = true
+                hasVerticalOverflow = true
             )
         )
         assertFalse(
             shouldEnableReadingContainerScroll(
                 readingMode = FolderReadingMode.WEBTOON_SCROLL,
                 isEditMode = false,
-                isLongImage = true
+                hasVerticalOverflow = true
             )
         )
     }
 
     @Test
-    fun `standard non-long content is pinned to the visible viewport`() {
+    fun `fit width overflow follows actual page and viewport aspect ratios`() {
+        assertNull(
+            resolveFitWidthScrollableContentHeight(
+                readingMode = FolderReadingMode.STANDARD,
+                displayMode = ReadingDisplayMode.FIT_WIDTH,
+                contentWidth = 1350,
+                contentHeight = 1920,
+                viewportWidth = 1000,
+                viewportHeight = 1435
+            )
+        )
         assertEquals(
-            1376,
-            resolveViewportPinnedContentHeight(
+            1452,
+            resolveFitWidthScrollableContentHeight(
                 readingMode = FolderReadingMode.STANDARD,
-                isLongImage = false,
-                viewportHeight = 1376
+                displayMode = ReadingDisplayMode.FIT_WIDTH,
+                contentWidth = 1322,
+                contentHeight = 1920,
+                viewportWidth = 1000,
+                viewportHeight = 1435
             )
         )
         assertNull(
-            resolveViewportPinnedContentHeight(
+            resolveFitWidthScrollableContentHeight(
                 readingMode = FolderReadingMode.STANDARD,
-                isLongImage = true,
-                viewportHeight = 1376
-            )
-        )
-        assertNull(
-            resolveViewportPinnedContentHeight(
-                readingMode = FolderReadingMode.WEBTOON_SCROLL,
-                isLongImage = false,
-                viewportHeight = 1376
-            )
-        )
-        assertNull(
-            resolveViewportPinnedContentHeight(
-                readingMode = FolderReadingMode.STANDARD,
-                isLongImage = false,
-                viewportHeight = 0
+                displayMode = ReadingDisplayMode.FIT_HEIGHT,
+                contentWidth = 1322,
+                contentHeight = 1920,
+                viewportWidth = 1000,
+                viewportHeight = 1435
             )
         )
     }

@@ -3,24 +3,38 @@ package com.manga.translate
 import android.content.Context
 import android.util.AttributeSet
 import android.view.MotionEvent
+import kotlin.math.roundToInt
 
 internal fun shouldEnableReadingContainerScroll(
     readingMode: FolderReadingMode,
     isEditMode: Boolean,
-    isLongImage: Boolean
+    hasVerticalOverflow: Boolean
 ): Boolean {
-    return readingMode != FolderReadingMode.WEBTOON_SCROLL && !isEditMode && isLongImage
+    return readingMode != FolderReadingMode.WEBTOON_SCROLL && !isEditMode && hasVerticalOverflow
 }
 
-internal fun resolveViewportPinnedContentHeight(
+internal fun resolveFitWidthScrollableContentHeight(
     readingMode: FolderReadingMode,
-    isLongImage: Boolean,
+    displayMode: ReadingDisplayMode,
+    contentWidth: Int,
+    contentHeight: Int,
+    viewportWidth: Int,
     viewportHeight: Int
 ): Int? {
-    if (readingMode == FolderReadingMode.WEBTOON_SCROLL || isLongImage || viewportHeight <= 0) {
+    if (
+        readingMode == FolderReadingMode.WEBTOON_SCROLL ||
+        displayMode != ReadingDisplayMode.FIT_WIDTH ||
+        contentWidth <= 0 ||
+        contentHeight <= 0 ||
+        viewportWidth <= 0 ||
+        viewportHeight <= 0
+    ) {
         return null
     }
-    return viewportHeight
+    val fitWidthHeight = (viewportWidth.toDouble() * contentHeight / contentWidth)
+        .roundToInt()
+        .coerceAtLeast(1)
+    return fitWidthHeight.takeIf { it > viewportHeight }
 }
 
 class ReadingScrollView @JvmOverloads constructor(

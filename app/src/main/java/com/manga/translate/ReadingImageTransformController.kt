@@ -124,31 +124,6 @@ class ReadingImageTransformController(
         imageUserScale = 1f
         minScale = 1f
         maxScale = 3f
-        // Layout/inset changes can leave a previously valid matrix translated
-        // outside the newly visible viewport. Clamp it before the first draw.
-        fixTranslation()
-        applyImageMatrix()
-    }
-
-    /**
-     * Returns true when any part of the mapped image lies outside the ImageView
-     * viewport. Oversized content is expected while zoomed or reading a long
-     * image; callers can use this as a diagnostic before deciding to recenter.
-     */
-    fun isImageOutsideViewport(): Boolean {
-        val viewWidth = imageView.width.toFloat()
-        val viewHeight = imageView.height.toFloat()
-        if (viewWidth <= 0f || viewHeight <= 0f || !hasContent()) return false
-        imageRect.set(0f, 0f, contentWidth.toFloat(), contentHeight.toFloat())
-        imageMatrix.mapRect(imageRect)
-        return imageRect.left < 0f || imageRect.top < 0f ||
-            imageRect.right > viewWidth || imageRect.bottom > viewHeight
-    }
-
-    /** Re-applies the current matrix after a viewport/inset change. */
-    fun constrainToViewport() {
-        if (!hasContent()) return
-        fixTranslation()
         applyImageMatrix()
     }
 

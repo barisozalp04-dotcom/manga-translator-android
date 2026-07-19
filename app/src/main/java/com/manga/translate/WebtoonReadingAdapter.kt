@@ -483,28 +483,6 @@ class WebtoonReadingAdapter(
         private var lastTapX = 0f
         private var lastTapY = 0f
 
-        init {
-            // A holder can be bound before RecyclerView has its final width. In
-            // that case the initial page height uses a display-metrics fallback,
-            // which is not necessarily the same as the inset-adjusted viewport
-            // width on cutout, foldable, or unusual-aspect-ratio devices.
-            binding.root.addOnLayoutChangeListener { _, left, _, right, _, oldLeft, _, oldRight, _ ->
-                if (right - left == oldRight - oldLeft) return@addOnLayoutChangeListener
-                val width = right - left
-                if (width <= 0 || currentImageWidth <= 0 || currentImageHeight <= 0) return@addOnLayoutChangeListener
-                updatePageHeightForImage(currentImageWidth, currentImageHeight)
-                binding.root.post {
-                    if (currentDecodedImage == null || boundItem == null) return@post
-                    imageTransformController.resetContent(
-                        currentDecodedImage?.displayWidth ?: return@post,
-                        currentDecodedImage?.displayHeight ?: return@post,
-                        ReadingDisplayMode.FIT_WIDTH
-                    )
-                    bindOverlay(currentBaseTranslation)
-                }
-            }
-        }
-
         /** Public accessor for the currently bound image path. */
         val boundImagePath: String?
             get() = boundPath
@@ -827,9 +805,7 @@ class WebtoonReadingAdapter(
 
         private fun estimatePlaceholderHeight(item: WebtoonDisplayItem): Int {
             val metrics = binding.root.resources.displayMetrics
-            val width = binding.root.width.takeIf { it > 0 }
-                ?: binding.root.rootView.width.takeIf { it > 0 }
-                ?: metrics.widthPixels
+            val width = binding.root.width.takeIf { it > 0 } ?: metrics.widthPixels
             val size = sourceSizeCache[item.path]
             val displaySourceHeight = size?.height ?: 0
             val estimated = size
@@ -1055,7 +1031,6 @@ class WebtoonReadingAdapter(
             return binding.readingPageImage.width
                 .takeIf { it > 0 }
                 ?: binding.root.width.takeIf { it > 0 }
-                ?: binding.root.rootView.width.takeIf { it > 0 }
                 ?: binding.root.resources.displayMetrics.widthPixels
         }
 

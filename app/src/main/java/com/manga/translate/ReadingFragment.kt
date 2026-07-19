@@ -101,6 +101,7 @@ class ReadingFragment : Fragment() {
     private var displayedPageIndex: Int? = null
     private var displayedImagePath: String? = null
     private var isCurrentImageLong: Boolean = false
+    private var hasCurrentPageVerticalOverflow: Boolean = false
     private var pageTransitionGeneration: Int = 0
     private var editModeSnapshotBubbles: List<BubbleTranslation>? = null
     private var editModeSnapshotOffsets: Map<Int, Pair<Float, Float>> = emptyMap()
@@ -305,14 +306,7 @@ class ReadingFragment : Fragment() {
                 return@addOnLayoutChangeListener
             }
             val decoded = currentDecodedImage ?: return@addOnLayoutChangeListener
-            val pinnedHeight = resolveViewportPinnedContentHeight(
-                readingMode = folderReadingMode,
-                isLongImage = isLongImage(decoded.sourceWidth, decoded.sourceHeight),
-                viewportHeight = binding.readingScrollContainer.contentViewportHeight()
-            ) ?: return@addOnLayoutChangeListener
-            if (binding.readingContentContainer.layoutParams.height != pinnedHeight) {
-                updateReadingContentLayout(decoded)
-            }
+            updateReadingContentLayout(decoded)
         }
         applyFolderReadingMode()
     }
@@ -383,6 +377,7 @@ class ReadingFragment : Fragment() {
             currentImageWidth = 0
             currentImageHeight = 0
             isCurrentImageLong = false
+            hasCurrentPageVerticalOverflow = false
             imageTransformController.setCurrentBitmap(null)
             imageTransformController.setVerticalPanEnabled(true)
             updateReadingInteractionState()
@@ -462,6 +457,7 @@ class ReadingFragment : Fragment() {
                 currentImageWidth = 0
                 currentImageHeight = 0
                 isCurrentImageLong = false
+                hasCurrentPageVerticalOverflow = false
                 imageTransformController.setCurrentBitmap(null)
                 imageTransformController.setVerticalPanEnabled(true)
                 updateReadingInteractionState()
@@ -519,6 +515,7 @@ class ReadingFragment : Fragment() {
         currentBitmap = null
         currentImageWidth = 0
         currentImageHeight = 0
+        hasCurrentPageVerticalOverflow = false
         displayedPageIndex = null
         displayedImagePath = null
         binding.readingImage.setRegionSource(null)
@@ -860,13 +857,7 @@ class ReadingFragment : Fragment() {
         if (folderReadingMode == FolderReadingMode.WEBTOON_SCROLL) return
         val decoded = currentDecodedImage ?: return
         val mode = resolveReadingDisplayMode(decoded)
-        if (mode == readingDisplayMode) {
-            if (imageTransformController.isImageOutsideViewport()) {
-                imageTransformController.constrainToViewport()
-            }
-            updateOverlay(currentTranslation, currentBitmap)
-            return
-        }
+        if (mode == readingDisplayMode) return
         readingDisplayMode = mode
         imageTransformController.resetContent(decoded.displayWidth, decoded.displayHeight, readingDisplayMode)
         updateOverlay(currentTranslation, currentBitmap)
@@ -1140,7 +1131,7 @@ class ReadingFragment : Fragment() {
         binding.readingScrollContainer.scrollEnabled = shouldEnableReadingContainerScroll(
             readingMode = folderReadingMode,
             isEditMode = isEditMode,
-            isLongImage = isCurrentImageLong
+            hasVerticalOverflow = hasCurrentPageVerticalOverflow
         )
         binding.translationOverlay.setTouchPassthroughEnabled(isWebtoonScroll)
     }
@@ -1150,6 +1141,18 @@ class ReadingFragment : Fragment() {
         val imageParams = binding.readingImage.layoutParams as FrameLayout.LayoutParams
         val transitionImageParams = binding.readingTransitionImage.layoutParams as FrameLayout.LayoutParams
         val overlayParams = binding.translationOverlay.layoutParams as FrameLayout.LayoutParams
+        val scrollableContentHeight = decoded?.let {
+            resolveFitWidthScrollableContentHeight(
+                readingMode = folderReadingMode,
+                displayMode = resolveReadingDisplayMode(it),
+                contentWidth = it.displayWidth,
+                contentHeight = it.displayHeight,
+                viewportWidth = binding.readingScrollContainer.contentViewportWidth(),
+                viewportHeight = binding.readingScrollContainer.contentViewportHeight()
+            )
+        }
+        hasCurrentPageVerticalOverflow = scrollableContentHeight != null
+        updateReadingInteractionState()
         if (folderReadingMode == FolderReadingMode.WEBTOON_SCROLL && decoded != null) {
             contentParams.height = ViewGroup.LayoutParams.WRAP_CONTENT
             imageParams.height = ViewGroup.LayoutParams.WRAP_CONTENT
@@ -1173,19 +1176,10 @@ class ReadingFragment : Fragment() {
                     updateOverlay(currentTranslation, currentBitmap)
                 }
             }
-        } else if (decoded != null && isLongImage(decoded.sourceWidth, decoded.sourceHeight)) {
-            // 横向长图：撑高到 FIT_WIDTH 全高，交给外层 ReadingScrollView 竖向滚动/fling；
-            // 区域视图按滚动可视窗口解码，不持有整张大 bitmap。
-            val viewWidth = binding.readingScrollContainer.contentViewportWidth()
-                .takeIf { it > 0 }
-                ?: binding.readingRoot.width.takeIf { it > 0 }
-                ?: resources.displayMetrics.widthPixels
-            val displayWidth = decoded.displayWidth.coerceAtLeast(1)
-            val displayHeight = decoded.displayHeight.coerceAtLeast(1)
-            val fullHeight = (viewWidth.toFloat() * displayHeight / displayWidth)
-                .let { kotlin.math.round(it) }
-                .toInt()
-                .coerceAtLeast(1)
+        } else if (decoded != null && scrollableContentHeight != null) {
+            // FIT_WIDTH overflow depends on both page and viewport aspect ratios.
+            // A regular page can therefore need the same scroll layout as a long image.
+            val fullHeight = scrollableContentHeight
             contentParams.height = fullHeight
             imageParams.height = fullHeight
             transitionImageParams.height = ViewGroup.LayoutParams.MATCH_PARENT
@@ -1205,13 +1199,7 @@ class ReadingFragment : Fragment() {
                 binding.readingScrollContainer.scrollTo(0, 0)
             }
         } else {
-            contentParams.height = decoded?.let {
-                resolveViewportPinnedContentHeight(
-                    readingMode = folderReadingMode,
-                    isLongImage = isLongImage(it.sourceWidth, it.sourceHeight),
-                    viewportHeight = binding.readingScrollContainer.contentViewportHeight()
-                )
-            } ?: ViewGroup.LayoutParams.MATCH_PARENT
+            contentParams.height = ViewGroup.LayoutParams.MATCH_PARENT
             imageParams.height = ViewGroup.LayoutParams.MATCH_PARENT
             transitionImageParams.height = ViewGroup.LayoutParams.MATCH_PARENT
             overlayParams.height = ViewGroup.LayoutParams.MATCH_PARENT
