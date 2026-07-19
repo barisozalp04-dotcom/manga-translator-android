@@ -82,6 +82,23 @@ class PageRegionDetectorTest {
     }
 
     @Test
+    fun `tile suppression rects are scaled expanded and clipped`() {
+        val tile = DetectionTile(left = 440, top = 448, right = 1080, bottom = 1088)
+        val suppressionRects = buildTileTextSuppressionRects(
+            pageBubbleRects = listOf(
+                RectF(400f, 400f, 600f, 600f),
+                RectF(100f, 100f, 200f, 200f)
+            ),
+            tile = tile,
+            tileBitmapWidth = 320,
+            tileBitmapHeight = 320
+        )
+
+        assertEquals(1, suppressionRects.size)
+        assertEquals(RectF(0f, 0f, 90f, 86f), suppressionRects.single())
+    }
+
+    @Test
     fun `reference webtoon uses validated high resolution tile plan`() {
         val tiles = planHighResolutionDetectionTiles(pageWidth = 1080, pageHeight = 28800)
         val firstRow = tiles.filter { it.top == 0 }

@@ -111,6 +111,46 @@ internal fun highResolutionDetectionTileHeight(pageWidth: Int, pageHeight: Int):
     return min(min(pageWidth, DETECTION_TILE_EDGE_PX), pageHeight)
 }
 
+internal fun buildTileTextSuppressionRects(
+    pageBubbleRects: List<RectF>,
+    tile: DetectionTile,
+    tileBitmapWidth: Int,
+    tileBitmapHeight: Int
+): List<RectF> {
+    if (
+        pageBubbleRects.isEmpty() ||
+        tile.width <= 0 || tile.height <= 0 ||
+        tileBitmapWidth <= 0 || tileBitmapHeight <= 0
+    ) {
+        return emptyList()
+    }
+    val scaleX = tileBitmapWidth / tile.width.toFloat()
+    val scaleY = tileBitmapHeight / tile.height.toFloat()
+    return pageBubbleRects.mapNotNull { pageRect ->
+        val intersectsTile =
+            pageRect.right > tile.left && pageRect.left < tile.right &&
+                pageRect.bottom > tile.top && pageRect.top < tile.bottom
+        if (!intersectsTile) return@mapNotNull null
+
+        val localRect = RectF(
+            (pageRect.left - tile.left) * scaleX,
+            (pageRect.top - tile.top) * scaleY,
+            (pageRect.right - tile.left) * scaleX,
+            (pageRect.bottom - tile.top) * scaleY
+        )
+        val pad = max(
+            TranslationCoreDefaults.PageRegionMaskExpandMin,
+            max(1f, localRect.height()) * TranslationCoreDefaults.PageRegionMaskExpandRatio
+        )
+        RectF(
+            (localRect.left - pad).coerceIn(0f, tileBitmapWidth.toFloat()),
+            (localRect.top - pad).coerceIn(0f, tileBitmapHeight.toFloat()),
+            (localRect.right + pad).coerceIn(0f, tileBitmapWidth.toFloat()),
+            (localRect.bottom + pad).coerceIn(0f, tileBitmapHeight.toFloat())
+        )
+    }
+}
+
 internal fun shouldDeduplicateTileCandidates(
     firstTileIndex: Int,
     secondTileIndex: Int,
@@ -498,21 +538,12 @@ internal class PageRegionDetector(
         logTag: String
     ): List<RectF> {
         val detector = getTextDetector(logTag) ?: return emptyList()
-        val scaleX = bitmap.width / tile.width.toFloat().coerceAtLeast(1f)
-        val scaleY = bitmap.height / tile.height.toFloat().coerceAtLeast(1f)
-        val localSuppressionRects = pageBubbleRects.mapNotNull { pageRect ->
-            val left = max(pageRect.left, tile.left.toFloat())
-            val top = max(pageRect.top, tile.top.toFloat())
-            val right = min(pageRect.right, tile.right.toFloat())
-            val bottom = min(pageRect.bottom, tile.bottom.toFloat())
-            if (right <= left || bottom <= top) return@mapNotNull null
-            RectF(
-                (left - tile.left) * scaleX,
-                (top - tile.top) * scaleY,
-                (right - tile.left) * scaleX,
-                (bottom - tile.top) * scaleY
-            )
-        }
+        val localSuppressionRects = buildTileTextSuppressionRects(
+            pageBubbleRects = pageBubbleRects,
+            tile = tile,
+            tileBitmapWidth = bitmap.width,
+            tileBitmapHeight = bitmap.height
+        )
         return detector.detect(bitmap, localSuppressionRects)
     }
 
@@ -593,27 +624,41 @@ internal class PageRegionDetector(
     }
 
     private fun detectUnifiedRegions(bitmap: Bitmap, logTag: String): UnifiedRegionDetection? {
-        val detector = getBubbleDetector(logTag) ?: return null
-        return try {
-            val raw = detector.detectRegions(bitmap)
-            val balloons = filterTinyBubbleDetections(raw.balloons, bitmap, logTag)
-            val textRects = try {
-                getTextDetector(logTag)?.detect(
+        var bubbleDetectionSucceeded = false
+        val balloons = getBubbleDetector(logTag)?.let { detector ->
+            try {
+                val raw = detector.detectRegions(bitmap)
+                bubbleDetectionSucceeded = true
+                filterTinyBubbleDetections(raw.balloons, bitmap, logTag)
+            } catch (e: Exception) {
+                AppLogger.log(logTag, "Bubble detection failed; trying supplement text detection", e)
+                emptyList()
+            }
+        }.orEmpty()
+
+        var textDetectionSucceeded = false
+        val textRects = getTextDetector(logTag)?.let { detector ->
+            try {
+                val detected = detector.detect(
                     bitmap = bitmap,
                     suppressionRects = buildTextSuppressionRects(balloons, bitmap)
-                ).orEmpty()
+                )
+                textDetectionSucceeded = true
+                detected
             } catch (e: Exception) {
                 AppLogger.log(logTag, "Supplement text detection failed; keeping bubbles", e)
                 emptyList()
             }
-            UnifiedRegionDetection(
-                balloons = balloons,
-                freeTextRects = textRects
-            )
-        } catch (e: Exception) {
-            AppLogger.log(logTag, "Page region detection failed", e)
-            null
+        }.orEmpty()
+
+        if (!bubbleDetectionSucceeded && !textDetectionSucceeded) {
+            AppLogger.log(logTag, "Both page region detectors failed")
+            return null
         }
+        return UnifiedRegionDetection(
+            balloons = balloons,
+            freeTextRects = textRects
+        )
     }
 
     private fun buildTextSuppressionRects(
