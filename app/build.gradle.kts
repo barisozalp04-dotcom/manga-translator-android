@@ -18,7 +18,7 @@ android {
         !keyPasswordProp.isNullOrBlank()
 
     defaultConfig {
-        applicationId = "com.manga.translate.v3beta"
+        applicationId = "com.manga.translate.v3"
         minSdk = 24
         targetSdk = 36
         versionCode = 78
