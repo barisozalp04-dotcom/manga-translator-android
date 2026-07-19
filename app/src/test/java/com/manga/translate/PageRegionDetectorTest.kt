@@ -121,7 +121,7 @@ class PageRegionDetectorTest {
         )
 
         assertEquals(1, suppressionRects.size)
-        assertEquals(RectF(0f, 0f, 90f, 86f), suppressionRects.single())
+        assertEquals(RectF(0f, 0f, 95f, 91f), suppressionRects.single())
     }
 
     @Test

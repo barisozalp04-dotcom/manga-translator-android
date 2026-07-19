@@ -101,7 +101,7 @@ class FloatingEmptyBubbleCoordinator(
                 if (crop == null) {
                     ""
                 } else {
-                    recognizeBubble(crop, floatingLanguage, useLocalOcr)
+                    recognizeBubble(crop, floatingLanguage, useLocalOcr, bubble.source)
                 }
             } catch (e: Exception) {
                 AppLogger.log("FloatingOCR", "Recognize empty bubble failed id=${bubble.id}", e)
@@ -135,13 +135,15 @@ class FloatingEmptyBubbleCoordinator(
     private suspend fun recognizeBubble(
         crop: Bitmap,
         language: TranslationLanguage,
-        useLocalOcr: Boolean
+        useLocalOcr: Boolean,
+        bubbleSource: BubbleSource
     ): String = withContext(Dispatchers.Default) {
         bubbleTextRecognizer.recognizeCrop(
             crop = crop,
             language = language,
             useLocalOcr = useLocalOcr,
-            logTag = "FloatingOCR"
+            logTag = "FloatingOCR",
+            bubbleSource = bubbleSource
         ).textOrEmpty()
     }
 

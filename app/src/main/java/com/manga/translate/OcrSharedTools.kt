@@ -214,12 +214,13 @@ class BubbleTextRecognizer(
         rect: RectF,
         language: TranslationLanguage,
         useLocalOcr: Boolean,
-        logTag: String
+        logTag: String,
+        bubbleSource: BubbleSource = BubbleSource.UNKNOWN
     ): OcrRecognitionResult {
         val crop = cropBitmap(source, rect)?.let { PipelineBitmapDecoder.scaleDownIfNeeded(it) }
             ?: return OcrRecognitionResult.Success("")
         return try {
-            recognizeCrop(crop, language, useLocalOcr, logTag)
+            recognizeCrop(crop, language, useLocalOcr, logTag, bubbleSource)
         } finally {
             crop.recycleSafely()
         }
@@ -230,13 +231,14 @@ class BubbleTextRecognizer(
         rect: RectF,
         language: TranslationLanguage,
         useLocalOcr: Boolean,
-        logTag: String
+        logTag: String,
+        bubbleSource: BubbleSource = BubbleSource.UNKNOWN
     ): OcrRecognitionResult {
         val clamped = PipelineBitmapDecoder.clampRect(rect, cropSource.width, cropSource.height)
             ?: return OcrRecognitionResult.Success("")
         val crop = cropSource.decodeRegion(clamped) ?: return OcrRecognitionResult.Success("")
         return try {
-            recognizeCrop(crop, language, useLocalOcr, logTag)
+            recognizeCrop(crop, language, useLocalOcr, logTag, bubbleSource)
         } finally {
             crop.recycleSafely()
         }
@@ -246,7 +248,8 @@ class BubbleTextRecognizer(
         crop: Bitmap,
         language: TranslationLanguage,
         useLocalOcr: Boolean,
-        logTag: String
+        logTag: String,
+        bubbleSource: BubbleSource = BubbleSource.UNKNOWN
     ): OcrRecognitionResult {
         val resolvedUseLocalOcr = useLocalOcr && language.supportsLocalOcr()
         val rawText = if (!resolvedUseLocalOcr) {
@@ -281,6 +284,10 @@ class BubbleTextRecognizer(
                     )
                 val lineDetector = engineRegistry.getEnglishLineDetector(logTag)
                 val lineRects = lineDetector?.detectLines(crop).orEmpty()
+                if (shouldRejectFreeTextWithoutLines(bubbleSource, lineDetector != null, lineRects.size)) {
+                    AppLogger.log(logTag, "Rejected free-text region without detected OCR lines")
+                    return OcrRecognitionResult.Success("")
+                }
                 val lines = recognizeEnglishLines(crop, lineRects, engine)
                 if (lines.isEmpty()) {
                     engine.recognize(crop).trim()
@@ -306,6 +313,10 @@ class BubbleTextRecognizer(
                     )
                 val lineDetector = engineRegistry.getEnglishLineDetector(logTag)
                 val lineRects = lineDetector?.detectLines(crop).orEmpty()
+                if (shouldRejectFreeTextWithoutLines(bubbleSource, lineDetector != null, lineRects.size)) {
+                    AppLogger.log(logTag, "Rejected free-text region without detected OCR lines")
+                    return OcrRecognitionResult.Success("")
+                }
                 val lines = recognizeKoreanLines(crop, lineRects, engine)
                 if (lines.isEmpty()) {
                     val decoded = engine.recognizeWithScore(crop)
@@ -333,6 +344,18 @@ class BubbleTextRecognizer(
         val rawText = engine.recognize(crop).trim()
         return OcrTextSanitizer.sanitize(rawText, language, logTag)
     }
+}
+
+internal fun shouldRejectFreeTextWithoutLines(
+    source: BubbleSource,
+    lineDetectorAvailable: Boolean,
+    detectedLineCount: Int
+): Boolean {
+    // This is intentionally a fail-open check: callers should not lose OCR
+    // merely because the optional line model could not be loaded.
+    return source == BubbleSource.TEXT_DETECTOR &&
+        lineDetectorAvailable &&
+        detectedLineCount <= 0
 }
 
 const val DEFAULT_EN_MIN_LINE_SCORE = 0.5f

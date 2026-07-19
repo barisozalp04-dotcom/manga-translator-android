@@ -566,7 +566,13 @@ internal class TranslationPipeline(
                         } else {
                             try {
                                 bubbleTextRecognizer
-                                    .recognizeCrop(crop, language, useLocalOcr = true, logTag = "Pipeline")
+                                    .recognizeCrop(
+                                        crop = crop,
+                                        language = language,
+                                        useLocalOcr = true,
+                                        logTag = "Pipeline",
+                                        bubbleSource = region.source
+                                    )
                                     .textOrEmpty()
                             } finally {
                                 crop.recycleSafely()
@@ -591,7 +597,8 @@ internal class TranslationPipeline(
                     rect = region.rect,
                     language = language,
                     useLocalOcr = useLocalOcr,
-                    logTag = "Pipeline"
+                    logTag = "Pipeline",
+                    bubbleSource = region.source
                 )
                 if (text.isBlank()) continue
                 bubbles.add(
@@ -615,7 +622,8 @@ internal class TranslationPipeline(
                                 rect = region.rect,
                                 language = language,
                                 useLocalOcr = false,
-                                logTag = "Pipeline"
+                                logTag = "Pipeline",
+                                bubbleSource = region.source
                             )
                             if (text.isBlank()) null
                             else OcrBubble(
@@ -735,12 +743,21 @@ internal class TranslationPipeline(
         rect: RectF,
         language: TranslationLanguage,
         useLocalOcr: Boolean,
-        logTag: String
+        logTag: String,
+        bubbleSource: BubbleSource = BubbleSource.UNKNOWN
     ): String {
         val clamped = PipelineBitmapDecoder.clampRect(rect, cropSource.width, cropSource.height) ?: return ""
         val crop = cropSource.decodeRegion(clamped) ?: return ""
         return try {
-            when (val result = bubbleTextRecognizer.recognizeCrop(crop, language, useLocalOcr, logTag)) {
+            when (
+                val result = bubbleTextRecognizer.recognizeCrop(
+                    crop = crop,
+                    language = language,
+                    useLocalOcr = useLocalOcr,
+                    logTag = logTag,
+                    bubbleSource = bubbleSource
+                )
+            ) {
                 is OcrRecognitionResult.Success -> result.text
                 is OcrRecognitionResult.Failure -> {
                     AppLogger.log(logTag, "OCR failed for region", result.error)

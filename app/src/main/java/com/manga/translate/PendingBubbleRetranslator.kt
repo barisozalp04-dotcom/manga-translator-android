@@ -62,7 +62,8 @@ internal class PendingBubbleRetranslator(
                             crop = crop,
                             language = language,
                             useLocalOcr = useLocalOcr,
-                            logTag = logTag
+                            logTag = logTag,
+                            bubbleSource = bubble.source
                         ).textOrEmpty().trim()
                     } finally {
                         crop.recycleSafely()

@@ -224,7 +224,8 @@ class FloatingBallOverlayService : Service() {
 
     private suspend fun recognizeFloatingBubbleText(
         crop: Bitmap,
-        language: TranslationLanguage
+        language: TranslationLanguage,
+        bubbleSource: BubbleSource
     ): String = withContext(Dispatchers.Default) {
         val ocrSettings = settingsStore.loadOcrApiSettings()
         val resolvedLanguage = TranslationLanguage.resolveForOcr(language, ocrSettings.useLocalOcr)
@@ -232,7 +233,8 @@ class FloatingBallOverlayService : Service() {
             crop = crop,
             language = resolvedLanguage,
             useLocalOcr = ocrSettings.useLocalOcr && resolvedLanguage.supportsLocalOcr(),
-            logTag = "FloatingOCR"
+            logTag = "FloatingOCR",
+            bubbleSource = bubbleSource
         ).textOrEmpty()
     }
 
@@ -1299,7 +1301,7 @@ class FloatingBallOverlayService : Service() {
                         return@withPermit region
                     }
                     val text = try {
-                        recognizeFloatingBubbleText(crop, language)
+                        recognizeFloatingBubbleText(crop, language, region.source)
                     } catch (e: Exception) {
                         AppLogger.log(
                             "FloatingOCR",
@@ -1310,10 +1312,14 @@ class FloatingBallOverlayService : Service() {
                     } finally {
                         crop.recycleSafely()
                     }
-                    region.withRecognizedOriginalText(text)
+                    if (text.isBlank() && region.source == BubbleSource.TEXT_DETECTOR) {
+                        null
+                    } else {
+                        region.withRecognizedOriginalText(text)
+                    }
                 }
             }
-        }.awaitAll()
+        }.awaitAll().filterNotNull()
     }
 
     private fun showModelErrorDialog(

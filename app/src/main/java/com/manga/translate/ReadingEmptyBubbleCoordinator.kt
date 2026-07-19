@@ -177,7 +177,8 @@ internal class ReadingEmptyBubbleCoordinator(
                         crop = stitched,
                         language = language,
                         useLocalOcr = useLocalOcr,
-                        logTag = "Reading"
+                        logTag = "Reading",
+                        bubbleSource = bubble.source
                     ).textOrEmpty()
                 } finally {
                     stitched.recycleSafely()
@@ -189,7 +190,8 @@ internal class ReadingEmptyBubbleCoordinator(
             rect = rect,
             language = language,
             useLocalOcr = useLocalOcr,
-            logTag = "Reading"
+            logTag = "Reading",
+            bubbleSource = bubble.source
         ).textOrEmpty()
     }
 
