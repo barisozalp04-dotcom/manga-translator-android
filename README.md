@@ -77,7 +77,7 @@
 
 ### 模型与资源
 将以下模型文件放入 `assets/` 对应子目录：
-- `models/detection/comic-speech-bubble-detector.onnx`（普通气泡检测，1024×1024 ONNX，仅使用 `text_bubble`）
+- `models/detection/manga109-segmentation-bubble.onnx`（普通气泡检测，YOLO11n-seg，1600×1600 ONNX，输出气泡轮廓）
 - `models/detection/yolo11n-text.onnx`（游离文字补检；普通气泡区域会先被屏蔽）
 - `models/ocr/manga_ocr/encoder_model.onnx`、`models/ocr/manga_ocr/decoder_model.onnx`（日文 OCR：MangaOcr，可在设置中切换）
 - `models/ocr/manga_ocr/generation_config.json`、`models/ocr/manga_ocr/preprocessor_config.json`、`models/ocr/manga_ocr/tokenizer.json`、`models/ocr/manga_ocr/special_tokens_map.json`
@@ -87,7 +87,7 @@
 - `models/detection/PP-OCRv6_det_mobile_infer.onnx`（英文行检测）
 
 模型下载链接：
-- 普通气泡检测模型：https://huggingface.co/ogkalu/comic-speech-bubble-detector-yolov8m
+- 普通气泡检测模型：Manga109 YOLO11n-seg 气泡分割模型（随应用 assets 提供）
 - 游离文字检测模型：https://huggingface.co/RoyRud1902/yolo11n-text
 - 英文识别模型：https://huggingface.co/PaddlePaddle/PP-OCRv6_small_rec_onnx
 - 英文检测模型：https://huggingface.co/PaddlePaddle/PP-OCRv6_small_det_onnx

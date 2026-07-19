@@ -56,17 +56,26 @@ internal object OnnxImagePreprocessor {
     }
 
     fun bitmapToRgbChwFloat(bitmap: Bitmap): FloatArray {
+        return bitmapToRgbChwFloat(bitmap, normalize = true)
+    }
+
+    fun bitmapToRgbChwFloat255(bitmap: Bitmap): FloatArray {
+        return bitmapToRgbChwFloat(bitmap, normalize = false)
+    }
+
+    private fun bitmapToRgbChwFloat(bitmap: Bitmap, normalize: Boolean): FloatArray {
         val width = bitmap.width
         val height = bitmap.height
         val planeSize = width * height
         val input = FloatArray(3 * planeSize)
+        val scale = if (normalize) 1f / 255f else 1f
         var offset = 0
         for (y in 0 until height) {
             for (x in 0 until width) {
                 val pixel = bitmap[x, y]
-                input[offset] = ((pixel shr 16) and 0xFF) / 255f
-                input[offset + planeSize] = ((pixel shr 8) and 0xFF) / 255f
-                input[offset + 2 * planeSize] = (pixel and 0xFF) / 255f
+                input[offset] = ((pixel shr 16) and 0xFF) * scale
+                input[offset + planeSize] = ((pixel shr 8) and 0xFF) * scale
+                input[offset + 2 * planeSize] = (pixel and 0xFF) * scale
                 offset++
             }
         }

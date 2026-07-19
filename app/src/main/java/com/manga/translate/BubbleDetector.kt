@@ -3,11 +3,12 @@ package com.manga.translate
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.RectF
-import androidx.core.graphics.scale
 import ai.onnxruntime.OnnxTensor
 import ai.onnxruntime.OrtSession
 import ai.onnxruntime.TensorInfo
 import java.nio.FloatBuffer
+import kotlin.math.exp
+import kotlin.math.floor
 import kotlin.math.max
 import kotlin.math.min
 
@@ -23,14 +24,13 @@ data class UnifiedRegionDetection(
     val freeTextRects: List<RectF>
 )
 
-internal data class YoloClassScore(
-    val classId: Int,
-    val confidence: Float
-)
-
 /**
- * Comic speech-bubble YOLOv8m detector.
- * Classes: 0=text_bubble, 1=text_free.
+ * Manga109 YOLO11n-seg speech-bubble detector.
+ *
+ * The exported model has one class (`balloon`) and emits the normal Ultralytics
+ * segmentation head: [1, 37, 52500] (`xywh`, confidence, 32 mask coefficients)
+ * plus [1, 32, 400, 400] mask prototypes. The detection boxes and confidence
+ * are already decoded by the ONNX graph; only NMS and mask reconstruction remain.
  */
 class BubbleDetector(
     private val context: Context,
@@ -51,74 +51,92 @@ class BubbleDetector(
 
     @Synchronized
     fun detectRegions(bitmap: Bitmap): UnifiedRegionDetection {
-        val inputHeight = inputShape.getOrNull(2)?.takeIf { it > 0 }?.toInt()
-            ?: TranslationCoreDefaults.DefaultDetectionInputSize
-        val inputWidth = inputShape.getOrNull(3)?.takeIf { it > 0 }?.toInt()
-            ?: TranslationCoreDefaults.DefaultDetectionInputSize
-        val resized = bitmap.scale(inputWidth, inputHeight)
-        val inputBuffer = OnnxImagePreprocessor.bitmapToRgbChwFloat(resized)
-        if (resized !== bitmap) {
-            resized.recycle()
+        if (bitmap.width <= 1 || bitmap.height <= 1) {
+            return UnifiedRegionDetection(emptyList(), emptyList())
         }
 
-        val tensor = OnnxTensor.createTensor(
+        val inputHeight = inputShape.getOrNull(2)?.takeIf { it > 0 }?.toInt()
+            ?: DEFAULT_INPUT_SIZE
+        val inputWidth = inputShape.getOrNull(3)?.takeIf { it > 0 }?.toInt()
+            ?: DEFAULT_INPUT_SIZE
+        val preprocessed = OnnxImagePreprocessor.letterbox(bitmap, inputWidth, inputHeight)
+        val inputBuffer = OnnxImagePreprocessor.bitmapToRgbChwFloat255(preprocessed.bitmap)
+        preprocessed.bitmap.recycle()
+
+        val inputTensor = OnnxTensor.createTensor(
             env,
             FloatBuffer.wrap(inputBuffer),
             longArrayOf(1, 3, inputHeight.toLong(), inputWidth.toLong())
         )
-        tensor.use {
+        inputTensor.use { tensor ->
             session.run(mapOf(inputName to tensor)).use { outputs ->
-                val output = outputs[0] as OnnxTensor
-                val outputShape = (output.info as TensorInfo).shape
-                val rawDetections = parseDetections(output.value, outputShape)
+                val output0 = outputs[0] as? OnnxTensor
+                    ?: return UnifiedRegionDetection(emptyList(), emptyList())
+                val output0Shape = (output0.info as TensorInfo).shape
                 val configuredThreshold = settingsStore.loadBubbleConfThresholdPercent() / 100f
+                val rawDetections = parseDetections(
+                    buffer = output0.floatBuffer,
+                    shape = output0Shape,
+                    configuredThreshold = configuredThreshold
+                )
+
+                val prototypes = if (outputs.size() >= 2) {
+                    val output1 = outputs[1] as? OnnxTensor
+                    output1?.let { tensor ->
+                        val shape = (tensor.info as TensorInfo).shape
+                        parsePrototypes(tensor.floatBuffer, shape)
+                    }
+                } else {
+                    null
+                }
 
                 if (settingsStore.loadModelIoLogging()) {
-                    val maxByClass = rawDetections.groupBy { it.classId }
-                        .mapValues { (_, detections) -> detections.maxOf { it.confidence } }
+                    val maxConfidence = rawDetections.maxOfOrNull { it.confidence } ?: 0f
                     AppLogger.log(
                         "BubbleDetector",
                         "Raw detections=${rawDetections.size}, configured=$configuredThreshold, " +
-                            "max text_bubble=${formatConfidence(maxByClass[CLASS_BALLOON])}, " +
-                            "max text_free=${formatConfidence(maxByClass[CLASS_TEXT])}"
+                            "max balloon=${formatConfidence(maxConfidence)}, " +
+                            "input=${inputWidth}x$inputHeight"
                     )
                 }
 
                 val filtered = filterByNms(
                     detections = rawDetections,
-                    configuredThreshold = configuredThreshold,
                     iouThreshold = TranslationCoreDefaults.BubbleDetectorNmsIouThreshold,
-                    inputWidth = inputWidth,
-                    inputHeight = inputHeight,
+                    preprocessed = preprocessed,
                     originalWidth = bitmap.width,
                     originalHeight = bitmap.height
                 )
-                val balloons = ArrayList<BubbleDetection>()
+                val balloons = ArrayList<BubbleDetection>(filtered.size)
                 for (raw in filtered) {
-                    val rect = raw.toRect(
-                        inputWidth = inputWidth,
-                        inputHeight = inputHeight,
-                        originalWidth = bitmap.width,
-                        originalHeight = bitmap.height
-                    )
+                    val rect = raw.toRect(preprocessed, bitmap.width, bitmap.height)
                     if (rect.width() <= 1f || rect.height() <= 1f) continue
-                    when (raw.classId) {
-                        CLASS_BALLOON -> balloons.add(
-                            BubbleDetection(
-                                rect = rect,
-                                confidence = raw.confidence,
-                                classId = raw.classId
-                            )
+                    val contour = prototypes?.let { proto ->
+                        computeMaskContour(
+                            detection = raw,
+                            prototypes = proto.data,
+                            protoHeight = proto.height,
+                            protoWidth = proto.width,
+                            preprocessed = preprocessed,
+                            originalWidth = bitmap.width,
+                            originalHeight = bitmap.height,
+                            inputWidth = inputWidth,
+                            inputHeight = inputHeight
                         )
-
-                        CLASS_TEXT -> Unit
                     }
+                    balloons.add(
+                        BubbleDetection(
+                            rect = rect,
+                            confidence = raw.confidence,
+                            classId = CLASS_BALLOON,
+                            maskContour = contour
+                        )
+                    )
                 }
                 if (settingsStore.loadModelIoLogging()) {
                     AppLogger.log(
                         "BubbleDetector",
-                        "Input ${bitmap.width}x${bitmap.height} resized to ${inputWidth}x$inputHeight, " +
-                            "text_bubble=${balloons.size}; text_free output ignored"
+                        "Balloons kept=${balloons.size}; maskContours=${balloons.count { it.maskContour != null }}"
                     )
                 }
                 return UnifiedRegionDetection(
@@ -132,107 +150,223 @@ class BubbleDetector(
     @Synchronized
     fun detect(bitmap: Bitmap): List<BubbleDetection> = detectRegions(bitmap).balloons
 
-    private fun parseDetections(raw: Any, shape: LongArray): List<RawDetection> {
-        if (shape.size != 3) return emptyList()
-        val batch = raw as? Array<*> ?: return emptyList()
-        val first = batch.firstOrNull() as? Array<*> ?: return emptyList()
-        val rows = first.mapNotNull { it as? FloatArray }
-        if (rows.size != first.size) return emptyList()
-
+    private fun parseDetections(
+        buffer: FloatBuffer,
+        shape: LongArray,
+        configuredThreshold: Float
+    ): List<RawDetection> {
+        if (shape.size != 3 || shape[0] != 1L) return emptyList()
         val dim1 = shape[1].toInt()
         val dim2 = shape[2].toInt()
         if (dim1 <= 0 || dim2 <= 0) return emptyList()
+
+        // Ultralytics exports channels-first [1, 37, 52500]. Accept the
+        // transposed form as well so a future re-export remains loadable.
         val channelsFirst = dim1 <= dim2
         val featureCount = if (channelsFirst) dim1 else dim2
         val detectionCount = if (channelsFirst) dim2 else dim1
-        if (featureCount < 5) return emptyList()
+        if (featureCount < 5 + MASK_COEFFICIENT_COUNT) return emptyList()
 
-        val result = ArrayList<RawDetection>(detectionCount)
-        if (channelsFirst) {
-            if (rows.size < featureCount || rows.take(featureCount).any { it.size < detectionCount }) {
-                return emptyList()
+        val threshold = effectiveDetectionConfidenceThreshold(
+            classId = CLASS_BALLOON,
+            configuredThreshold = configuredThreshold
+        )
+        val values = buffer.duplicate()
+        values.rewind()
+        val result = ArrayList<RawDetection>()
+        for (index in 0 until detectionCount) {
+            val base = if (channelsFirst) 0 else index * featureCount
+            val cx = readFeature(values, base, index, featureCount, detectionCount, channelsFirst, 0)
+            val cy = readFeature(values, base, index, featureCount, detectionCount, channelsFirst, 1)
+            val width = readFeature(values, base, index, featureCount, detectionCount, channelsFirst, 2)
+            val height = readFeature(values, base, index, featureCount, detectionCount, channelsFirst, 3)
+            val confidence = readFeature(values, base, index, featureCount, detectionCount, channelsFirst, 4)
+            if (
+                !cx.isFinite() || !cy.isFinite() || !width.isFinite() || !height.isFinite() ||
+                !confidence.isFinite() || width <= 0f || height <= 0f || confidence < threshold
+            ) {
+                continue
             }
-            for (index in 0 until detectionCount) {
-                val featureRow = FloatArray(featureCount) { channel -> rows[channel][index] }
-                parseFeatureRow(featureRow)?.let(result::add)
+            val coefficients = FloatArray(MASK_COEFFICIENT_COUNT)
+            for (coefficient in coefficients.indices) {
+                coefficients[coefficient] = readFeature(
+                    values,
+                    base,
+                    index,
+                    featureCount,
+                    detectionCount,
+                    channelsFirst,
+                    5 + coefficient
+                )
             }
-        } else {
-            if (rows.size < detectionCount) return emptyList()
-            for (index in 0 until detectionCount) {
-                parseFeatureRow(rows[index])?.let(result::add)
-            }
+            result.add(
+                RawDetection(
+                    cx = cx,
+                    cy = cy,
+                    width = width,
+                    height = height,
+                    confidence = confidence.coerceIn(0f, 1f),
+                    classId = CLASS_BALLOON,
+                    maskCoefficients = coefficients
+                )
+            )
         }
         return result
     }
 
-    private fun parseFeatureRow(row: FloatArray): RawDetection? {
-        if (row.size < 5) return null
-        val classScore = bestYoloClassScore(row) ?: return null
-        val cx = row[0]
-        val cy = row[1]
-        val width = row[2]
-        val height = row[3]
-        if (
-            !cx.isFinite() || !cy.isFinite() ||
-            !width.isFinite() || !height.isFinite() ||
-            width <= 0f || height <= 0f
-        ) {
-            return null
+    private fun readFeature(
+        values: FloatBuffer,
+        base: Int,
+        detectionIndex: Int,
+        featureCount: Int,
+        detectionCount: Int,
+        channelsFirst: Boolean,
+        featureIndex: Int
+    ): Float {
+        val offset = if (channelsFirst) {
+            featureIndex * detectionCount + detectionIndex
+        } else {
+            base + featureIndex
         }
-        return RawDetection(
-            cx = cx,
-            cy = cy,
-            width = width,
-            height = height,
-            confidence = classScore.confidence,
-            classId = classScore.classId
-        )
+        return values.get(offset)
+    }
+
+    private fun parsePrototypes(buffer: FloatBuffer, shape: LongArray): PrototypeData? {
+        if (shape.size != 4 || shape[0] != 1L) return null
+        val channels = shape[1].toInt()
+        val height = shape[2].toInt()
+        val width = shape[3].toInt()
+        if (channels != MASK_COEFFICIENT_COUNT || height <= 0 || width <= 0) return null
+        val expected = channels * height * width
+        if (buffer.remaining() < expected && buffer.capacity() < expected) return null
+        val values = buffer.duplicate()
+        values.rewind()
+        val data = FloatArray(expected)
+        values.get(data)
+        return PrototypeData(data = data, height = height, width = width)
     }
 
     private fun filterByNms(
         detections: List<RawDetection>,
-        configuredThreshold: Float,
         iouThreshold: Float,
-        inputWidth: Int,
-        inputHeight: Int,
+        preprocessed: LetterboxResult,
         originalWidth: Int,
         originalHeight: Int
     ): List<RawDetection> {
-        val filtered = detections.filter {
-            it.classId == CLASS_BALLOON || it.classId == CLASS_TEXT
-        }.filter {
-            it.confidence >= effectiveDetectionConfidenceThreshold(
-                classId = it.classId,
-                configuredThreshold = configuredThreshold
-            )
-        }.sortedByDescending { it.confidence }
+        val sorted = detections.sortedByDescending { it.confidence }
         val selected = ArrayList<RawDetection>()
-        val suppressed = BooleanArray(filtered.size)
-
-        for (index in filtered.indices) {
+        val suppressed = BooleanArray(sorted.size)
+        for (index in sorted.indices) {
             if (suppressed[index]) continue
-            val detection = filtered[index]
-            val rect = detection.toRect(
-                inputWidth,
-                inputHeight,
-                originalWidth,
-                originalHeight
-            )
+            val detection = sorted[index]
+            val rect = detection.toRect(preprocessed, originalWidth, originalHeight)
             selected.add(detection)
-            for (otherIndex in index + 1 until filtered.size) {
+            for (otherIndex in index + 1 until sorted.size) {
                 if (suppressed[otherIndex]) continue
-                val other = filtered[otherIndex]
-                if (other.classId != detection.classId) continue
                 val overlap = iou(
                     rect,
-                    other.toRect(inputWidth, inputHeight, originalWidth, originalHeight)
+                    sorted[otherIndex].toRect(preprocessed, originalWidth, originalHeight)
                 )
-                if (overlap > iouThreshold) {
-                    suppressed[otherIndex] = true
-                }
+                if (overlap > iouThreshold) suppressed[otherIndex] = true
             }
         }
         return selected
+    }
+
+    /**
+     * Reconstruct a compact outer polygon from the prototype mask. Sampling
+     * scanlines keeps the Android overlay lightweight while preserving the
+     * useful non-rectangular speech-bubble shape.
+     */
+    private fun computeMaskContour(
+        detection: RawDetection,
+        prototypes: FloatArray,
+        protoHeight: Int,
+        protoWidth: Int,
+        preprocessed: LetterboxResult,
+        originalWidth: Int,
+        originalHeight: Int,
+        inputWidth: Int,
+        inputHeight: Int
+    ): FloatArray? {
+        val inputLeft = (detection.cx - detection.width / 2f).coerceIn(0f, inputWidth.toFloat())
+        val inputTop = (detection.cy - detection.height / 2f).coerceIn(0f, inputHeight.toFloat())
+        val inputRight = (detection.cx + detection.width / 2f).coerceIn(0f, inputWidth.toFloat())
+        val inputBottom = (detection.cy + detection.height / 2f).coerceIn(0f, inputHeight.toFloat())
+        val x1 = floor(inputLeft / inputWidth * protoWidth).toInt().coerceIn(0, protoWidth - 1)
+        val y1 = floor(inputTop / inputHeight * protoHeight).toInt().coerceIn(0, protoHeight - 1)
+        val x2 = floor(inputRight / inputWidth * protoWidth).toInt().coerceIn(x1 + 1, protoWidth)
+        val y2 = floor(inputBottom / inputHeight * protoHeight).toInt().coerceIn(y1 + 1, protoHeight)
+        if (x2 <= x1 || y2 <= y1) return null
+
+        val sampleCount = (y2 - y1).coerceIn(4, MAX_CONTOUR_SAMPLES)
+        val leftEdge = ArrayList<Float>(sampleCount * 2)
+        val rightEdge = ArrayList<Float>(sampleCount * 2)
+        for (sample in 0 until sampleCount) {
+            val fraction = if (sampleCount == 1) 0f else sample / (sampleCount - 1f)
+            val y = (y1 + ((y2 - 1 - y1) * fraction).toInt()).coerceIn(y1, y2 - 1)
+            var leftX = -1
+            var rightX = -1
+            for (x in x1 until x2) {
+                var score = 0f
+                val protoOffset = y * protoWidth + x
+                for (coefficient in detection.maskCoefficients.indices) {
+                    score += detection.maskCoefficients[coefficient] *
+                        prototypes[coefficient * protoHeight * protoWidth + protoOffset]
+                }
+                if (sigmoid(score) >= MASK_THRESHOLD) {
+                    if (leftX < 0) leftX = x
+                    rightX = x
+                }
+            }
+            if (leftX >= 0) {
+                val leftPoint = mapMaskPointToNormalized(
+                    leftX.toFloat(), y.toFloat(), protoWidth, protoHeight,
+                    preprocessed, originalWidth, originalHeight
+                )
+                val rightPoint = mapMaskPointToNormalized(
+                    (rightX + 1).toFloat(), y.toFloat(), protoWidth, protoHeight,
+                    preprocessed, originalWidth, originalHeight
+                )
+                leftEdge.add(leftPoint.first)
+                leftEdge.add(leftPoint.second)
+                rightEdge.add(rightPoint.first)
+                rightEdge.add(rightPoint.second)
+            }
+        }
+        if (leftEdge.size < 6) return null
+
+        val polygon = FloatArray(leftEdge.size + rightEdge.size)
+        leftEdge.toFloatArray().copyInto(polygon, 0)
+        var outputIndex = leftEdge.size
+        for (index in rightEdge.size - 2 downTo 0 step 2) {
+            polygon[outputIndex] = rightEdge[index]
+            polygon[outputIndex + 1] = rightEdge[index + 1]
+            outputIndex += 2
+        }
+        return polygon
+    }
+
+    private fun mapMaskPointToNormalized(
+        x: Float,
+        y: Float,
+        maskWidth: Int,
+        maskHeight: Int,
+        preprocessed: LetterboxResult,
+        originalWidth: Int,
+        originalHeight: Int
+    ): Pair<Float, Float> {
+        val inputX = x / maskWidth * preprocessed.inputWidth
+        val inputY = y / maskHeight * preprocessed.inputHeight
+        val originalX = ((inputX - preprocessed.padX) / preprocessed.gain)
+            .coerceIn(0f, max(0f, originalWidth - 1f))
+        val originalY = ((inputY - preprocessed.padY) / preprocessed.gain)
+            .coerceIn(0f, max(0f, originalHeight - 1f))
+        return (
+            if (originalWidth > 0) originalX / originalWidth else 0f
+        ) to (
+            if (originalHeight > 0) originalY / originalHeight else 0f
+        )
     }
 
     private fun iou(first: RectF, second: RectF): Float {
@@ -257,16 +391,60 @@ class BubbleDetector(
         )
     }
 
-    private fun formatConfidence(value: Float?): String {
-        return value?.let { "%.3f".format(it) } ?: "n/a"
-    }
+    private fun formatConfidence(value: Float): String = "%.3f".format(value)
 
     companion object {
-        const val DEFAULT_MODEL_ASSET = "models/detection/comic-speech-bubble-detector.onnx"
+        const val DEFAULT_MODEL_ASSET = "models/detection/manga109-segmentation-bubble.onnx"
         const val CLASS_BALLOON = 0
+        // Kept for the shared confidence helper and existing unit tests. The
+        // segmentation model itself only emits CLASS_BALLOON.
         const val CLASS_TEXT = 1
+        private const val DEFAULT_INPUT_SIZE = 1600
+        private const val MASK_COEFFICIENT_COUNT = 32
+        private const val MASK_THRESHOLD = 0.5f
+        private const val MAX_CONTOUR_SAMPLES = 48
     }
 }
+
+private data class PrototypeData(
+    val data: FloatArray,
+    val height: Int,
+    val width: Int
+)
+
+private data class RawDetection(
+    val cx: Float,
+    val cy: Float,
+    val width: Float,
+    val height: Float,
+    val confidence: Float,
+    val classId: Int,
+    val maskCoefficients: FloatArray
+) {
+    fun toRect(
+        preprocessed: LetterboxResult,
+        originalWidth: Int,
+        originalHeight: Int
+    ): RectF {
+        val left = (cx - width / 2f - preprocessed.padX) / preprocessed.gain
+        val top = (cy - height / 2f - preprocessed.padY) / preprocessed.gain
+        val right = (cx + width / 2f - preprocessed.padX) / preprocessed.gain
+        val bottom = (cy + height / 2f - preprocessed.padY) / preprocessed.gain
+        val maxX = max(0f, originalWidth - 1f)
+        val maxY = max(0f, originalHeight - 1f)
+        return RectF(
+            left.coerceIn(0f, maxX),
+            top.coerceIn(0f, maxY),
+            right.coerceIn(0f, maxX),
+            bottom.coerceIn(0f, maxY)
+        )
+    }
+}
+
+internal data class YoloClassScore(
+    val classId: Int,
+    val confidence: Float
+)
 
 internal fun bestYoloClassScore(
     featureRow: FloatArray,
@@ -299,36 +477,11 @@ internal fun effectiveDetectionConfidenceThreshold(
     }
 }
 
-private data class RawDetection(
-    val cx: Float,
-    val cy: Float,
-    val width: Float,
-    val height: Float,
-    val confidence: Float,
-    val classId: Int
-) {
-    fun toRect(
-        inputWidth: Int,
-        inputHeight: Int,
-        originalWidth: Int,
-        originalHeight: Int
-    ): RectF {
-        val normalized = width <= 1.5f && height <= 1.5f && cx <= 1.5f && cy <= 1.5f
-        val inputCenterX = if (normalized) cx * inputWidth else cx
-        val inputCenterY = if (normalized) cy * inputHeight else cy
-        val inputBoxWidth = if (normalized) width * inputWidth else width
-        val inputBoxHeight = if (normalized) height * inputHeight else height
-        val scaleX = originalWidth / inputWidth.toFloat().coerceAtLeast(1f)
-        val scaleY = originalHeight / inputHeight.toFloat().coerceAtLeast(1f)
-        return RectF(
-            ((inputCenterX - inputBoxWidth / 2f) * scaleX)
-                .coerceIn(0f, max(0f, originalWidth - 1f)),
-            ((inputCenterY - inputBoxHeight / 2f) * scaleY)
-                .coerceIn(0f, max(0f, originalHeight - 1f)),
-            ((inputCenterX + inputBoxWidth / 2f) * scaleX)
-                .coerceIn(0f, max(0f, originalWidth - 1f)),
-            ((inputCenterY + inputBoxHeight / 2f) * scaleY)
-                .coerceIn(0f, max(0f, originalHeight - 1f))
-        )
+private fun sigmoid(value: Float): Float {
+    return if (value >= 0f) {
+        1f / (1f + exp(-value))
+    } else {
+        val expValue = exp(value)
+        expValue / (1f + expValue)
     }
 }

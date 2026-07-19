@@ -75,7 +75,7 @@ Join the QQ group for questions and discussion: `1080302768`
 
 ### Models and Assets
 Place the following model files into the corresponding subdirectories under `assets/`:
-- `models/detection/comic-speech-bubble-detector.onnx` (1024x1024 speech-bubble detector; only `text_bubble` is used)
+- `models/detection/manga109-segmentation-bubble.onnx` (YOLO11n-seg speech-bubble detector at 1600x1600; also provides bubble contours)
 - `models/detection/yolo11n-text.onnx` (supplemental free-text detector; speech-bubble areas are masked first)
 - `models/ocr/manga_ocr/encoder_model.onnx`, `models/ocr/manga_ocr/decoder_model.onnx` (Japanese OCR: MangaOcr, switchable in Settings)
 - `models/ocr/manga_ocr/generation_config.json`, `models/ocr/manga_ocr/preprocessor_config.json`, `models/ocr/manga_ocr/tokenizer.json`, `models/ocr/manga_ocr/special_tokens_map.json`
@@ -85,7 +85,7 @@ Place the following model files into the corresponding subdirectories under `ass
 - `models/detection/PP-OCRv6_det_mobile_infer.onnx` (English line detection)
 
 Model download links:
-- Speech-bubble detection model: https://huggingface.co/ogkalu/comic-speech-bubble-detector-yolov8m
+- Speech-bubble detection model: Manga109 YOLO11n-seg bubble segmentation model (bundled in app assets)
 - Free-text detection model: https://huggingface.co/RoyRud1902/yolo11n-text
 - English recognition model: https://huggingface.co/PaddlePaddle/PP-OCRv6_small_rec_onnx
 - English detection model: https://huggingface.co/PaddlePaddle/PP-OCRv6_small_det_onnx
