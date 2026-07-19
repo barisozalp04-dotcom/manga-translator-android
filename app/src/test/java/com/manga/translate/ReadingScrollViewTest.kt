@@ -72,5 +72,44 @@ class ReadingScrollViewTest {
                 viewportHeight = 1435
             )
         )
+        assertEquals(
+            6000,
+            resolveFitWidthScrollableContentHeight(
+                readingMode = FolderReadingMode.STANDARD,
+                displayMode = ReadingDisplayMode.FIT_WIDTH,
+                contentWidth = 1000,
+                contentHeight = 6000,
+                viewportWidth = 1000,
+                viewportHeight = 1435
+            )
+        )
+    }
+
+    @Test
+    fun `webtoon and long images always use fit width`() {
+        assertEquals(
+            ReadingDisplayMode.FIT_WIDTH,
+            resolveEffectiveReadingDisplayMode(
+                readingMode = FolderReadingMode.WEBTOON_SCROLL,
+                configuredMode = ReadingDisplayMode.FIT_HEIGHT,
+                isLongImage = false
+            )
+        )
+        assertEquals(
+            ReadingDisplayMode.FIT_WIDTH,
+            resolveEffectiveReadingDisplayMode(
+                readingMode = FolderReadingMode.STANDARD,
+                configuredMode = ReadingDisplayMode.FIT_HEIGHT,
+                isLongImage = true
+            )
+        )
+        assertEquals(
+            ReadingDisplayMode.FIT_HEIGHT,
+            resolveEffectiveReadingDisplayMode(
+                readingMode = FolderReadingMode.STANDARD,
+                configuredMode = ReadingDisplayMode.FIT_HEIGHT,
+                isLongImage = false
+            )
+        )
     }
 }

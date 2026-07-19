@@ -13,6 +13,18 @@ internal fun shouldEnableReadingContainerScroll(
     return readingMode != FolderReadingMode.WEBTOON_SCROLL && !isEditMode && hasVerticalOverflow
 }
 
+internal fun resolveEffectiveReadingDisplayMode(
+    readingMode: FolderReadingMode,
+    configuredMode: ReadingDisplayMode,
+    isLongImage: Boolean
+): ReadingDisplayMode {
+    return if (readingMode == FolderReadingMode.WEBTOON_SCROLL || isLongImage) {
+        ReadingDisplayMode.FIT_WIDTH
+    } else {
+        configuredMode
+    }
+}
+
 internal fun resolveFitWidthScrollableContentHeight(
     readingMode: FolderReadingMode,
     displayMode: ReadingDisplayMode,

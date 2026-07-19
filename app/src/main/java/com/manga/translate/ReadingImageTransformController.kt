@@ -10,12 +10,36 @@ import android.view.ViewConfiguration
 import android.widget.ImageView
 import kotlin.math.abs
 
+internal fun canPanReadingImageHorizontally(
+    hasHorizontalOverflow: Boolean,
+    dragDeltaX: Float,
+    imageLeft: Float,
+    imageRight: Float,
+    viewportWidth: Float
+): Boolean {
+    if (!hasHorizontalOverflow || viewportWidth <= 0f) return false
+    return when {
+        dragDeltaX < 0f -> imageRight > viewportWidth + 0.5f
+        dragDeltaX > 0f -> imageLeft < -0.5f
+        else -> false
+    }
+}
+
+internal fun resolveHorizontalEdgeSwipeDirection(
+    unconsumedDragX: Float,
+    threshold: Float
+): Int? {
+    if (threshold <= 0f || abs(unconsumedDragX) < threshold) return null
+    return if (unconsumedDragX > 0f) 1 else -1
+}
+
 class ReadingImageTransformController(
     context: Context,
     private val imageView: ImageView,
     private val hasBubbleAt: (x: Float, y: Float) -> Boolean,
     private val onMatrixUpdated: () -> Unit,
-    private val allowPanWhenOverflowing: Boolean = true
+    private val allowPanWhenOverflowing: Boolean = true,
+    private val onHorizontalEdgeSwipe: ((Int) -> Unit)? = null
 ) {
     private val baseMatrix = Matrix()
     private val imageMatrix = Matrix()
@@ -35,6 +59,8 @@ class ReadingImageTransformController(
     private var lastTouchY = 0f
     private var startTouchX = 0f
     private var startTouchY = 0f
+    private var unconsumedHorizontalDrag = 0f
+    private var pendingHorizontalEdgeSwipe: Int? = null
 
     private val scaleDetector = ScaleGestureDetector(
         context,
@@ -145,6 +171,8 @@ class ReadingImageTransformController(
                 isPanning = false
                 panHorizontal = false
                 panVertical = false
+                unconsumedHorizontalDrag = 0f
+                pendingHorizontalEdgeSwipe = null
                 return false
             }
 
@@ -154,7 +182,7 @@ class ReadingImageTransformController(
                     val movedX = event.x - startTouchX
                     val movedY = event.y - startTouchY
                     if (!isPanning) {
-                        val canPanHorizontally = zoomed && overflowAxes.horizontal
+                        val canPanHorizontally = canPanHorizontally(movedX, overflowAxes)
                         val canPanVertically = verticalPanEnabled && overflowAxes.vertical
                         val horizontalIntent =
                             abs(movedX) > panTouchSlop && abs(movedX) >= abs(movedY)
@@ -176,8 +204,17 @@ class ReadingImageTransformController(
                     if (isPanning) {
                         val dx = if (panHorizontal) event.x - lastTouchX else 0f
                         val dy = if (panVertical) event.y - lastTouchY else 0f
+                        val imageLeftBeforePan = if (panHorizontal && !zoomed) {
+                            currentImageLeft()
+                        } else {
+                            null
+                        }
                         imageMatrix.postTranslate(dx, dy)
                         fixTranslation()
+                        if (imageLeftBeforePan != null) {
+                            val consumedDx = currentImageLeft() - imageLeftBeforePan
+                            updateHorizontalEdgeSwipe(dx - consumedDx)
+                        }
                         applyImageMatrix()
                         lastTouchX = event.x
                         lastTouchY = event.y
@@ -188,13 +225,21 @@ class ReadingImageTransformController(
 
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                 val handled = isPanning || isScaling || scaleHandled
+                val edgeSwipe = if (event.actionMasked == MotionEvent.ACTION_UP) {
+                    pendingHorizontalEdgeSwipe
+                } else {
+                    null
+                }
                 isPanning = false
                 panHorizontal = false
                 panVertical = false
+                unconsumedHorizontalDrag = 0f
+                pendingHorizontalEdgeSwipe = null
                 if (event.actionMasked == MotionEvent.ACTION_CANCEL) {
                     isScaling = false
                 }
                 scaleHandled = false
+                edgeSwipe?.let { onHorizontalEdgeSwipe?.invoke(it) }
                 return handled
             }
         }
@@ -289,6 +334,45 @@ class ReadingImageTransformController(
         return OverflowAxes(
             horizontal = imageRect.width() > viewWidth + 0.5f,
             vertical = imageRect.height() > viewHeight + 0.5f
+        )
+    }
+
+    private fun canPanHorizontally(dragDeltaX: Float, overflowAxes: OverflowAxes): Boolean {
+        val viewWidth = imageView.width.toFloat()
+        if (viewWidth <= 0f || !hasContent()) return false
+        imageRect.set(0f, 0f, contentWidth.toFloat(), contentHeight.toFloat())
+        imageMatrix.mapRect(imageRect)
+        return canPanReadingImageHorizontally(
+            hasHorizontalOverflow = overflowAxes.horizontal,
+            dragDeltaX = dragDeltaX,
+            imageLeft = imageRect.left,
+            imageRight = imageRect.right,
+            viewportWidth = viewWidth
+        )
+    }
+
+    private fun currentImageLeft(): Float {
+        imageRect.set(0f, 0f, contentWidth.toFloat(), contentHeight.toFloat())
+        imageMatrix.mapRect(imageRect)
+        return imageRect.left
+    }
+
+    private fun updateHorizontalEdgeSwipe(unconsumedDx: Float) {
+        if (abs(unconsumedDx) <= 0.5f) {
+            unconsumedHorizontalDrag = 0f
+            pendingHorizontalEdgeSwipe = null
+            return
+        }
+        if (
+            unconsumedHorizontalDrag != 0f &&
+            (unconsumedHorizontalDrag > 0f) != (unconsumedDx > 0f)
+        ) {
+            unconsumedHorizontalDrag = 0f
+        }
+        unconsumedHorizontalDrag += unconsumedDx
+        pendingHorizontalEdgeSwipe = resolveHorizontalEdgeSwipeDirection(
+            unconsumedDragX = unconsumedHorizontalDrag,
+            threshold = panTouchSlop * 2f
         )
     }
 

@@ -210,7 +210,8 @@ class ReadingFragment : Fragment() {
             context = requireContext(),
             imageView = binding.readingImage,
             hasBubbleAt = { x, y -> binding.translationOverlay.hasBubbleAt(x, y) },
-            onMatrixUpdated = { updateOverlayDisplayRect() }
+            onMatrixUpdated = { updateOverlayDisplayRect() },
+            onHorizontalEdgeSwipe = ::handleSwipe
         )
         binding.translationOverlay.onTap = { x ->
             handleTap(x)
@@ -915,11 +916,11 @@ class ReadingFragment : Fragment() {
     }
 
     private fun resolveReadingDisplayMode(decoded: DecodedReadingBitmap?): ReadingDisplayMode {
-        return if (decoded != null && isLongImage(decoded.sourceWidth, decoded.sourceHeight)) {
-            ReadingDisplayMode.FIT_WIDTH
-        } else {
-            settingsStore.loadReadingDisplayMode()
-        }
+        return resolveEffectiveReadingDisplayMode(
+            readingMode = folderReadingMode,
+            configuredMode = settingsStore.loadReadingDisplayMode(),
+            isLongImage = decoded != null && isLongImage(decoded.sourceWidth, decoded.sourceHeight)
+        )
     }
 
     private fun applyReadingImageLayerMode(decoded: DecodedReadingBitmap?) {
