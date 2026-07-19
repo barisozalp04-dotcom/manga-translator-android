@@ -50,6 +50,8 @@ Thumbs.db
 # Large model assets
 assets/models/
 
+# test pic
+test.webp
 
 # Misc
 *.swp

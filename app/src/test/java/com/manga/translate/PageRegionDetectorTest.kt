@@ -79,8 +79,32 @@ class PageRegionDetectorTest {
 
         assertEquals(8, tiles.size)
         assertEquals(listOf(0, 440), firstRow.map { it.left })
-        assertEquals(listOf(0, 448, 896, 960), firstColumn.map { it.top })
+        assertEquals(listOf(0, 320, 640, 960), firstColumn.map { it.top })
         assertTrue(tiles.all { it.width == 640 && it.height == 640 })
+    }
+
+    @Test
+    fun `high resolution bubble tiles preserve coverage without tiny final gaps`() {
+        assertTrue(shouldUseHighResolutionBubbleTiling(pageWidth = 3000, pageHeight = 4000))
+        val tiles = planHighResolutionBubbleDetectionTiles(pageWidth = 3000, pageHeight = 4000)
+
+        assertEquals(9, tiles.size)
+        assertEquals(0, tiles.minOf { it.left })
+        assertEquals(0, tiles.minOf { it.top })
+        assertEquals(3000, tiles.maxOf { it.right })
+        assertEquals(4000, tiles.maxOf { it.bottom })
+        assertTrue(tiles.all { it.width <= 1600 && it.height <= 1600 })
+        val firstRow = tiles.filter { it.top == tiles.minOf { tile -> tile.top } }
+        assertTrue(firstRow.zipWithNext().all { (a, b) -> b.left < a.right })
+        assertTrue(firstRow.zipWithNext().all { (a, b) -> a.right - b.left >= 320 })
+    }
+
+    @Test
+    fun `long image just over one bubble tile uses one full-height tile`() {
+        val tiles = planLongImageBubbleDetectionTiles(pageWidth = 1400, pageHeight = 2801)
+
+        assertEquals(1, tiles.size)
+        assertEquals(2801, tiles.single().height)
     }
 
     @Test
@@ -391,17 +415,31 @@ class PageRegionDetectorTest {
     }
 
     @Test
+    fun `text suppression only removes actual bubble overlap`() {
+        val bubble = RectF(100f, 100f, 400f, 400f)
+        val adjacentText = RectF(110f, 400f, 410f, 700f)
+        val containedText = RectF(150f, 150f, 250f, 250f)
+
+        assertFalse(shouldFilterTextRectByBubble(adjacentText, bubble, 0.2f))
+        assertTrue(shouldFilterTextRectByBubble(containedText, bubble, 0.2f))
+    }
+
+    @Test
     fun `detection strategy tag switches between full and tiled modes`() {
         assertEquals(
-            "det_full_comic1024_yolo11_v4",
+            "det_full_manga109seg1600_text_yolo11_v15",
             buildDetectionStrategyTag(pageWidth = 640, pageHeight = 640)
         )
         assertEquals(
-            "det_text_tiled_640_comic1024_yolo11_v12",
+            "det_bubble_full_text_tiled_640_manga109seg_yolo11_v15",
             buildDetectionStrategyTag(pageWidth = 1080, pageHeight = 1600)
         )
         assertEquals(
-            "det_bubble_tiled_2x_text_tiled_640_comic1024_yolo11_v13",
+            "det_bubble_full_plus_tiled_1600_text_tiled_640_manga109seg_yolo11_v15",
+            buildDetectionStrategyTag(pageWidth = 3000, pageHeight = 4000)
+        )
+        assertEquals(
+            "det_bubble_tiled_2x_text_tiled_640_manga109seg_yolo11_v15",
             buildDetectionStrategyTag(pageWidth = 1000, pageHeight = 2200)
         )
     }

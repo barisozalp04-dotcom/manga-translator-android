@@ -60,7 +60,9 @@ class BubbleDetector(
         val inputWidth = inputShape.getOrNull(3)?.takeIf { it > 0 }?.toInt()
             ?: DEFAULT_INPUT_SIZE
         val preprocessed = OnnxImagePreprocessor.letterbox(bitmap, inputWidth, inputHeight)
-        val inputBuffer = OnnxImagePreprocessor.bitmapToRgbChwFloat255(preprocessed.bitmap)
+        // Ultralytics ONNX exports expect RGB values normalized to 0..1;
+        // normalization is not embedded in this model graph.
+        val inputBuffer = OnnxImagePreprocessor.bitmapToRgbChwFloat(preprocessed.bitmap)
         preprocessed.bitmap.recycle()
 
         val inputTensor = OnnxTensor.createTensor(
