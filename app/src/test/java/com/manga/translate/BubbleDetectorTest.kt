@@ -1,5 +1,10 @@
 package com.manga.translate
 
+import com.manga.translate.detection.BubbleDetector
+import com.manga.translate.detection.YoloClassScore
+import com.manga.translate.detection.bestYoloClassScore
+import com.manga.translate.detection.effectiveDetectionConfidenceThreshold
+import com.manga.translate.model.TranslationCoreDefaults
 import org.junit.Assert.assertEquals
 import org.junit.Test
 

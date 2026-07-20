@@ -1,5 +1,10 @@
 package com.manga.translate
 
+import com.manga.translate.model.FolderReadingMode
+import com.manga.translate.model.ReadingDisplayMode
+import com.manga.translate.reader.resolveEffectiveReadingDisplayMode
+import com.manga.translate.reader.resolveFitWidthScrollableContentHeight
+import com.manga.translate.reader.shouldEnableReadingContainerScroll
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull

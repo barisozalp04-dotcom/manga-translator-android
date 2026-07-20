@@ -2,6 +2,7 @@ package com.manga.translate
 
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
+import com.manga.translate.platform.PromptAssetResolver
 import org.junit.Assert.assertFalse
 import org.junit.Test
 import org.junit.runner.RunWith

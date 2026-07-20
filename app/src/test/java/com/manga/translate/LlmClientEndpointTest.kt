@@ -1,5 +1,6 @@
 package com.manga.translate
 
+import com.manga.translate.network.LlmClient
 import org.junit.Assert.assertEquals
 import org.junit.Test
 

@@ -4,7 +4,7 @@
     android:layout_height="wrap_content"
     android:orientation="vertical">
 
-    <com.manga.translate.SafeNestedScrollView
+    <com.manga.translate.platform.SafeNestedScrollView
         android:id="@+id/update_dialog_scroll"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -110,7 +110,7 @@
                     android:textAppearance="@style/Widget.MangaTranslator.DialogBody" />
             </LinearLayout>
         </LinearLayout>
-    </com.manga.translate.SafeNestedScrollView>
+    </com.manga.translate.platform.SafeNestedScrollView>
 
     <View
         android:layout_width="match_parent"

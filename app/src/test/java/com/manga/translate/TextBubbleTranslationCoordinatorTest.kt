@@ -3,6 +3,16 @@ package com.manga.translate
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.RectF
+import com.manga.translate.model.BubbleTranslation
+import com.manga.translate.model.TranslationLanguage
+import com.manga.translate.network.BaiduOcrWord
+import com.manga.translate.network.LlmBubbleTranslationItem
+import com.manga.translate.network.LlmBubbleTranslationRequestItem
+import com.manga.translate.network.LlmBubbleTranslationResult
+import com.manga.translate.network.LlmGateway
+import com.manga.translate.network.LlmResponseException
+import com.manga.translate.settings.ApiSettings
+import com.manga.translate.translation.TextBubbleTranslationCoordinator
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows

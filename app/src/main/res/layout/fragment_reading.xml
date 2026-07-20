@@ -15,7 +15,7 @@
         android:scrollbars="none"
         android:visibility="gone" />
 
-    <com.manga.translate.ReadingScrollView
+    <com.manga.translate.reader.ReadingScrollView
         android:id="@+id/reading_scroll_container"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
@@ -28,7 +28,7 @@
             android:layout_width="match_parent"
             android:layout_height="match_parent">
 
-            <com.manga.translate.ReadingRegionImageView
+            <com.manga.translate.reader.ReadingRegionImageView
                 android:id="@+id/reading_image"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
@@ -45,13 +45,13 @@
                 android:scaleType="matrix"
                 android:visibility="gone" />
 
-            <com.manga.translate.FloatingTranslationView
+            <com.manga.translate.reader.FloatingTranslationView
                 android:id="@+id/translation_overlay"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
                 android:visibility="gone" />
         </FrameLayout>
-    </com.manga.translate.ReadingScrollView>
+    </com.manga.translate.reader.ReadingScrollView>
 
     <TextView
         android:id="@+id/reading_page_info"

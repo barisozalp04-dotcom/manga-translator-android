@@ -1,5 +1,6 @@
 package com.manga.translate
 
+import com.manga.translate.reader.ReadingBitmapDecoder
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue

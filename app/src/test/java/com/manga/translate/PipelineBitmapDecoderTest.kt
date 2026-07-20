@@ -2,11 +2,14 @@ package com.manga.translate
 
 import android.graphics.Bitmap
 import android.graphics.RectF
+import com.manga.translate.platform.DETECTION_MAX_EDGE
+import com.manga.translate.platform.PipelineBitmapDecoder
+import com.manga.translate.platform.recycleSafely
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotSame
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNotSame
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner

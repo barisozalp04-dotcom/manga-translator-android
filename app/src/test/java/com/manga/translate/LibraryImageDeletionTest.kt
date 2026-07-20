@@ -1,5 +1,6 @@
 package com.manga.translate
 
+import com.manga.translate.library.deleteImageAndSidecars
 import java.io.File
 import java.nio.file.Files
 import org.junit.Assert.assertFalse

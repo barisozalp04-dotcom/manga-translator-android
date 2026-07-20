@@ -10,10 +10,10 @@
 
 | 场景 | 关键位置 |
 |-----|---------|
-| 翻译主流程 | `app/src/main/java/com/manga/translate/TranslationPipeline.kt` |
+| 翻译主流程 | `app/src/main/java/com/manga/translate/translation/TranslationPipeline.kt` |
 | 多供应商调度 | `SettingsFragment.kt`、`SettingsStore.kt`、`ProviderProfileStore.kt`、`TranslationProviderScheduler.kt`、`FolderTranslationCoordinator.kt` |
-| 页面区域检测 | `app/src/main/java/com/manga/translate/PageRegionDetector.kt`、`BubbleDetector.kt`（Manga109 气泡分割）、`TextDetector.kt`（yolo11n-text 游离文字） |
-| OCR 相关 | `app/src/main/java/com/manga/translate/OcrSharedTools.kt`、`OcrEngine.kt`、`MangaOcr.kt`、`EnglishOcr.kt`、`KoreanOcr.kt`、`OcrApiFormat.kt`、`BaiduAccessTokenManager.kt`、`LlmClient.kt` |
+| 页面区域检测 | `app/src/main/java/com/manga/translate/detection/PageRegionDetector.kt`、`BubbleDetector.kt`（Manga109 气泡分割）、`TextDetector.kt`（yolo11n-text 游离文字） |
+| OCR 相关 | `app/src/main/java/com/manga/translate/ocr/OcrSharedTools.kt`、`OcrEngine.kt`、`MangaOcrMobile.kt`、`KoreanOcr.kt`、`model/OcrApiFormat.kt`、`network/BaiduAccessTokenManager.kt`、`network/LlmClient.kt` |
 | 漫画库 / 导入导出 | `LibraryFragment.kt`、`LibraryRepository.kt`、`LibraryImportExportCoordinator.kt` |
 | 阅读与气泡编辑 | `ReadingFragment.kt`、`ReadingSessionViewModel.kt`、`ReadingImageTransformController.kt`、`FloatingTranslationView.kt`、`BubbleRenderer.kt`、`BubbleTextScaling.kt` |
 | 设置页与参数持久化 | `SettingsFragment.kt`、`SettingsStore.kt`、`ApiSettingsStore.kt`、`OcrSettingsStore.kt`、`RenderSettingsStore.kt`、`LlmParameterStore.kt`、`ProviderProfileStore.kt` |
@@ -91,13 +91,9 @@ export PATH=$PATH:$ANDROID_HOME/platform-tools
 
 ## 模块路径定位
 
-源码当前主要集中在：
+源码根目录为 `app/src/main/java/com/manga/translate`，按领域划分为 `app`、`background`、`library`、`reader`、`floating`、`settings`（设置 UI 位于 `settings/ui`）、`translation`、`network`、`ocr`、`detection`、`rendering`、`storage`、`model`、`platform` 和 `di`。
 
-`app/src/main/java/com/manga/translate`
-
-另有轻量依赖容器目录：
-
-`app/src/main/java/com/manga/translate/di`
+详细职责与依赖方向见 `dev_doc/package_architecture.md`。
 
 ### 入口层
 - `MangaTranslateApp.kt`：Application 入口，初始化主题、语言、日志和全局依赖容器。

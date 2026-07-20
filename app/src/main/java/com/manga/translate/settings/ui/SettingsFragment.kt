@@ -1,0 +1,2340 @@
+package com.manga.translate.settings.ui
+
+
+import com.manga.translate.settings.AdditionalTranslationProvider
+import com.manga.translate.settings.ApiSettings
+import com.manga.translate.settings.BubbleFontSettings
+import com.manga.translate.settings.CustomRequestParameter
+import com.manga.translate.settings.FloatingBubbleRenderSettings
+import com.manga.translate.settings.FloatingBubbleShape
+import com.manga.translate.settings.FloatingTranslateApiSettings
+import com.manga.translate.settings.JapaneseLocalOcrEngine
+import com.manga.translate.settings.LlmParameterSettings
+import com.manga.translate.settings.NormalBubbleRenderSettings
+import com.manga.translate.settings.OCR_PROVIDER_ID
+import com.manga.translate.settings.OcrApiSettings
+import com.manga.translate.settings.PRIMARY_PROVIDER_ID
+import com.manga.translate.settings.SettingsMainForm
+import com.manga.translate.settings.SettingsStore
+import com.manga.translate.settings.defaultAdditionalProviderName
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Intent
+import android.os.Bundle
+import android.view.LayoutInflater
+import android.view.View
+import android.view.ViewGroup
+import android.widget.ArrayAdapter
+import android.widget.BaseAdapter
+import android.widget.CheckedTextView
+import android.widget.EditText
+import android.widget.ProgressBar
+import android.widget.ScrollView
+import android.widget.SeekBar
+import android.widget.TextView
+import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.annotation.StringRes
+import androidx.appcompat.app.AlertDialog
+import androidx.appcompat.app.AppCompatDelegate
+import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
+import androidx.core.net.toUri
+import androidx.core.view.doOnLayout
+import androidx.fragment.app.Fragment
+import androidx.lifecycle.lifecycleScope
+import com.google.android.material.textfield.MaterialAutoCompleteTextView
+import com.manga.translate.R
+import com.manga.translate.app.MainActivity
+import com.manga.translate.app.UpdateChecker
+import com.manga.translate.app.VersionInfo
+import com.manga.translate.databinding.DialogAiProviderProfilesBinding
+import com.manga.translate.databinding.DialogBubbleFontSettingsBinding
+import com.manga.translate.databinding.DialogCustomRequestParamsBinding
+import com.manga.translate.databinding.DialogFloatingBubbleRenderSettingsBinding
+import com.manga.translate.databinding.DialogFloatingTranslateSettingsBinding
+import com.manga.translate.databinding.DialogLlmParamsBinding
+import com.manga.translate.databinding.DialogMultiProviderSchedulingBinding
+import com.manga.translate.databinding.DialogNormalBubbleRenderSettingsBinding
+import com.manga.translate.databinding.DialogOcrSettingsBinding
+import com.manga.translate.databinding.FragmentSettingsBinding
+import com.manga.translate.databinding.ItemAdditionalTranslationProviderBinding
+import com.manga.translate.databinding.ItemCustomRequestParamBinding
+import com.manga.translate.databinding.ItemUploadedFontBinding
+import com.manga.translate.di.appContainer
+import com.manga.translate.model.ApiFormat
+import com.manga.translate.model.AppLanguage
+import com.manga.translate.model.FloatingBallGestureAction
+import com.manga.translate.model.LinkSource
+import com.manga.translate.model.OcrApiFormat
+import com.manga.translate.model.ReadingDisplayMode
+import com.manga.translate.model.ReadingPageAnimationMode
+import com.manga.translate.model.ThemeMode
+import com.manga.translate.model.ThinkingLength
+import com.manga.translate.model.TranslationLanguage
+import com.manga.translate.network.LlmClient
+import com.manga.translate.network.LlmErrorCode
+import com.manga.translate.network.LlmRequestException
+import com.manga.translate.platform.AppLogger
+import com.manga.translate.platform.ErrorDialogFormatter
+import com.manga.translate.platform.showWithScrollableMessage
+import com.manga.translate.rendering.BubbleFont
+import com.manga.translate.rendering.BubbleFontResolver
+import java.io.File
+import java.text.NumberFormat
+import java.util.Locale
+import kotlin.math.roundToInt
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+
+class SettingsFragment : Fragment() {
+    private data class ActiveBubbleFontDialogState(
+        val binding: DialogBubbleFontSettingsBinding,
+        var selectedFontFileName: String?,
+        var uploadedFonts: MutableList<String>
+    )
+
+    private var _binding: FragmentSettingsBinding? = null
+    private val binding get() = _binding!!
+    private val appContainer by lazy(LazyThreadSafetyMode.NONE) { requireContext().appContainer }
+    private val settingsStore by lazy(LazyThreadSafetyMode.NONE) { appContainer.settingsStore }
+    private val llmClient by lazy(LazyThreadSafetyMode.NONE) { appContainer.llmClient }
+    private val numberFormatter by lazy {
+        NumberFormat.getNumberInstance(Locale.getDefault()).apply {
+            isGroupingUsed = false
+        }
+    }
+    private var activeBubbleFontDialogState: ActiveBubbleFontDialogState? = null
+    private val uploadBubbleFontLauncher = registerForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        val dialogState = activeBubbleFontDialogState ?: return@registerForActivityResult
+        if (uri == null) return@registerForActivityResult
+        viewLifecycleOwner.lifecycleScope.launch {
+            val importedFileName = try {
+                withContext(Dispatchers.IO) {
+                    BubbleFontResolver.importUploadedFont(requireContext(), uri)
+                }
+            } catch (e: Exception) {
+                AppLogger.log("Settings", "Failed to import uploaded font", e)
+                Toast.makeText(
+                    requireContext(),
+                    R.string.bubble_font_upload_failed,
+                    Toast.LENGTH_SHORT
+                ).show()
+                return@launch
+            }
+            if (!dialogState.uploadedFonts.contains(importedFileName)) {
+                dialogState.uploadedFonts.add(importedFileName)
+                dialogState.uploadedFonts.sortBy { it.lowercase(Locale.getDefault()) }
+            }
+            dialogState.selectedFontFileName = importedFileName
+            renderBubbleFontDialogList(dialogState)
+            Toast.makeText(
+                requireContext(),
+                getString(R.string.bubble_font_upload_success, importedFileName),
+                Toast.LENGTH_SHORT
+            ).show()
+        }
+    }
+
+    private fun formatNumber(value: Number): String = numberFormatter.format(value)
+    private fun formatNumberOrEmpty(value: Number?): String = value?.let(::formatNumber).orEmpty()
+    private fun parseIntInput(text: String?): Int? = runCatching {
+        numberFormatter.parse(text?.trim().orEmpty())?.toInt()
+    }.getOrNull()
+
+    private fun parseDoubleInput(text: String?): Double? = runCatching {
+        numberFormatter.parse(text?.trim().orEmpty())?.toDouble()
+    }.getOrNull()
+
+    private data class RequestParamProviderOption(
+        val providerId: String,
+        val label: String
+    )
+
+    private fun buildCustomRequestParamProviderOptions(): List<RequestParamProviderOption> {
+        val options = mutableListOf(
+            RequestParamProviderOption(
+                providerId = PRIMARY_PROVIDER_ID,
+                label = getString(R.string.custom_request_params_provider_primary)
+            ),
+            RequestParamProviderOption(
+                providerId = OCR_PROVIDER_ID,
+                label = getString(R.string.custom_request_params_provider_ocr)
+            )
+        )
+        settingsStore.loadAdditionalTranslationProviders().forEachIndexed { index, _ ->
+            options += RequestParamProviderOption(
+                providerId = "additional_${index + 1}",
+                label = settingsStore.defaultAdditionalProviderName(index)
+            )
+        }
+        return options
+    }
+
+    private fun setupCustomRequestParamProviderDropdown(
+        inputView: MaterialAutoCompleteTextView,
+        options: List<RequestParamProviderOption>,
+        selectedProviderId: String
+    ) {
+        val labels = options.map { it.label }
+        val textColor = resolveColorAttr(R.attr.dialogTextColor)
+        inputView.setAdapter(
+            object : ArrayAdapter<String>(
+                requireContext(),
+                android.R.layout.simple_list_item_1,
+                labels
+            ) {
+                private fun applyThemeTextColor(view: View): View {
+                    (view as? TextView)?.setTextColor(textColor)
+                    return view
+                }
+
+                override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
+                    return applyThemeTextColor(super.getView(position, convertView, parent))
+                }
+
+                override fun getDropDownView(
+                    position: Int,
+                    convertView: View?,
+                    parent: ViewGroup
+                ): View {
+                    return applyThemeTextColor(super.getDropDownView(position, convertView, parent))
+                }
+            }
+        )
+        val selectedLabel = options.firstOrNull { it.providerId == selectedProviderId }?.label
+            ?: options.first().label
+        inputView.setText(selectedLabel, false)
+    }
+
+    private fun parseCustomRequestParamProviderId(
+        inputView: MaterialAutoCompleteTextView,
+        options: List<RequestParamProviderOption>
+    ): String {
+        val selectedLabel = inputView.text?.toString()?.trim().orEmpty()
+        return options.firstOrNull { it.label == selectedLabel }?.providerId
+            ?: PRIMARY_PROVIDER_ID
+    }
+
+    private fun resolveCustomRequestParamProviderLabel(providerId: String): String {
+        return buildCustomRequestParamProviderOptions()
+            .firstOrNull { it.providerId == providerId }
+            ?.label
+            ?: getString(R.string.custom_request_params_provider_primary)
+    }
+
+    private fun setupFloatingGestureActionDropdown(
+        inputView: MaterialAutoCompleteTextView,
+        currentAction: FloatingBallGestureAction
+    ) {
+        val actions = FloatingBallGestureAction.entries
+        val labels = actions.map { getString(it.labelRes) }
+        val textColor = resolveColorAttr(R.attr.dialogTextColor)
+        inputView.setAdapter(
+            object : ArrayAdapter<String>(
+                requireContext(),
+                android.R.layout.simple_list_item_1,
+                labels
+            ) {
+                private fun applyThemeTextColor(view: View): View {
+                    (view as? TextView)?.setTextColor(textColor)
+                    return view
+                }
+
+                override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
+                    return applyThemeTextColor(super.getView(position, convertView, parent))
+                }
+
+                override fun getDropDownView(
+                    position: Int,
+                    convertView: View?,
+                    parent: ViewGroup
+                ): View {
+                    return applyThemeTextColor(super.getDropDownView(position, convertView, parent))
+                }
+            }
+        )
+        inputView.setText(getString(currentAction.labelRes), false)
+    }
+
+    private fun setupTranslationLanguageDropdown(
+        inputView: MaterialAutoCompleteTextView,
+        currentLanguage: TranslationLanguage,
+        languages: List<TranslationLanguage> = TranslationLanguage.entries
+    ) {
+        val labels = languages.map { it.displayName(requireContext()) }
+        val textColor = resolveColorAttr(R.attr.dialogTextColor)
+        inputView.setAdapter(
+            object : ArrayAdapter<String>(
+                requireContext(),
+                android.R.layout.simple_list_item_1,
+                labels
+            ) {
+                private fun applyThemeTextColor(view: View): View {
+                    (view as? TextView)?.setTextColor(textColor)
+                    return view
+                }
+
+                override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
+                    return applyThemeTextColor(super.getView(position, convertView, parent))
+                }
+
+                override fun getDropDownView(
+                    position: Int,
+                    convertView: View?,
+                    parent: ViewGroup
+                ): View {
+                    return applyThemeTextColor(super.getDropDownView(position, convertView, parent))
+                }
+            }
+        )
+        inputView.setText(currentLanguage.displayName(requireContext()), false)
+    }
+
+    private fun parseTranslationLanguage(
+        inputView: MaterialAutoCompleteTextView,
+        defaultLanguage: TranslationLanguage,
+        languages: List<TranslationLanguage> = TranslationLanguage.entries
+    ): TranslationLanguage {
+        val selectedLabel = inputView.text?.toString()?.trim().orEmpty()
+        if (selectedLabel.isBlank()) return defaultLanguage
+        return languages.firstOrNull {
+            it.displayName(requireContext()) == selectedLabel
+        } ?: defaultLanguage
+    }
+
+    private fun parseFloatingGestureAction(
+        inputView: MaterialAutoCompleteTextView,
+        defaultAction: FloatingBallGestureAction
+    ): FloatingBallGestureAction {
+        val selectedLabel = inputView.text?.toString()?.trim().orEmpty()
+        if (selectedLabel.isBlank()) return defaultAction
+        return FloatingBallGestureAction.entries.firstOrNull {
+            getString(it.labelRes) == selectedLabel
+        } ?: defaultAction
+    }
+
+    private fun setupFloatingBubbleShapeDropdown(
+        inputView: MaterialAutoCompleteTextView,
+        currentShape: FloatingBubbleShape
+    ) {
+        val shapes = FloatingBubbleShape.entries
+        val labels = shapes.map { getString(it.labelRes) }
+        val textColor = resolveColorAttr(R.attr.dialogTextColor)
+        inputView.setAdapter(
+            object : ArrayAdapter<String>(
+                requireContext(),
+                android.R.layout.simple_list_item_1,
+                labels
+            ) {
+                private fun applyThemeTextColor(view: View): View {
+                    (view as? TextView)?.setTextColor(textColor)
+                    return view
+                }
+
+                override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
+                    return applyThemeTextColor(super.getView(position, convertView, parent))
+                }
+
+                override fun getDropDownView(
+                    position: Int,
+                    convertView: View?,
+                    parent: ViewGroup
+                ): View {
+                    return applyThemeTextColor(super.getDropDownView(position, convertView, parent))
+                }
+            }
+        )
+        inputView.threshold = 0
+        inputView.setOnClickListener { inputView.showDropDown() }
+        inputView.setText(getString(currentShape.labelRes), false)
+    }
+
+    private fun parseFloatingBubbleShape(
+        inputView: MaterialAutoCompleteTextView,
+        defaultShape: FloatingBubbleShape
+    ): FloatingBubbleShape {
+        val selectedLabel = inputView.text?.toString()?.trim().orEmpty()
+        if (selectedLabel.isBlank()) return defaultShape
+        return FloatingBubbleShape.entries.firstOrNull {
+            getString(it.labelRes) == selectedLabel
+        } ?: defaultShape
+    }
+
+    private fun renderBubbleFontDialogList(dialogState: ActiveBubbleFontDialogState) {
+        val dialogBinding = dialogState.binding
+        val selectedFileName = dialogState.selectedFontFileName
+        dialogBinding.bubbleFontSystemDefaultRadio.isChecked = selectedFileName == null
+        dialogBinding.bubbleFontSystemDefaultRadio.setOnClickListener {
+            if (dialogState.selectedFontFileName != null) {
+                dialogState.selectedFontFileName = null
+                renderBubbleFontDialogList(dialogState)
+            } else {
+                dialogBinding.bubbleFontSystemDefaultRadio.isChecked = true
+            }
+        }
+
+        dialogBinding.bubbleFontUploadedList.removeAllViews()
+        val hasUploadedFonts = dialogState.uploadedFonts.isNotEmpty()
+        dialogBinding.bubbleFontUploadedEmpty.visibility =
+            if (hasUploadedFonts) View.GONE else View.VISIBLE
+
+        dialogState.uploadedFonts.forEach { fileName ->
+            val itemBinding = ItemUploadedFontBinding.inflate(
+                layoutInflater,
+                dialogBinding.bubbleFontUploadedList,
+                false
+            )
+            itemBinding.uploadedFontRadio.text = fileName
+            itemBinding.uploadedFontRadio.isChecked = fileName == selectedFileName
+            itemBinding.root.setOnClickListener {
+                if (dialogState.selectedFontFileName != fileName) {
+                    dialogState.selectedFontFileName = fileName
+                    renderBubbleFontDialogList(dialogState)
+                }
+            }
+            itemBinding.uploadedFontDeleteButton.setOnClickListener {
+                confirmDeleteUploadedFont(dialogState, fileName)
+            }
+            dialogBinding.bubbleFontUploadedList.addView(itemBinding.root)
+        }
+    }
+
+    private fun confirmDeleteUploadedFont(
+        dialogState: ActiveBubbleFontDialogState,
+        fileName: String
+    ) {
+        AlertDialog.Builder(requireContext())
+            .setTitle(R.string.bubble_font_delete_confirm_title)
+            .setMessage(getString(R.string.bubble_font_delete_confirm_message, fileName))
+            .setPositiveButton(android.R.string.ok) { _, _ ->
+                deleteUploadedFont(dialogState, fileName)
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    private fun deleteUploadedFont(
+        dialogState: ActiveBubbleFontDialogState,
+        fileName: String
+    ) {
+        viewLifecycleOwner.lifecycleScope.launch {
+            val deleted = withContext(Dispatchers.IO) {
+                BubbleFontResolver.deleteUploadedFont(requireContext(), fileName)
+            }
+            if (!deleted) {
+                Toast.makeText(
+                    requireContext(),
+                    R.string.bubble_font_delete_failed,
+                    Toast.LENGTH_SHORT
+                ).show()
+                return@launch
+            }
+            dialogState.uploadedFonts.remove(fileName)
+            if (dialogState.selectedFontFileName == fileName) {
+                dialogState.selectedFontFileName = null
+            }
+            val savedSettings = settingsStore.loadBubbleFontSettings()
+            if (
+                savedSettings.font == BubbleFont.CUSTOM_FILE &&
+                savedSettings.customFontFileName == fileName
+            ) {
+                settingsStore.saveBubbleFontSettings(
+                    savedSettings.copy(
+                        font = BubbleFont.SYSTEM_DEFAULT,
+                        customFontFileName = ""
+                    )
+                )
+                updateBubbleFontSettingsButton()
+            }
+            renderBubbleFontDialogList(dialogState)
+            Toast.makeText(
+                requireContext(),
+                getString(R.string.bubble_font_delete_success, fileName),
+                Toast.LENGTH_SHORT
+            ).show()
+        }
+    }
+
+    private fun resolveColorAttr(attrRes: Int): Int {
+        val typedValue = android.util.TypedValue()
+        requireContext().theme.resolveAttribute(attrRes, typedValue, true)
+        return if (typedValue.resourceId != 0) {
+            ContextCompat.getColor(requireContext(), typedValue.resourceId)
+        } else {
+            typedValue.data
+        }
+    }
+
+    override fun onCreateView(
+        inflater: LayoutInflater,
+        container: ViewGroup?,
+        savedInstanceState: Bundle?
+    ): View {
+        _binding = FragmentSettingsBinding.inflate(inflater, container, false)
+        return binding.root
+    }
+
+    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+        super.onViewCreated(view, savedInstanceState)
+        reloadSettingsUiFromStore()
+        binding.modelIoLoggingSwitch.setOnCheckedChangeListener { _, isChecked ->
+            settingsStore.saveModelIoLogging(isChecked)
+            AppLogger.log(
+                "Settings",
+                "Model I/O logging ${if (isChecked) "enabled" else "disabled"}"
+            )
+        }
+        binding.enableThinkingSwitch.setOnCheckedChangeListener { _, isChecked ->
+            val current = settingsStore.loadLlmParameters()
+            if (current.enableThinking == isChecked) return@setOnCheckedChangeListener
+            settingsStore.saveLlmParameters(current.copy(enableThinking = isChecked))
+            updateThinkingLengthButton()
+            AppLogger.log(
+                "Settings",
+                "enable_thinking ${if (isChecked) "enabled" else "disabled"}"
+            )
+        }
+        binding.thinkingLengthButton.setOnClickListener {
+            showThinkingLengthDialog()
+        }
+        binding.themeButton.setOnClickListener {
+            showThemeDialog()
+        }
+        binding.languageButton.setOnClickListener {
+            showLanguageDialog()
+        }
+        binding.readingDisplayButton.setOnClickListener {
+            showReadingDisplayDialog()
+        }
+        binding.readingPageAnimationButton.setOnClickListener {
+            showReadingPageAnimationDialog()
+        }
+        binding.linkSourceButton.setOnClickListener {
+            showLinkSourceDialog()
+        }
+        binding.apiFormatButton.setOnClickListener {
+            showApiFormatDialog()
+        }
+
+        binding.fetchModelsButton.setOnClickListener {
+            fetchModelList()
+        }
+
+        binding.aiProviderProfilesButton.setOnClickListener {
+            persistSettings()
+            showAiProviderProfilesDialog()
+        }
+
+        binding.llmParamsButton.setOnClickListener {
+            showLlmParamsDialog()
+        }
+
+        binding.multiProviderSchedulingButton.setOnClickListener {
+            showMultiProviderSchedulingDialog()
+        }
+
+        binding.customRequestParamsButton.setOnClickListener {
+            showCustomRequestParamsDialog()
+        }
+
+        binding.ocrSettingsButton.setOnClickListener {
+            showOcrSettingsDialog()
+        }
+
+        binding.translationStyleButton.setOnClickListener {
+            showTranslationStyleDialog()
+        }
+
+        binding.floatingTranslateSettingsButton.setOnClickListener {
+            showFloatingTranslateSettingsDialog()
+        }
+
+        binding.bubbleFontSettingsButton.setOnClickListener {
+            showBubbleFontSettingsDialog()
+        }
+
+        binding.normalBubbleRenderSettingsButton.setOnClickListener {
+            showNormalBubbleRenderSettingsDialog()
+        }
+
+        binding.floatingBubbleRenderSettingsButton.setOnClickListener {
+            showFloatingBubbleRenderSettingsDialog()
+        }
+
+        binding.viewLogsButton.setOnClickListener {
+            AppLogger.log("Settings", "View current log")
+            showLogsDialog()
+        }
+
+        binding.openLogsFolderButton.setOnClickListener {
+            AppLogger.log("Settings", "Share log file")
+            showLogFilesDialog()
+        }
+
+        binding.aboutButton.setOnClickListener {
+            showAboutDialog()
+        }
+    }
+
+    override fun onDestroyView() {
+        super.onDestroyView()
+        activeBubbleFontDialogState = null
+        _binding = null
+    }
+
+    override fun onPause() {
+        super.onPause()
+        if (_binding != null) {
+            persistSettings()
+        }
+    }
+
+    private fun persistSettings() {
+        val url = binding.apiUrlInput.text?.toString()?.trim().orEmpty()
+        val key = binding.apiKeyInput.text?.toString()?.trim().orEmpty()
+        val model = binding.modelNameInput.text?.toString()?.trim().orEmpty()
+        val timeoutInput = binding.apiTimeoutInput.text?.toString()?.trim()
+        val timeoutSeconds = parseIntInput(timeoutInput) ?: settingsStore.loadApiTimeoutSeconds()
+        val retryCountInput = binding.apiRetryCountInput.text?.toString()?.trim()
+        val apiRetryCount = parseIntInput(retryCountInput) ?: settingsStore.loadApiRetryCount()
+        val concurrencyInput = binding.maxConcurrencyInput.text?.toString()?.trim()
+        val maxConcurrency = parseIntInput(concurrencyInput) ?: settingsStore.loadMaxConcurrency()
+        val persisted = settingsStore.persistMainSettings(
+            SettingsMainForm(
+                apiUrl = url,
+                apiKey = key,
+                modelName = model,
+                apiFormat = currentApiFormat(),
+                apiTimeoutSeconds = timeoutSeconds,
+                apiRetryCount = apiRetryCount,
+                maxConcurrency = maxConcurrency
+            )
+        )
+        val normalizedTimeoutText = formatNumber(persisted.apiTimeoutSeconds)
+        if (normalizedTimeoutText != timeoutInput) {
+            binding.apiTimeoutInput.setText(normalizedTimeoutText)
+        }
+        val normalizedRetryCountText = formatNumber(persisted.apiRetryCount)
+        if (normalizedRetryCountText != retryCountInput) {
+            binding.apiRetryCountInput.setText(normalizedRetryCountText)
+        }
+        val normalizedConcurrencyText = formatNumber(persisted.maxConcurrency)
+        if (normalizedConcurrencyText != concurrencyInput) {
+            binding.maxConcurrencyInput.setText(normalizedConcurrencyText)
+        }
+        if (!persisted.concurrencySaved) {
+            val minimumConcurrency = requiredMainTranslationProviderConcurrency()
+            Toast.makeText(
+                requireContext(),
+                getString(R.string.max_concurrency_provider_count_error, minimumConcurrency),
+                Toast.LENGTH_SHORT
+            ).show()
+        }
+        AppLogger.log("Settings", "API settings saved")
+    }
+
+    private fun showLogsDialog() {
+        val logs = AppLogger.readLogs().ifBlank { getString(R.string.logs_empty) }
+        showLogTextDialog(getString(R.string.logs_title), logs)
+    }
+
+    private fun showLogFilesDialog() {
+        val files = AppLogger.listLogFiles()
+        if (files.isEmpty()) {
+            Toast.makeText(requireContext(), R.string.logs_folder_empty, Toast.LENGTH_SHORT).show()
+            return
+        }
+        val names = files.map { it.name }.toTypedArray()
+        AlertDialog.Builder(requireContext())
+            .setTitle(R.string.logs_folder_title)
+            .setItems(names) { _, which ->
+                shareLogFile(files[which])
+            }
+            .setNeutralButton(R.string.share_error_logs) { _, _ ->
+                shareErrorLogsArchive()
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    private fun shareErrorLogsArchive() {
+        val archive = AppLogger.createErrorLogsArchive(requireContext())
+        if (archive == null || !archive.exists()) {
+            Toast.makeText(requireContext(), R.string.error_logs_empty, Toast.LENGTH_SHORT).show()
+            return
+        }
+        shareLogFile(archive, getString(R.string.share_error_logs))
+    }
+
+    private fun shareLogFile(file: File, chooserTitle: String = getString(R.string.share_logs)) {
+        if (!file.exists()) {
+            Toast.makeText(requireContext(), R.string.logs_empty, Toast.LENGTH_SHORT).show()
+            return
+        }
+        val uri = FileProvider.getUriForFile(
+            requireContext(),
+            "${requireContext().packageName}.fileprovider",
+            file
+        )
+        val mimeType = if (file.extension.lowercase(Locale.US) == "zip") {
+            "application/zip"
+        } else {
+            "text/plain"
+        }
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = mimeType
+            putExtra(Intent.EXTRA_STREAM, uri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        val chooser = Intent.createChooser(intent, chooserTitle)
+        val manager = requireContext().packageManager
+        if (chooser.resolveActivity(manager) != null) {
+            AppLogger.log("Settings", "Share log file ${file.name}")
+            startActivity(chooser)
+        } else {
+            Toast.makeText(requireContext(), R.string.share_logs_failed, Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun showLogTextDialog(title: String, logs: String) {
+        val padding = (resources.displayMetrics.density * 16).toInt()
+        val textView = TextView(requireContext()).apply {
+            text = logs
+            setPadding(padding, padding, padding, padding)
+            setTextIsSelectable(true)
+            setTextColor(resolveColorAttr(R.attr.dialogTextColor))
+        }
+        val scrollView = ScrollView(requireContext()).apply {
+            addView(textView)
+        }
+        AlertDialog.Builder(requireContext())
+            .setTitle(title)
+            .setView(scrollView)
+            .setNegativeButton(android.R.string.cancel, null)
+            .setPositiveButton(R.string.copy_logs) { _, _ ->
+                val clipboard = requireContext()
+                    .getSystemService(ClipboardManager::class.java)
+                clipboard.setPrimaryClip(ClipData.newPlainText("logs", logs))
+                Toast.makeText(requireContext(), R.string.copy_logs, Toast.LENGTH_SHORT).show()
+            }
+            .show()
+    }
+
+    private fun showThemeDialog() {
+        showSingleChoiceSettingDialog(
+            titleRes = R.string.theme_setting_title,
+            options = ThemeMode.entries,
+            current = settingsStore.loadThemeMode(),
+            labelRes = { it.labelRes }
+        ) { dialog, selected ->
+            settingsStore.saveThemeMode(selected)
+            updateThemeButton(selected)
+            applyThemeSelection(selected)
+            AppLogger.log("Settings", "Theme set to ${selected.prefValue}")
+            dialog.dismiss()
+        }
+    }
+
+    private fun showLanguageDialog() {
+        showSingleChoiceSettingDialog(
+            titleRes = R.string.language_setting_title,
+            options = AppLanguage.entries,
+            current = settingsStore.loadAppLanguage(),
+            labelRes = { it.labelRes }
+        ) { dialog, selected ->
+            settingsStore.saveAppLanguage(selected)
+            updateLanguageButton(selected)
+            AppCompatDelegate.setApplicationLocales(selected.resolveApplicationLocales())
+            AppLogger.log("Settings", "App language set to ${selected.prefValue}")
+            dialog.dismiss()
+        }
+    }
+
+    private fun applyThemeSelection(mode: ThemeMode) {
+        AppCompatDelegate.setDefaultNightMode(mode.nightMode)
+        activity?.recreate()
+    }
+
+    private fun showApiFormatDialog() {
+        showSingleChoiceSettingDialog(
+            titleRes = R.string.api_format_title,
+            options = ApiFormat.entries,
+            current = currentApiFormat(),
+            labelRes = { it.labelRes }
+        ) { dialog, selected ->
+            updateApiFormatButton(selected)
+            updateApiSettingsNote(selected)
+            ensureThinkingLengthCompatible(selected)
+            updateThinkingLengthButton()
+            AppLogger.log("Settings", "API format set to ${selected.prefValue}")
+            dialog.dismiss()
+        }
+    }
+
+    private fun currentApiFormat(): ApiFormat {
+        return binding.apiFormatButton.getTag(R.id.api_format_button) as? ApiFormat
+            ?: settingsStore.load().apiFormat
+    }
+
+    private fun updateApiFormatButton(format: ApiFormat) {
+        binding.apiFormatButton.setTag(R.id.api_format_button, format)
+        updateLabeledButton(binding.apiFormatButton, R.string.api_format_format, format.labelRes)
+    }
+
+    private fun updateApiSettingsNote(format: ApiFormat) {
+        binding.apiUrlHintText.setText(
+            when (format) {
+                ApiFormat.OPENAI_COMPATIBLE -> R.string.api_settings_note_openai
+                ApiFormat.OPENAI_RESPONSES -> R.string.api_settings_note_openai_responses
+                ApiFormat.GEMINI -> R.string.api_settings_note_gemini
+            }
+        )
+    }
+
+    private fun updateThemeButton(mode: ThemeMode) {
+        updateLabeledButton(binding.themeButton, R.string.theme_setting_format, mode.labelRes)
+    }
+
+    private fun updateLanguageButton(language: AppLanguage) {
+        updateLabeledButton(binding.languageButton, R.string.language_setting_format, language.labelRes)
+    }
+
+    private fun showReadingDisplayDialog() {
+        showSingleChoiceSettingDialog(
+            titleRes = R.string.reading_display_title,
+            options = ReadingDisplayMode.entries,
+            current = settingsStore.loadReadingDisplayMode(),
+            labelRes = { it.labelRes }
+        ) { dialog, selected ->
+            settingsStore.saveReadingDisplayMode(selected)
+            updateReadingDisplayButton(selected)
+            AppLogger.log("Settings", "Reading display mode set to ${selected.prefValue}")
+            dialog.dismiss()
+        }
+    }
+
+    private fun updateReadingDisplayButton(mode: ReadingDisplayMode) {
+        updateLabeledButton(binding.readingDisplayButton, R.string.reading_display_format, mode.labelRes)
+    }
+
+    private fun showReadingPageAnimationDialog() {
+        showSingleChoiceSettingDialog(
+            titleRes = R.string.reading_page_animation_title,
+            options = ReadingPageAnimationMode.entries,
+            current = settingsStore.loadReadingPageAnimationMode(),
+            labelRes = { it.labelRes }
+        ) { dialog, selected ->
+            settingsStore.saveReadingPageAnimationMode(selected)
+            updateReadingPageAnimationButton(selected)
+            AppLogger.log("Settings", "Reading page animation mode set to ${selected.prefValue}")
+            dialog.dismiss()
+        }
+    }
+
+    private fun updateReadingPageAnimationButton(mode: ReadingPageAnimationMode) {
+        updateLabeledButton(
+            binding.readingPageAnimationButton,
+            R.string.reading_page_animation_format,
+            mode.labelRes
+        )
+    }
+
+    private fun showLinkSourceDialog() {
+        showSingleChoiceSettingDialog(
+            titleRes = R.string.link_source_title,
+            options = LinkSource.entries,
+            current = settingsStore.loadLinkSource(),
+            labelRes = { it.labelRes }
+        ) { dialog, selected ->
+            settingsStore.saveLinkSource(selected)
+            updateLinkSourceButton(selected)
+            AppLogger.log("Settings", "Link source set to ${selected.prefValue}")
+            dialog.dismiss()
+        }
+    }
+
+    private fun updateLinkSourceButton(source: LinkSource) {
+        updateLabeledButton(binding.linkSourceButton, R.string.link_source_format, source.labelRes)
+    }
+
+    private fun updateCustomRequestParamsButton(parameters: List<CustomRequestParameter>) {
+        binding.customRequestParamsButton.text = getString(
+            R.string.custom_request_params_button_format,
+            parameters.count { it.key.isNotBlank() }
+        )
+    }
+
+    private fun updateMultiProviderSchedulingButton(
+        providers: List<AdditionalTranslationProvider>
+    ) {
+        binding.multiProviderSchedulingButton.text = getString(
+            R.string.multi_provider_scheduling_button_format,
+            providers.size
+        )
+    }
+
+    private fun requiredMainTranslationProviderConcurrency(): Int {
+        val mainSettings = ApiSettings(
+            apiUrl = binding.apiUrlInput.text?.toString()?.trim().orEmpty(),
+            apiKey = binding.apiKeyInput.text?.toString()?.trim().orEmpty(),
+            modelName = binding.modelNameInput.text?.toString()?.trim().orEmpty(),
+            apiFormat = currentApiFormat(),
+            providerId = PRIMARY_PROVIDER_ID
+        )
+        var count = if (mainSettings.isValid()) 1 else 0
+        count += settingsStore.loadAdditionalTranslationProviders().count { it.enabled && it.isConfigured() }
+        return count.coerceAtLeast(1)
+    }
+
+    private fun updateAiProviderProfilesButton() {
+        val state = settingsStore.loadAiProviderProfilesState()
+        binding.aiProviderProfilesButton.text = getString(
+            R.string.ai_provider_profiles_button_format,
+            state.activeProfileName ?: getString(R.string.ai_provider_profiles_none),
+            state.profiles.size
+        )
+    }
+
+    private fun reloadSettingsUiFromStore() {
+        val settings = settingsStore.load()
+        binding.apiUrlInput.setText(settings.apiUrl)
+        binding.apiKeyInput.setText(settings.apiKey)
+        binding.modelNameInput.setText(settings.modelName)
+        updateApiFormatButton(settings.apiFormat)
+        updateApiSettingsNote(settings.apiFormat)
+        binding.apiTimeoutInput.setText(formatNumber(settingsStore.loadApiTimeoutSeconds()))
+        binding.apiRetryCountInput.setText(formatNumber(settingsStore.loadApiRetryCount()))
+        binding.maxConcurrencyInput.setText(formatNumber(settingsStore.loadMaxConcurrency()))
+        binding.modelIoLoggingSwitch.isChecked = settingsStore.loadModelIoLogging()
+        binding.enableThinkingSwitch.isChecked = settingsStore.loadLlmParameters().enableThinking
+        updateThinkingLengthButton()
+        updateLanguageButton(settingsStore.loadAppLanguage())
+        updateThemeButton(settingsStore.loadThemeMode())
+        updateReadingDisplayButton(settingsStore.loadReadingDisplayMode())
+        updateReadingPageAnimationButton(settingsStore.loadReadingPageAnimationMode())
+        updateLinkSourceButton(settingsStore.loadLinkSource())
+        updateMultiProviderSchedulingButton(settingsStore.loadAdditionalTranslationProviders())
+        updateCustomRequestParamsButton(settingsStore.loadCustomRequestParameters())
+        updateAiProviderProfilesButton()
+        updateBubbleFontSettingsButton()
+        updateNormalBubbleRenderSettingsButton()
+        updateFloatingBubbleRenderSettingsButton()
+    }
+
+    private fun updateNormalBubbleRenderSettingsButton() {
+        binding.normalBubbleRenderSettingsButton.setText(
+            R.string.normal_bubble_render_settings_button
+        )
+    }
+
+    private fun updateBubbleFontSettingsButton() {
+        val fontSettings = settingsStore.loadBubbleFontSettings()
+        val labelRes = if (
+            fontSettings.font == BubbleFont.CUSTOM_FILE &&
+            fontSettings.customFontFileName.isNotBlank()
+        ) {
+            R.string.bubble_font_settings_button_uploaded
+        } else {
+            R.string.bubble_font_settings_button
+        }
+        binding.bubbleFontSettingsButton.setText(labelRes)
+    }
+
+    private fun updateFloatingBubbleRenderSettingsButton() {
+        binding.floatingBubbleRenderSettingsButton.setText(
+            R.string.floating_bubble_render_settings_button
+        )
+    }
+
+    private fun showBubbleFontSettingsDialog() {
+        val currentSettings = settingsStore.loadBubbleFontSettings()
+        val dialogBinding = DialogBubbleFontSettingsBinding.inflate(layoutInflater)
+        dialogBinding.bubbleFontBoldSwitch.isChecked = currentSettings.isBold
+        dialogBinding.bubbleFontUploadButton.setOnClickListener {
+            uploadBubbleFontLauncher.launch(
+                arrayOf(
+                    "font/*",
+                    "application/x-font-ttf",
+                    "application/x-font-otf",
+                    "application/font-sfnt",
+                    "application/octet-stream",
+                    "*/*"
+                )
+            )
+        }
+        val uploadedFonts = BubbleFontResolver.listUploadedFonts(requireContext()).toMutableList()
+        val selectedFontFileName = when {
+            currentSettings.font != BubbleFont.CUSTOM_FILE -> null
+            currentSettings.customFontFileName.isBlank() -> null
+            else -> {
+                val selected = currentSettings.customFontFileName
+                if (!uploadedFonts.contains(selected)) {
+                    uploadedFonts.add(selected)
+                    uploadedFonts.sortBy { it.lowercase(Locale.getDefault()) }
+                }
+                selected
+            }
+        }
+        val dialogState = ActiveBubbleFontDialogState(
+            binding = dialogBinding,
+            selectedFontFileName = selectedFontFileName,
+            uploadedFonts = uploadedFonts
+        )
+        activeBubbleFontDialogState = dialogState
+        renderBubbleFontDialogList(dialogState)
+        val dialog = AlertDialog.Builder(requireContext())
+            .setTitle(R.string.bubble_font_settings_title)
+            .setView(dialogBinding.root)
+            .setPositiveButton(android.R.string.ok, null)
+            .setNegativeButton(android.R.string.cancel, null)
+            .create()
+        dialog.setOnDismissListener {
+            activeBubbleFontDialogState = null
+        }
+        dialog.show()
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+            val state = activeBubbleFontDialogState ?: return@setOnClickListener
+            val selectedFile = state.selectedFontFileName?.trim().orEmpty()
+            if (state.selectedFontFileName != null && selectedFile.isBlank()) {
+                Toast.makeText(
+                    requireContext(),
+                    R.string.bubble_font_upload_missing,
+                    Toast.LENGTH_SHORT
+                ).show()
+                return@setOnClickListener
+            }
+            settingsStore.saveBubbleFontSettings(
+                BubbleFontSettings(
+                    font = if (selectedFile.isBlank()) {
+                        BubbleFont.SYSTEM_DEFAULT
+                    } else {
+                        BubbleFont.CUSTOM_FILE
+                    },
+                    customFontFileName = selectedFile,
+                    isBold = dialogBinding.bubbleFontBoldSwitch.isChecked
+                )
+            )
+            updateBubbleFontSettingsButton()
+            dialog.dismiss()
+        }
+    }
+
+    private fun showNormalBubbleRenderSettingsDialog() {
+        val currentSettings = settingsStore.loadNormalBubbleRenderSettings()
+        val dialogBinding = DialogNormalBubbleRenderSettingsBinding.inflate(layoutInflater)
+        dialogBinding.normalBubbleShrinkPercentInput.setText(
+            formatNumber(currentSettings.shrinkPercent)
+        )
+        dialogBinding.normalBubbleOpacityPercentInput.setText(
+            formatNumber(currentSettings.opacityPercent)
+        )
+        dialogBinding.normalBubbleFreeShrinkPercentInput.setText(
+            formatNumber(currentSettings.freeBubbleShrinkPercent)
+        )
+        dialogBinding.normalBubbleFreeOpacityPercentInput.setText(
+            formatNumber(currentSettings.freeBubbleOpacityPercent)
+        )
+        val seekBarProgress = ((currentSettings.minAreaPerCharSp - 16f) / 2.4f).roundToInt().coerceIn(0, 100)
+        dialogBinding.normalBubbleMinAreaSeekbar.progress = seekBarProgress
+        dialogBinding.normalBubbleMinAreaValueLabel.text =
+            getString(R.string.normal_bubble_min_area_value, currentSettings.minAreaPerCharSp.roundToInt())
+        dialogBinding.normalBubbleMinAreaSeekbar.setOnSeekBarChangeListener(
+            object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                    val sp2 = (16f + progress * 2.4f).roundToInt()
+                    dialogBinding.normalBubbleMinAreaValueLabel.text =
+                        getString(R.string.normal_bubble_min_area_value, sp2)
+                }
+                override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+                override fun onStopTrackingTouch(seekBar: SeekBar?) {}
+            }
+        )
+        dialogBinding.normalBubbleHorizontalTextSwitch.isChecked = currentSettings.useHorizontalText
+        dialogBinding.normalBubbleFreeAutoAdaptColorSwitch.isChecked = currentSettings.autoAdaptFreeBubbleColor
+        AlertDialog.Builder(requireContext())
+            .setTitle(R.string.normal_bubble_render_settings_title)
+            .setView(dialogBinding.root)
+            .setPositiveButton(android.R.string.ok) { _, _ ->
+                val updated = NormalBubbleRenderSettings(
+                    shrinkPercent = parseIntInput(
+                        dialogBinding.normalBubbleShrinkPercentInput.text?.toString()
+                    ) ?: currentSettings.shrinkPercent,
+                    opacityPercent = parseIntInput(
+                        dialogBinding.normalBubbleOpacityPercentInput.text?.toString()
+                    ) ?: currentSettings.opacityPercent,
+                    freeBubbleShrinkPercent = parseIntInput(
+                        dialogBinding.normalBubbleFreeShrinkPercentInput.text?.toString()
+                    ) ?: currentSettings.freeBubbleShrinkPercent,
+                    freeBubbleOpacityPercent = parseIntInput(
+                        dialogBinding.normalBubbleFreeOpacityPercentInput.text?.toString()
+                    ) ?: currentSettings.freeBubbleOpacityPercent,
+                    minAreaPerCharSp = 16f + dialogBinding.normalBubbleMinAreaSeekbar.progress * 2.4f,
+                    useHorizontalText = dialogBinding.normalBubbleHorizontalTextSwitch.isChecked,
+                    autoAdaptFreeBubbleColor = dialogBinding.normalBubbleFreeAutoAdaptColorSwitch.isChecked
+                )
+                settingsStore.saveNormalBubbleRenderSettings(updated)
+                updateNormalBubbleRenderSettingsButton()
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    private fun showFloatingBubbleRenderSettingsDialog() {
+        val currentSettings = settingsStore.loadFloatingBubbleRenderSettings()
+        val dialogBinding = DialogFloatingBubbleRenderSettingsBinding.inflate(layoutInflater)
+        dialogBinding.floatingBubbleSizeAdjustPercentInput.setText(
+            formatNumber(currentSettings.sizeAdjustPercent)
+        )
+        dialogBinding.floatingBubbleOpacityPercentInput.setText(
+            formatNumber(currentSettings.opacityPercent)
+        )
+        setupFloatingBubbleShapeDropdown(
+            dialogBinding.floatingBubbleShapeInput,
+            currentSettings.shape
+        )
+        dialogBinding.floatingBubbleHorizontalTextSwitch.isChecked = currentSettings.useHorizontalText
+        dialogBinding.floatingBubbleAutoAdaptColorSwitch.isChecked = currentSettings.autoAdaptBubbleColor
+        val seekBarProgress = ((currentSettings.minAreaPerCharSp - 16f) / 2.4f).roundToInt().coerceIn(0, 100)
+        dialogBinding.floatingBubbleMinAreaSeekbar.progress = seekBarProgress
+        dialogBinding.floatingBubbleMinAreaValueLabel.text =
+            getString(R.string.floating_bubble_min_area_value, currentSettings.minAreaPerCharSp.roundToInt())
+        dialogBinding.floatingBubbleMinAreaSeekbar.setOnSeekBarChangeListener(
+            object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                    val sp2 = (16f + progress * 2.4f).roundToInt()
+                    dialogBinding.floatingBubbleMinAreaValueLabel.text =
+                        getString(R.string.floating_bubble_min_area_value, sp2)
+                }
+                override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+                override fun onStopTrackingTouch(seekBar: SeekBar?) {}
+            }
+        )
+        AlertDialog.Builder(requireContext())
+            .setTitle(R.string.floating_bubble_render_settings_title)
+            .setView(dialogBinding.root)
+            .setPositiveButton(android.R.string.ok) { _, _ ->
+                val updated = FloatingBubbleRenderSettings(
+                    sizeAdjustPercent = parseIntInput(
+                        dialogBinding.floatingBubbleSizeAdjustPercentInput.text?.toString()
+                    ) ?: currentSettings.sizeAdjustPercent,
+                    opacityPercent = parseIntInput(
+                        dialogBinding.floatingBubbleOpacityPercentInput.text?.toString()
+                    ) ?: currentSettings.opacityPercent,
+                    shape = parseFloatingBubbleShape(
+                        dialogBinding.floatingBubbleShapeInput,
+                        currentSettings.shape
+                    ),
+                    useHorizontalText = dialogBinding.floatingBubbleHorizontalTextSwitch.isChecked,
+                    minAreaPerCharSp = 16f + dialogBinding.floatingBubbleMinAreaSeekbar.progress * 2.4f,
+                    autoAdaptBubbleColor = dialogBinding.floatingBubbleAutoAdaptColorSwitch.isChecked
+                )
+                settingsStore.saveFloatingBubbleRenderSettings(updated)
+                updateFloatingBubbleRenderSettingsButton()
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    private fun showAiProviderProfilesDialog() {
+        val dialogBinding = DialogAiProviderProfilesBinding.inflate(layoutInflater)
+        val profileNames = ArrayList<String>()
+        var selectedName: String? = null
+        val adapter = object : BaseAdapter() {
+            override fun getCount(): Int = profileNames.size
+
+            override fun getItem(position: Int): String = profileNames[position]
+
+            override fun getItemId(position: Int): Long = position.toLong()
+
+            override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
+                val view = convertView ?: layoutInflater.inflate(
+                    R.layout.item_ai_provider_profile,
+                    parent,
+                    false
+                )
+                val name = getItem(position)
+                val nameView = view.findViewById<TextView>(R.id.ai_provider_profile_name)
+                val checkView = view.findViewById<CheckedTextView>(R.id.ai_provider_profile_check)
+                val isChecked = name == selectedName
+                nameView.text = name
+                view.isActivated = isChecked
+                checkView.isChecked = isChecked
+                return view
+            }
+        }
+        dialogBinding.aiProviderProfilesList.adapter = adapter
+
+        fun refreshProfiles(preferredSelection: String? = selectedName) {
+            val state = settingsStore.loadAiProviderProfilesState()
+            val names = state.profiles.map { it.name }
+            profileNames.clear()
+            profileNames.addAll(names)
+            adapter.notifyDataSetChanged()
+            selectedName = preferredSelection?.takeIf { it in names } ?: state.activeProfileName
+            val checkedIndex = selectedName?.let(names::indexOf) ?: -1
+            if (checkedIndex >= 0) {
+                dialogBinding.aiProviderProfilesList.setItemChecked(checkedIndex, true)
+            } else {
+                dialogBinding.aiProviderProfilesList.clearChoices()
+            }
+            adapter.notifyDataSetChanged()
+            dialogBinding.aiProviderProfilesCurrentText.text = state.activeProfileName?.let {
+                getString(R.string.ai_provider_profiles_current, it)
+            } ?: getString(R.string.ai_provider_profiles_current_none)
+            dialogBinding.aiProviderProfilesNoteText.text = if (names.isEmpty()) {
+                getString(R.string.ai_provider_profiles_empty)
+            } else {
+                getString(R.string.ai_provider_profiles_note)
+            }
+            dialogBinding.aiProviderProfilesApplyButton.isEnabled = names.isNotEmpty()
+            dialogBinding.aiProviderProfilesDeleteButton.isEnabled = selectedName != null
+            dialogBinding.aiProviderProfilesOverwriteButton.isEnabled = state.activeProfileName != null
+            updateAiProviderProfilesButton()
+        }
+
+        dialogBinding.aiProviderProfilesList.setOnItemClickListener { _, _, position, _ ->
+            selectedName = profileNames.getOrNull(position)
+            dialogBinding.aiProviderProfilesDeleteButton.isEnabled = selectedName != null
+            adapter.notifyDataSetChanged()
+        }
+        dialogBinding.aiProviderProfilesList.setOnTouchListener { view, event ->
+            when (event.actionMasked) {
+                android.view.MotionEvent.ACTION_DOWN,
+                android.view.MotionEvent.ACTION_MOVE -> {
+                    val canScroll = view.canScrollVertically(-1) || view.canScrollVertically(1)
+                    view.parent?.requestDisallowInterceptTouchEvent(canScroll)
+                }
+                android.view.MotionEvent.ACTION_UP,
+                android.view.MotionEvent.ACTION_CANCEL -> {
+                    view.parent?.requestDisallowInterceptTouchEvent(false)
+                }
+            }
+            false
+        }
+
+        val dialog = AlertDialog.Builder(requireContext())
+            .setTitle(R.string.ai_provider_profiles_title)
+            .setView(dialogBinding.root)
+            .setNegativeButton(android.R.string.cancel, null)
+            .create()
+
+        dialogBinding.aiProviderProfilesSaveNewButton.setOnClickListener {
+            showCreateAiProviderProfileDialog { profileName ->
+                persistSettings()
+                val saved = settingsStore.saveCurrentAsAiProviderProfile(profileName)
+                if (!saved) {
+                    Toast.makeText(
+                        requireContext(),
+                        R.string.ai_provider_profiles_name_duplicate,
+                        Toast.LENGTH_SHORT
+                    ).show()
+                    return@showCreateAiProviderProfileDialog
+                }
+                reloadSettingsUiFromStore()
+                refreshProfiles(profileName)
+                Toast.makeText(requireContext(), R.string.ai_provider_profiles_saved, Toast.LENGTH_SHORT).show()
+            }
+        }
+
+        dialogBinding.aiProviderProfilesOverwriteButton.setOnClickListener {
+            persistSettings()
+            if (!settingsStore.overwriteActiveAiProviderProfile()) {
+                Toast.makeText(
+                    requireContext(),
+                    R.string.ai_provider_profiles_overwrite_missing,
+                    Toast.LENGTH_SHORT
+                ).show()
+                return@setOnClickListener
+            }
+            refreshProfiles()
+            Toast.makeText(requireContext(), R.string.ai_provider_profiles_overwritten, Toast.LENGTH_SHORT).show()
+        }
+
+        dialogBinding.aiProviderProfilesApplyButton.setOnClickListener {
+            val profileName = selectedName
+            if (profileName == null) {
+                Toast.makeText(
+                    requireContext(),
+                    R.string.ai_provider_profiles_select_required,
+                    Toast.LENGTH_SHORT
+                ).show()
+                return@setOnClickListener
+            }
+            if (!settingsStore.applyAiProviderProfile(profileName)) {
+                Toast.makeText(
+                    requireContext(),
+                    R.string.ai_provider_profiles_select_required,
+                    Toast.LENGTH_SHORT
+                ).show()
+                return@setOnClickListener
+            }
+            reloadSettingsUiFromStore()
+            Toast.makeText(
+                requireContext(),
+                getString(R.string.ai_provider_profiles_applied, profileName),
+                Toast.LENGTH_SHORT
+            ).show()
+            dialog.dismiss()
+        }
+
+        dialogBinding.aiProviderProfilesDeleteButton.setOnClickListener {
+            val profileName = selectedName
+            if (profileName == null) {
+                Toast.makeText(
+                    requireContext(),
+                    R.string.ai_provider_profiles_select_required,
+                    Toast.LENGTH_SHORT
+                ).show()
+                return@setOnClickListener
+            }
+            AlertDialog.Builder(requireContext())
+                .setMessage(getString(R.string.ai_provider_profiles_delete_confirm, profileName))
+                .setPositiveButton(android.R.string.ok) { _, _ ->
+                    if (settingsStore.deleteAiProviderProfile(profileName)) {
+                        if (settingsStore.loadAiProviderProfilesState().activeProfileName == null) {
+                            selectedName = null
+                        }
+                        refreshProfiles()
+                        Toast.makeText(
+                            requireContext(),
+                            R.string.ai_provider_profiles_deleted,
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
+                }
+                .setNegativeButton(android.R.string.cancel, null)
+                .show()
+        }
+
+        refreshProfiles()
+        dialog.setOnShowListener {
+            dialogBinding.root.doOnLayout {
+                constrainAiProviderProfilesDialogList(dialog, dialogBinding)
+            }
+        }
+        dialog.show()
+    }
+
+    private fun constrainAiProviderProfilesDialogList(
+        dialog: AlertDialog,
+        dialogBinding: DialogAiProviderProfilesBinding
+    ) {
+        val window = dialog.window ?: return
+        val visibleFrame = android.graphics.Rect()
+        window.decorView.getWindowVisibleDisplayFrame(visibleFrame)
+        val availableHeight = visibleFrame.height().takeIf { it > 0 }
+            ?: resources.displayMetrics.heightPixels
+        val maxDialogHeight = (availableHeight * 0.85f).roundToInt()
+        val listView = dialogBinding.aiProviderProfilesList
+        val rootHeight = dialogBinding.root.height.takeIf { it > 0 } ?: return
+        val fixedHeight = (rootHeight - listView.height).coerceAtLeast(0)
+        val minListHeight = (160 * resources.displayMetrics.density).roundToInt()
+        val maxListHeight = (maxDialogHeight - fixedHeight).coerceAtLeast(minListHeight)
+        val preferredListHeight = (240 * resources.displayMetrics.density).roundToInt()
+        val targetListHeight = preferredListHeight.coerceAtMost(maxListHeight)
+        if (listView.layoutParams.height != targetListHeight) {
+            listView.layoutParams = listView.layoutParams.apply {
+                height = targetListHeight
+            }
+            listView.requestLayout()
+        }
+    }
+
+    private fun showCreateAiProviderProfileDialog(onConfirm: (String) -> Unit) {
+        val input = EditText(requireContext()).apply {
+            hint = getString(R.string.ai_provider_profiles_name_hint)
+            setSingleLine(true)
+        }
+        val dialog = AlertDialog.Builder(requireContext())
+            .setTitle(R.string.ai_provider_profiles_name_title)
+            .setView(input)
+            .setPositiveButton(android.R.string.ok, null)
+            .setNegativeButton(android.R.string.cancel, null)
+            .create()
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val name = input.text?.toString()?.trim().orEmpty()
+                if (name.isBlank()) {
+                    Toast.makeText(
+                        requireContext(),
+                        R.string.ai_provider_profiles_name_empty,
+                        Toast.LENGTH_SHORT
+                    ).show()
+                    return@setOnClickListener
+                }
+                onConfirm(name)
+                dialog.dismiss()
+            }
+        }
+        dialog.show()
+    }
+
+    private fun showAboutDialog() {
+        val versionName = resolveVersionName()
+        val dialogView = layoutInflater.inflate(R.layout.dialog_about, null)
+        val messageView = dialogView.findViewById<TextView>(R.id.about_dialog_message)
+        val qqGroup = MainActivity.getLatestUpdateInfo()?.qqGroup
+        messageView.text = buildAboutDialogMessage(versionName, qqGroup)
+        val dialog = AlertDialog.Builder(requireContext())
+            .setTitle(R.string.about_dialog_title)
+            .setView(dialogView)
+            .create()
+        dialogView.findViewById<View>(R.id.about_dialog_cancel).setOnClickListener {
+            dialog.dismiss()
+        }
+        dialogView.findViewById<View>(R.id.about_dialog_open_project).setOnClickListener {
+            dialog.dismiss()
+            openUrl(PROJECT_URL)
+        }
+        dialogView.findViewById<View>(R.id.about_dialog_view_updates).setOnClickListener {
+            dialog.dismiss()
+            loadAndShowUpdateDialog()
+        }
+        dialog.show()
+    }
+
+    private fun buildAboutDialogMessage(versionName: String, qqGroup: String?): String {
+        return if (qqGroup.isNullOrBlank()) {
+            getString(R.string.about_dialog_message, versionName)
+        } else {
+            getString(R.string.about_dialog_message_with_group, versionName, qqGroup)
+        }
+    }
+
+    private fun loadAndShowUpdateDialog() {
+        val hostActivity = activity as? MainActivity ?: return
+        val loadingDialog = AlertDialog.Builder(requireContext())
+            .setView(ProgressBar(requireContext()))
+            .create()
+        loadingDialog.setCanceledOnTouchOutside(false)
+        var loadJob: Job? = null
+        loadingDialog.setOnCancelListener {
+            loadJob?.cancel()
+        }
+        loadingDialog.show()
+        loadJob = lifecycleScope.launch {
+            try {
+                val updateInfo = UpdateChecker.fetchUpdateInfo(
+                    timeoutMs = 30_000,
+                    includePreview = true,
+                    languageKey = UpdateChecker.resolveChangelogLanguageKey(requireContext())
+                )
+                if (!isAdded) return@launch
+                if (updateInfo == null) {
+                    Toast.makeText(
+                        requireContext(),
+                        R.string.update_dialog_load_failed,
+                        Toast.LENGTH_SHORT
+                    ).show()
+                    return@launch
+                }
+                if (hostActivity.isFinishing || hostActivity.isDestroyed) return@launch
+                val title = if (hostActivity.isRemoteNewer(updateInfo)) {
+                    null
+                } else {
+                    getString(R.string.update_dialog_no_update_title)
+                }
+                hostActivity.showUpdateDialog(
+                    updateInfo,
+                    showIgnoreButton = false,
+                    titleOverride = title
+                )
+            } catch (_: CancellationException) {
+                AppLogger.log("Settings", "Update dialog loading cancelled by user")
+            } finally {
+                if (loadingDialog.isShowing) {
+                    loadingDialog.dismiss()
+                }
+            }
+        }
+    }
+
+    private fun showThinkingLengthDialog() {
+        val current = settingsStore.loadLlmParameters()
+        if (!current.enableThinking) {
+            Toast.makeText(
+                requireContext(),
+                R.string.thinking_length_requires_enable,
+                Toast.LENGTH_SHORT
+            ).show()
+            return
+        }
+        val options = ThinkingLength.optionsFor(currentApiFormat())
+        val selected = options.find { it == current.thinkingLength } ?: options.first()
+        showSingleChoiceSettingDialog(
+            titleRes = R.string.thinking_length_title,
+            options = options,
+            current = selected,
+            labelRes = { it.labelRes }
+        ) { dialog, length ->
+            val latest = settingsStore.loadLlmParameters()
+            settingsStore.saveLlmParameters(latest.copy(thinkingLength = length))
+            updateThinkingLengthButton()
+            AppLogger.log("Settings", "thinking_length set to ${length.prefValue}")
+            dialog.dismiss()
+        }
+    }
+
+    private fun updateThinkingLengthButton() {
+        val params = settingsStore.loadLlmParameters()
+        val enabled = params.enableThinking
+        binding.thinkingLengthButton.isEnabled = enabled
+        binding.thinkingLengthButton.alpha = if (enabled) 1f else 0.5f
+        updateLabeledButton(
+            binding.thinkingLengthButton,
+            R.string.thinking_length_format,
+            params.thinkingLength.labelRes
+        )
+    }
+
+    private fun ensureThinkingLengthCompatible(format: ApiFormat) {
+        val current = settingsStore.loadLlmParameters()
+        val options = ThinkingLength.optionsFor(format)
+        if (current.thinkingLength in options) return
+        settingsStore.saveLlmParameters(current.copy(thinkingLength = ThinkingLength.DEFAULT))
+    }
+
+    private fun showLlmParamsDialog() {
+        val currentParams = settingsStore.loadLlmParameters()
+        val dialogBinding = DialogLlmParamsBinding.inflate(layoutInflater)
+        dialogBinding.temperatureInput.setText(formatNumberOrEmpty(currentParams.temperature))
+        dialogBinding.topPInput.setText(formatNumberOrEmpty(currentParams.topP))
+        dialogBinding.topKInput.setText(formatNumberOrEmpty(currentParams.topK))
+        dialogBinding.maxOutputTokensInput.setText(formatNumberOrEmpty(currentParams.maxOutputTokens))
+        dialogBinding.frequencyPenaltyInput.setText(formatNumberOrEmpty(currentParams.frequencyPenalty))
+        dialogBinding.presencePenaltyInput.setText(formatNumberOrEmpty(currentParams.presencePenalty))
+        dialogBinding.llmParamsNote.setText(R.string.llm_params_note)
+        AlertDialog.Builder(requireContext())
+            .setTitle(R.string.llm_params_title)
+            .setView(dialogBinding.root)
+            .setPositiveButton(android.R.string.ok) { _, _ ->
+                val parsed = parseLlmParams(dialogBinding)
+                settingsStore.saveLlmParameters(parsed.params)
+                binding.enableThinkingSwitch.isChecked = parsed.params.enableThinking
+                updateThinkingLengthButton()
+                if (parsed.hasInvalid) {
+                    Toast.makeText(
+                        requireContext(),
+                        R.string.llm_params_invalid,
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+                AppLogger.log("Settings", "LLM params updated")
+            }
+            .setNeutralButton(R.string.llm_params_clear) { _, _ ->
+                val existing = settingsStore.loadLlmParameters()
+                settingsStore.saveLlmParameters(
+                    LlmParameterSettings(
+                        temperature = null,
+                        topP = null,
+                        topK = null,
+                        maxOutputTokens = null,
+                        enableThinking = existing.enableThinking,
+                        thinkingLength = existing.thinkingLength,
+                        frequencyPenalty = null,
+                        presencePenalty = null
+                    )
+                )
+                AppLogger.log("Settings", "LLM params cleared")
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    private fun showCustomRequestParamsDialog() {
+        val dialogBinding = DialogCustomRequestParamsBinding.inflate(layoutInflater)
+        val existing = settingsStore.loadCustomRequestParameters()
+        val providerOptions = buildCustomRequestParamProviderOptions()
+
+        fun updateRowVisualState(rowBinding: ItemCustomRequestParamBinding) {
+            val enabled = rowBinding.customRequestParamEnabledSwitch.isChecked
+            rowBinding.customRequestParamFieldsContainer.alpha = if (enabled) 1f else 0.58f
+            rowBinding.customRequestParamTitle.alpha = if (enabled) 1f else 0.72f
+        }
+
+        fun refreshRowTitles() {
+            for (index in 0 until dialogBinding.customRequestParamsContainer.childCount) {
+                val child = dialogBinding.customRequestParamsContainer.getChildAt(index)
+                val rowBinding = ItemCustomRequestParamBinding.bind(child)
+                rowBinding.customRequestParamTitle.text = getString(
+                    R.string.custom_request_params_row_title,
+                    index + 1
+                )
+            }
+        }
+
+        fun addRow(
+            parameter: CustomRequestParameter = CustomRequestParameter("", "")
+        ) {
+            val rowBinding = ItemCustomRequestParamBinding.inflate(
+                layoutInflater,
+                dialogBinding.customRequestParamsContainer,
+                false
+            )
+            rowBinding.customRequestParamEnabledSwitch.isChecked = parameter.enabled
+            rowBinding.customRequestParamKeyInput.setText(parameter.key)
+            rowBinding.customRequestParamValueInput.setText(parameter.value)
+            setupCustomRequestParamProviderDropdown(
+                rowBinding.customRequestParamTargetProviderInput,
+                providerOptions,
+                parameter.targetProviderId
+            )
+            rowBinding.customRequestParamEnabledSwitch.setOnCheckedChangeListener { _, _ ->
+                updateRowVisualState(rowBinding)
+            }
+            rowBinding.customRequestParamDeleteButton.setOnClickListener {
+                dialogBinding.customRequestParamsContainer.removeView(rowBinding.root)
+                if (dialogBinding.customRequestParamsContainer.childCount == 0) {
+                    addRow()
+                } else {
+                    refreshRowTitles()
+                }
+            }
+            dialogBinding.customRequestParamsContainer.addView(rowBinding.root)
+            updateRowVisualState(rowBinding)
+            refreshRowTitles()
+        }
+
+        if (existing.isEmpty()) {
+            addRow()
+        } else {
+            existing.forEach(::addRow)
+        }
+        dialogBinding.customRequestParamsAddButton.setOnClickListener {
+            addRow()
+        }
+
+        val dialog = AlertDialog.Builder(requireContext())
+            .setTitle(R.string.custom_request_params_title)
+            .setView(dialogBinding.root)
+            .setPositiveButton(android.R.string.ok, null)
+            .setNeutralButton(R.string.llm_params_clear, null)
+            .setNegativeButton(android.R.string.cancel, null)
+            .create()
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val parameters = collectCustomRequestParameters(dialogBinding, providerOptions)
+                val validationError = validateCustomRequestParameters(parameters)
+                if (validationError != null) {
+                    Toast.makeText(requireContext(), validationError, Toast.LENGTH_SHORT).show()
+                    return@setOnClickListener
+                }
+                settingsStore.saveCustomRequestParameters(parameters)
+                updateCustomRequestParamsButton(parameters)
+                Toast.makeText(requireContext(), R.string.custom_request_params_saved, Toast.LENGTH_SHORT).show()
+                AppLogger.log("Settings", "Custom request params updated")
+                dialog.dismiss()
+            }
+            dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
+                settingsStore.saveCustomRequestParameters(emptyList())
+                updateCustomRequestParamsButton(emptyList())
+                AppLogger.log("Settings", "Custom request params cleared")
+                dialog.dismiss()
+            }
+        }
+        dialog.show()
+    }
+
+    private fun showMultiProviderSchedulingDialog() {
+        val dialogBinding = DialogMultiProviderSchedulingBinding.inflate(layoutInflater)
+        val existing = settingsStore.loadAdditionalTranslationProviders()
+
+        fun updateRowVisualState(rowBinding: ItemAdditionalTranslationProviderBinding) {
+            val enabled = rowBinding.translationProviderEnabledSwitch.isChecked
+            rowBinding.translationProviderFieldsContainer.alpha = if (enabled) 1f else 0.58f
+            rowBinding.translationProviderTitle.alpha = if (enabled) 1f else 0.72f
+        }
+
+        fun refreshRowTitles() {
+            for (index in 0 until dialogBinding.multiProviderSchedulingContainer.childCount) {
+                val child = dialogBinding.multiProviderSchedulingContainer.getChildAt(index)
+                val rowBinding = ItemAdditionalTranslationProviderBinding.bind(child)
+                rowBinding.translationProviderTitle.text = getString(
+                    R.string.multi_provider_scheduling_row_title,
+                    index + 1
+                )
+            }
+        }
+
+        fun addRow(
+            provider: AdditionalTranslationProvider = AdditionalTranslationProvider(
+                name = "",
+                apiUrl = "",
+                apiKey = "",
+                modelName = "",
+                weight = 1
+            )
+        ) {
+            val rowBinding = ItemAdditionalTranslationProviderBinding.inflate(
+                layoutInflater,
+                dialogBinding.multiProviderSchedulingContainer,
+                false
+            )
+            rowBinding.translationProviderEnabledSwitch.isChecked = provider.enabled
+            rowBinding.translationProviderApiUrlInput.setText(provider.apiUrl)
+            rowBinding.translationProviderApiKeyInput.setText(provider.apiKey)
+            rowBinding.translationProviderModelNameInput.setText(provider.modelName)
+            rowBinding.translationProviderWeightInput.setText(formatNumber(provider.weight))
+            rowBinding.translationProviderEnabledSwitch.setOnCheckedChangeListener { _, _ ->
+                updateRowVisualState(rowBinding)
+            }
+            rowBinding.translationProviderDeleteButton.setOnClickListener {
+                dialogBinding.multiProviderSchedulingContainer.removeView(rowBinding.root)
+                if (dialogBinding.multiProviderSchedulingContainer.childCount == 0) {
+                    addRow()
+                } else {
+                    refreshRowTitles()
+                }
+            }
+            dialogBinding.multiProviderSchedulingContainer.addView(rowBinding.root)
+            updateRowVisualState(rowBinding)
+            refreshRowTitles()
+            dialogBinding.multiProviderSchedulingScroll.post {
+                dialogBinding.multiProviderSchedulingScroll.fullScroll(View.FOCUS_DOWN)
+            }
+        }
+
+        if (existing.isEmpty()) {
+            addRow()
+        } else {
+            existing.forEach(::addRow)
+        }
+        dialogBinding.multiProviderSchedulingAddButton.setOnClickListener {
+            addRow()
+        }
+
+        val dialog = AlertDialog.Builder(requireContext())
+            .setTitle(R.string.multi_provider_scheduling_title)
+            .setView(dialogBinding.root)
+            .setPositiveButton(android.R.string.ok, null)
+            .setNeutralButton(R.string.llm_params_clear, null)
+            .setNegativeButton(android.R.string.cancel, null)
+            .create()
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val providers = collectAdditionalTranslationProviders(dialogBinding)
+                val validationError = validateAdditionalTranslationProviders(providers)
+                if (validationError != null) {
+                    Toast.makeText(requireContext(), validationError, Toast.LENGTH_SHORT).show()
+                    return@setOnClickListener
+                }
+                val requiredConcurrency = (
+                    if (ApiSettings(
+                            apiUrl = binding.apiUrlInput.text?.toString()?.trim().orEmpty(),
+                            apiKey = binding.apiKeyInput.text?.toString()?.trim().orEmpty(),
+                            modelName = binding.modelNameInput.text?.toString()?.trim().orEmpty(),
+                            apiFormat = currentApiFormat(),
+                            providerId = PRIMARY_PROVIDER_ID
+                        ).isValid()
+                    ) 1 else 0
+                    ) + providers.count { it.enabled && it.isConfigured() }
+                val currentConcurrency = parseIntInput(
+                    binding.maxConcurrencyInput.text?.toString()?.trim()
+                ) ?: settingsStore.loadMaxConcurrency()
+                if (currentConcurrency < requiredConcurrency.coerceAtLeast(1)) {
+                    Toast.makeText(
+                        requireContext(),
+                        getString(
+                            R.string.max_concurrency_provider_count_error,
+                            requiredConcurrency.coerceAtLeast(1)
+                        ),
+                        Toast.LENGTH_SHORT
+                    ).show()
+                    return@setOnClickListener
+                }
+                settingsStore.saveAdditionalTranslationProviders(providers)
+                val saved = settingsStore.loadAdditionalTranslationProviders()
+                updateMultiProviderSchedulingButton(saved)
+                Toast.makeText(
+                    requireContext(),
+                    R.string.multi_provider_scheduling_saved,
+                    Toast.LENGTH_SHORT
+                ).show()
+                AppLogger.log("Settings", "Multi-provider scheduling updated")
+                dialog.dismiss()
+            }
+            dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
+                settingsStore.saveAdditionalTranslationProviders(emptyList())
+                updateMultiProviderSchedulingButton(emptyList())
+                AppLogger.log("Settings", "Multi-provider scheduling cleared")
+                dialog.dismiss()
+            }
+            dialogBinding.root.doOnLayout {
+                constrainMultiProviderDialogScroll(dialog, dialogBinding)
+            }
+        }
+        dialog.show()
+    }
+
+    private fun constrainMultiProviderDialogScroll(
+        dialog: AlertDialog,
+        dialogBinding: DialogMultiProviderSchedulingBinding
+    ) {
+        val window = dialog.window ?: return
+        val visibleFrame = android.graphics.Rect()
+        window.decorView.getWindowVisibleDisplayFrame(visibleFrame)
+        val availableHeight = visibleFrame.height().takeIf { it > 0 }
+            ?: resources.displayMetrics.heightPixels
+        val maxDialogHeight = (availableHeight * 0.85f).roundToInt()
+        val scrollView = dialogBinding.multiProviderSchedulingScroll
+        val rootHeight = dialogBinding.root.height.takeIf { it > 0 } ?: return
+        val fixedHeight = (rootHeight - scrollView.height).coerceAtLeast(0)
+        val minScrollHeight = (160 * resources.displayMetrics.density).roundToInt()
+        val maxScrollHeight = (maxDialogHeight - fixedHeight).coerceAtLeast(minScrollHeight)
+        val contentHeight = scrollView.getChildAt(0)?.measuredHeight ?: scrollView.height
+        val targetScrollHeight = contentHeight.coerceAtMost(maxScrollHeight)
+        if (scrollView.layoutParams.height != targetScrollHeight) {
+            scrollView.layoutParams = scrollView.layoutParams.apply {
+                height = targetScrollHeight
+            }
+            scrollView.requestLayout()
+        }
+    }
+
+    private fun showTranslationStyleDialog() {
+        val currentStyle = settingsStore.loadTranslationStyle()
+        val padding = (resources.displayMetrics.density * 20).toInt()
+        val input = EditText(requireContext()).apply {
+            hint = getString(R.string.translation_style_hint)
+            setText(currentStyle)
+            setSelection(text.length)
+            minLines = 3
+            maxLines = 8
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or
+                android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE or
+                android.text.InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
+            setTextColor(resolveColorAttr(R.attr.dialogTextColor))
+            setHintTextColor(resolveColorAttr(R.attr.dialogHintTextColor))
+        }
+        val noteView = TextView(requireContext()).apply {
+            text = getString(R.string.translation_style_note)
+            setPadding(0, (resources.displayMetrics.density * 8).toInt(), 0, 0)
+            setTextColor(resolveColorAttr(R.attr.dialogHintTextColor))
+            textSize = 12f
+        }
+        val container = android.widget.LinearLayout(requireContext()).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            setPadding(padding, padding / 2, padding, padding / 2)
+            addView(input, android.widget.LinearLayout.LayoutParams(
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+            ))
+            addView(noteView, android.widget.LinearLayout.LayoutParams(
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+            ))
+        }
+        AlertDialog.Builder(requireContext())
+            .setTitle(R.string.translation_style_title)
+            .setView(container)
+            .setPositiveButton(android.R.string.ok) { _, _ ->
+                val style = input.text?.toString()?.trim().orEmpty()
+                settingsStore.saveTranslationStyle(style)
+                AppLogger.log("Settings", "Translation style updated")
+                Toast.makeText(requireContext(), R.string.translation_style_saved, Toast.LENGTH_SHORT).show()
+            }
+            .setNeutralButton(R.string.translation_style_reset) { _, _ ->
+                settingsStore.saveTranslationStyle("")
+                AppLogger.log("Settings", "Translation style reset to default")
+                Toast.makeText(requireContext(), R.string.translation_style_saved, Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    private fun showOcrSettingsDialog() {
+        val currentSettings = settingsStore.loadOcrApiSettings()
+        val dialogBinding = DialogOcrSettingsBinding.inflate(layoutInflater)
+        dialogBinding.useLocalOcrSwitch.isChecked = currentSettings.useLocalOcr
+        dialogBinding.ocrApiUrlInput.setText(currentSettings.apiUrl)
+        dialogBinding.ocrApiKeyInput.setText(currentSettings.apiKey)
+        dialogBinding.ocrModelNameInput.setText(currentSettings.modelName)
+        dialogBinding.ocrApiTimeoutInput.setText(
+            String.format(Locale.getDefault(), "%d", currentSettings.timeoutSeconds)
+        )
+        dialogBinding.ocrApiConcurrencyInput.setText(
+            String.format(Locale.getDefault(), "%d", currentSettings.apiOcrConcurrencyLimit)
+        )
+        dialogBinding.localOcrConcurrencyInput.setText(
+            String.format(Locale.getDefault(), "%d", currentSettings.localOcrConcurrencyLimit)
+        )
+        dialogBinding.ocrSecretKeyInput.setText(currentSettings.secretKey)
+
+        // Setup format dropdown
+        val formatEntries = OcrApiFormat.entries.map { getString(it.labelRes) }
+        val formatValues = OcrApiFormat.entries.toTypedArray()
+        val formatAdapter = android.widget.ArrayAdapter(
+            requireContext(),
+            android.R.layout.simple_dropdown_item_1line,
+            formatEntries
+        )
+        dialogBinding.ocrApiFormatInput.setAdapter(formatAdapter)
+        dialogBinding.ocrApiFormatInput.threshold = 0
+        dialogBinding.ocrApiFormatInput.setOnClickListener {
+            dialogBinding.ocrApiFormatInput.showDropDown()
+        }
+        val currentFormatIndex = formatValues.indexOf(currentSettings.ocrApiFormat)
+            .coerceAtLeast(0)
+        dialogBinding.ocrApiFormatInput.setText(formatEntries[currentFormatIndex], false)
+
+        fun resolveSelectedFormat(): OcrApiFormat {
+            val selectedText = dialogBinding.ocrApiFormatInput.text?.toString().orEmpty()
+            val idx = formatEntries.indexOf(selectedText)
+            return if (idx >= 0) formatValues[idx] else OcrApiFormat.OPENAI_COMPATIBLE
+        }
+
+        fun updateInputsEnabled(useLocalOcr: Boolean) {
+            val enabled = !useLocalOcr
+            val isBaidu = enabled && resolveSelectedFormat() == OcrApiFormat.BAIDU_AI
+            val isOpenAi = enabled && !isBaidu
+            dialogBinding.ocrApiFormatLayout.visibility =
+                if (enabled) android.view.View.VISIBLE else android.view.View.GONE
+            dialogBinding.ocrApiUrlLayout.visibility =
+                if (isOpenAi) android.view.View.VISIBLE else android.view.View.GONE
+            dialogBinding.ocrApiKeyLayout.visibility =
+                if (enabled) android.view.View.VISIBLE else android.view.View.GONE
+            dialogBinding.ocrModelNameLayout.visibility =
+                if (isOpenAi) android.view.View.VISIBLE else android.view.View.GONE
+            dialogBinding.ocrApiTimeoutLayout.visibility =
+                if (enabled) android.view.View.VISIBLE else android.view.View.GONE
+            dialogBinding.ocrApiUrlInput.isEnabled = enabled
+            dialogBinding.ocrApiKeyInput.isEnabled = enabled
+            dialogBinding.ocrModelNameInput.isEnabled = enabled
+            dialogBinding.ocrApiTimeoutInput.isEnabled = enabled
+            dialogBinding.ocrSecretKeyLayout.visibility =
+                if (isBaidu) android.view.View.VISIBLE else android.view.View.GONE
+            dialogBinding.ocrApiConcurrencyLayout.visibility =
+                if (enabled) android.view.View.VISIBLE else android.view.View.GONE
+            dialogBinding.localOcrConcurrencyLayout.visibility =
+                if (useLocalOcr) android.view.View.VISIBLE else android.view.View.GONE
+            dialogBinding.ocrSettingsNote.setText(
+                if (useLocalOcr) R.string.ocr_settings_note_local else R.string.ocr_settings_note_api
+            )
+        }
+
+        updateInputsEnabled(currentSettings.useLocalOcr)
+        dialogBinding.useLocalOcrSwitch.setOnCheckedChangeListener { _, isChecked ->
+            updateInputsEnabled(isChecked)
+        }
+        dialogBinding.ocrApiFormatInput.setOnItemClickListener { _, _, _, _ ->
+            updateInputsEnabled(dialogBinding.useLocalOcrSwitch.isChecked)
+        }
+
+        AlertDialog.Builder(requireContext())
+            .setTitle(R.string.ocr_settings_title)
+            .setView(dialogBinding.root)
+            .setPositiveButton(android.R.string.ok) { _, _ ->
+                val timeoutInput = dialogBinding.ocrApiTimeoutInput.text?.toString()?.trim()
+                val timeoutSeconds = parseIntInput(timeoutInput)
+                    ?.coerceIn(SettingsStore.MIN_OCR_API_TIMEOUT_SECONDS, SettingsStore.MAX_OCR_API_TIMEOUT_SECONDS)
+                    ?: currentSettings.timeoutSeconds
+                val concurrencyInput = dialogBinding.ocrApiConcurrencyInput.text?.toString()?.trim()
+                val apiOcrConcurrencyLimit = parseIntInput(concurrencyInput)
+                    ?.coerceIn(SettingsStore.MIN_OCR_API_CONCURRENCY, SettingsStore.MAX_OCR_API_CONCURRENCY)
+                    ?: currentSettings.apiOcrConcurrencyLimit
+                val localConcurrencyInput = dialogBinding.localOcrConcurrencyInput.text?.toString()?.trim()
+                val localOcrConcurrencyLimit = parseIntInput(localConcurrencyInput)
+                    ?.coerceIn(0, 8)
+                    ?: currentSettings.localOcrConcurrencyLimit
+                val format = resolveSelectedFormat()
+                val settings = OcrApiSettings(
+                    useLocalOcr = dialogBinding.useLocalOcrSwitch.isChecked,
+                    japaneseLocalOcrEngine = JapaneseLocalOcrEngine.MANGA_OCR_MOBILE,
+                    apiUrl = dialogBinding.ocrApiUrlInput.text?.toString()?.trim().orEmpty(),
+                    apiKey = dialogBinding.ocrApiKeyInput.text?.toString()?.trim().orEmpty(),
+                    modelName = dialogBinding.ocrModelNameInput.text?.toString()?.trim().orEmpty(),
+                    timeoutSeconds = timeoutSeconds,
+                    apiOcrConcurrencyLimit = apiOcrConcurrencyLimit,
+                    localOcrConcurrencyLimit = localOcrConcurrencyLimit,
+                    ocrApiFormat = format,
+                    secretKey = dialogBinding.ocrSecretKeyInput.text?.toString()?.trim().orEmpty()
+                )
+                settingsStore.saveOcrApiSettings(settings)
+                AppLogger.log(
+                    "Settings",
+                    "OCR mode set to ${
+                        if (settings.useLocalOcr) {
+                            "local:${settings.japaneseLocalOcrEngine.prefValue}"
+                        } else {
+                            "${settings.ocrApiFormat.prefValue} api"
+                        }
+                    }"
+                )
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    private fun showFloatingTranslateSettingsDialog() {
+        val currentSettings = settingsStore.loadFloatingTranslateApiSettings()
+        val dialogBinding = DialogFloatingTranslateSettingsBinding.inflate(layoutInflater)
+        dialogBinding.floatingApiUrlInput.setText(currentSettings.apiUrl)
+        dialogBinding.floatingApiKeyInput.setText(currentSettings.apiKey)
+        dialogBinding.floatingModelNameInput.setText(currentSettings.modelName)
+        dialogBinding.floatingApiTimeoutInput.setText(
+            formatNumber(currentSettings.timeoutSeconds)
+        )
+        dialogBinding.floatingUseVlDirectTranslateSwitch.isChecked =
+            currentSettings.useVlDirectTranslate
+        dialogBinding.floatingProofreadingModeSwitch.isChecked =
+            currentSettings.proofreadingModeEnabled
+        dialogBinding.floatingAutoCloseOnScreenChangeSwitch.isChecked =
+            currentSettings.autoCloseOnScreenChangeEnabled
+        setupFloatingGestureActionDropdown(
+            dialogBinding.floatingSingleTapActionInput,
+            currentSettings.singleTapAction
+        )
+        setupFloatingGestureActionDropdown(
+            dialogBinding.floatingDoubleTapActionInput,
+            currentSettings.doubleTapAction
+        )
+        setupFloatingGestureActionDropdown(
+            dialogBinding.floatingLongPressActionInput,
+            currentSettings.longPressAction
+        )
+        setupFloatingGestureActionDropdown(
+            dialogBinding.floatingTripleTapActionInput,
+            currentSettings.tripleTapAction
+        )
+        dialogBinding.floatingVlTranslateConcurrencyInput.setText(
+            formatNumber(currentSettings.ocrConcurrencyLimit)
+        )
+        dialogBinding.floatingAiApiConcurrencyInput.setText(
+            formatNumber(currentSettings.aiApiConcurrencyLimit)
+        )
+        dialogBinding.floatingUseVlDirectTranslateSwitch.setOnCheckedChangeListener { _, isChecked ->
+            if (isChecked) {
+                Toast.makeText(
+                    requireContext(),
+                    R.string.floating_use_vl_direct_translate_warning,
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+        }
+        AlertDialog.Builder(requireContext())
+            .setTitle(R.string.floating_translate_settings_title)
+            .setView(dialogBinding.root)
+            .setPositiveButton(android.R.string.ok) { _, _ ->
+                val timeoutInput =
+                    dialogBinding.floatingApiTimeoutInput.text?.toString()?.trim()
+                val timeoutSeconds = parseIntInput(timeoutInput)
+                    ?.coerceIn(SettingsStore.MIN_FLOATING_API_TIMEOUT_SECONDS, SettingsStore.MAX_FLOATING_API_TIMEOUT_SECONDS)
+                    ?: currentSettings.timeoutSeconds
+                val concurrencyInput =
+                    dialogBinding.floatingVlTranslateConcurrencyInput.text?.toString()?.trim()
+                val ocrConcurrencyLimit = parseIntInput(concurrencyInput)
+                    ?.coerceIn(1, 50)
+                    ?: currentSettings.ocrConcurrencyLimit
+                val aiApiConcurrencyInput =
+                    dialogBinding.floatingAiApiConcurrencyInput.text?.toString()?.trim()
+                val aiApiConcurrencyLimit = parseIntInput(aiApiConcurrencyInput)
+                    ?.coerceIn(1, 50)
+                    ?: currentSettings.aiApiConcurrencyLimit
+                settingsStore.saveFloatingTranslateApiSettings(
+                    FloatingTranslateApiSettings(
+                        apiUrl = dialogBinding.floatingApiUrlInput.text?.toString()?.trim().orEmpty(),
+                        apiKey = dialogBinding.floatingApiKeyInput.text?.toString()?.trim().orEmpty(),
+                        modelName = dialogBinding.floatingModelNameInput.text?.toString()?.trim().orEmpty(),
+                        timeoutSeconds = timeoutSeconds,
+                        useVlDirectTranslate =
+                            dialogBinding.floatingUseVlDirectTranslateSwitch.isChecked,
+                        ocrConcurrencyLimit = ocrConcurrencyLimit,
+                        aiApiConcurrencyLimit = aiApiConcurrencyLimit,
+                        proofreadingModeEnabled =
+                            dialogBinding.floatingProofreadingModeSwitch.isChecked,
+                        autoCloseOnScreenChangeEnabled =
+                            dialogBinding.floatingAutoCloseOnScreenChangeSwitch.isChecked,
+                        singleTapAction = parseFloatingGestureAction(
+                            dialogBinding.floatingSingleTapActionInput,
+                            currentSettings.singleTapAction
+                        ),
+                        doubleTapAction = parseFloatingGestureAction(
+                            dialogBinding.floatingDoubleTapActionInput,
+                            currentSettings.doubleTapAction
+                        ),
+                        longPressAction = parseFloatingGestureAction(
+                            dialogBinding.floatingLongPressActionInput,
+                            currentSettings.longPressAction
+                        ),
+                        tripleTapAction = parseFloatingGestureAction(
+                            dialogBinding.floatingTripleTapActionInput,
+                            currentSettings.tripleTapAction
+                        )
+                    )
+                )
+                AppLogger.log("Settings", "Floating translate API settings updated")
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    private fun parseLlmParams(
+        dialogBinding: DialogLlmParamsBinding
+    ): ParsedLlmParams {
+        var hasInvalid = false
+        fun parseDouble(text: String?): Double? {
+            val trimmed = text?.trim().orEmpty()
+            if (trimmed.isBlank()) return null
+            return parseDoubleInput(trimmed).also { if (it == null) hasInvalid = true }
+        }
+        fun parseInt(text: String?): Int? {
+            val trimmed = text?.trim().orEmpty()
+            if (trimmed.isBlank()) return null
+            return parseIntInput(trimmed).also { if (it == null) hasInvalid = true }
+        }
+        val existing = settingsStore.loadLlmParameters()
+        val params = LlmParameterSettings(
+            temperature = parseDouble(dialogBinding.temperatureInput.text?.toString()),
+            topP = parseDouble(dialogBinding.topPInput.text?.toString()),
+            topK = parseInt(dialogBinding.topKInput.text?.toString()),
+            maxOutputTokens = parseInt(dialogBinding.maxOutputTokensInput.text?.toString()),
+            enableThinking = binding.enableThinkingSwitch.isChecked,
+            thinkingLength = existing.thinkingLength,
+            frequencyPenalty = parseDouble(dialogBinding.frequencyPenaltyInput.text?.toString()),
+            presencePenalty = parseDouble(dialogBinding.presencePenaltyInput.text?.toString())
+        )
+        return ParsedLlmParams(params, hasInvalid)
+    }
+
+    private fun collectCustomRequestParameters(
+        dialogBinding: DialogCustomRequestParamsBinding,
+        providerOptions: List<RequestParamProviderOption>
+    ): List<CustomRequestParameter> {
+        val collected = mutableListOf<CustomRequestParameter>()
+        for (index in 0 until dialogBinding.customRequestParamsContainer.childCount) {
+            val child = dialogBinding.customRequestParamsContainer.getChildAt(index)
+            val rowBinding = ItemCustomRequestParamBinding.bind(child)
+            collected += CustomRequestParameter(
+                key = rowBinding.customRequestParamKeyInput.text?.toString()?.trim().orEmpty(),
+                value = rowBinding.customRequestParamValueInput.text?.toString().orEmpty(),
+                enabled = rowBinding.customRequestParamEnabledSwitch.isChecked,
+                targetProviderId = parseCustomRequestParamProviderId(
+                    rowBinding.customRequestParamTargetProviderInput,
+                    providerOptions
+                )
+            )
+        }
+        return collected
+    }
+
+    private fun collectAdditionalTranslationProviders(
+        dialogBinding: DialogMultiProviderSchedulingBinding
+    ): List<AdditionalTranslationProvider> {
+        val collected = mutableListOf<AdditionalTranslationProvider>()
+        for (index in 0 until dialogBinding.multiProviderSchedulingContainer.childCount) {
+            val child = dialogBinding.multiProviderSchedulingContainer.getChildAt(index)
+            val rowBinding = ItemAdditionalTranslationProviderBinding.bind(child)
+            collected += AdditionalTranslationProvider(
+                name = settingsStore.defaultAdditionalProviderName(index),
+                apiUrl = rowBinding.translationProviderApiUrlInput.text?.toString()?.trim().orEmpty(),
+                apiKey = rowBinding.translationProviderApiKeyInput.text?.toString()?.trim().orEmpty(),
+                modelName = rowBinding.translationProviderModelNameInput.text?.toString()?.trim().orEmpty(),
+                weight = parseIntInput(
+                    rowBinding.translationProviderWeightInput.text?.toString()?.trim()
+                ) ?: 0,
+                enabled = rowBinding.translationProviderEnabledSwitch.isChecked
+            )
+        }
+        return collected
+    }
+
+    private fun validateCustomRequestParameters(parameters: List<CustomRequestParameter>): String? {
+        val activeKeys = LinkedHashSet<String>()
+        parameters.forEach { parameter ->
+            val key = parameter.key.trim()
+            val value = parameter.value.trim()
+            if (key.isBlank() && value.isBlank()) return@forEach
+            if (key.isBlank()) {
+                return getString(R.string.custom_request_params_empty_row_error)
+            }
+            if (!parameter.enabled) return@forEach
+            val scopedKey = "${parameter.targetProviderId}\u0000$key"
+            if (!activeKeys.add(scopedKey)) {
+                return getString(
+                    R.string.custom_request_params_duplicate_error_scoped,
+                    resolveCustomRequestParamProviderLabel(parameter.targetProviderId),
+                    key
+                )
+            }
+        }
+        val activeParamKeys = parameters
+            .filter { it.enabled }
+            .mapNotNull {
+                val key = it.key.trim()
+                if (key.isBlank() && it.value.trim().isBlank()) {
+                    null
+                } else {
+                    parameterReservedKeyScope(it.targetProviderId) to key
+                }
+            }
+        val conflict = activeParamKeys.firstOrNull { (providerId, key) ->
+            key in LlmClient.reservedRequestKeys(resolveRequestParamApiFormat(providerId))
+        }
+        return if (conflict != null) {
+            getString(R.string.custom_request_params_conflict_error, conflict.second)
+        } else {
+            null
+        }
+    }
+
+    private fun parameterReservedKeyScope(providerId: String): String {
+        return providerId.trim().ifBlank { PRIMARY_PROVIDER_ID }
+    }
+
+    private fun resolveRequestParamApiFormat(providerId: String): ApiFormat {
+        return if (providerId == OCR_PROVIDER_ID) {
+            ApiFormat.OPENAI_COMPATIBLE
+        } else {
+            currentApiFormat()
+        }
+    }
+
+    private fun validateAdditionalTranslationProviders(
+        providers: List<AdditionalTranslationProvider>
+    ): String? {
+        providers.forEach { provider ->
+            val allBlank = provider.apiUrl.isBlank() &&
+                provider.apiKey.isBlank() &&
+                provider.modelName.isBlank()
+            if (allBlank) return@forEach
+            if (!provider.enabled) return@forEach
+            if (!provider.isConfigured()) {
+                return getString(R.string.multi_provider_scheduling_empty_field_error)
+            }
+            if (provider.weight <= 0) {
+                return getString(R.string.multi_provider_scheduling_invalid_weight_error)
+            }
+        }
+        return null
+    }
+
+    private fun fetchModelList() {
+        val apiUrl = binding.apiUrlInput.text?.toString()?.trim().orEmpty()
+        val apiKey = binding.apiKeyInput.text?.toString()?.trim().orEmpty()
+        val apiFormat = currentApiFormat()
+        if (apiUrl.isBlank()) {
+            Toast.makeText(requireContext(), R.string.api_url_required, Toast.LENGTH_SHORT).show()
+            return
+        }
+        binding.fetchModelsButton.isEnabled = false
+        val loadingDialog = AlertDialog.Builder(requireContext())
+            .setTitle(R.string.fetch_models_title)
+            .setMessage(R.string.fetch_models_loading)
+            .setCancelable(false)
+            .show()
+        viewLifecycleOwner.lifecycleScope.launch {
+            try {
+                val models = withContext(Dispatchers.IO) {
+                    llmClient.fetchModelList(apiUrl, apiKey, apiFormat)
+                }
+                if (models.isEmpty()) {
+                    showModelFetchError("EMPTY_RESPONSE")
+                } else {
+                    showModelSelectionDialog(models)
+                }
+            } catch (e: LlmRequestException) {
+                showModelFetchError(e.errorCode, e.responseBody)
+            } finally {
+                loadingDialog.dismiss()
+                binding.fetchModelsButton.isEnabled = true
+            }
+        }
+    }
+
+    private fun showModelSelectionDialog(models: List<String>) {
+        val items = models.toTypedArray()
+        val currentSelection = binding.modelNameInput.text?.toString()?.trim().orEmpty()
+        var selectedIndex = items.indexOf(currentSelection)
+        AlertDialog.Builder(requireContext())
+            .setTitle(R.string.fetch_models_title)
+            .setSingleChoiceItems(items, selectedIndex) { _, which ->
+                selectedIndex = which
+            }
+            .setPositiveButton(android.R.string.ok) { _, _ ->
+                if (selectedIndex >= 0) {
+                    binding.modelNameInput.setText(items[selectedIndex])
+                }
+            }
+            .setNeutralButton(R.string.llm_params_clear) { _, _ ->
+                binding.modelNameInput.setText("")
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    private fun showModelFetchError(code: LlmErrorCode, detail: String? = null) {
+        showModelFetchError(code.value, detail)
+    }
+
+    private fun showModelFetchError(code: String, detail: String? = null) {
+        AlertDialog.Builder(requireContext())
+            .setTitle(R.string.fetch_models_failed_title)
+            .setMessage(
+                getString(
+                    R.string.fetch_models_failed_message,
+                    ErrorDialogFormatter.formatApiErrorMessage(requireContext(), code, detail)
+                )
+            )
+            .setPositiveButton(android.R.string.ok, null)
+            .showWithScrollableMessage()
+    }
+
+    private fun resolveVersionName(): String {
+        val context = requireContext()
+        return try {
+            @Suppress("DEPRECATION")
+            val info = context.packageManager.getPackageInfo(context.packageName, 0)
+            info.versionName ?: VersionInfo.VERSION_NAME
+        } catch (e: Exception) {
+            VersionInfo.VERSION_NAME
+        }
+    }
+
+    private fun openUrl(url: String) {
+        val intent = Intent(Intent.ACTION_VIEW, url.toUri())
+        val manager = requireContext().packageManager
+        if (intent.resolveActivity(manager) != null) {
+            startActivity(intent)
+        } else {
+            Toast.makeText(requireContext(), url, Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun updateLabeledButton(view: TextView, @StringRes formatRes: Int, @StringRes labelRes: Int) {
+        view.text = getString(formatRes, getString(labelRes))
+    }
+
+    private fun <T> showSingleChoiceSettingDialog(
+        @StringRes titleRes: Int,
+        options: List<T>,
+        current: T,
+        labelRes: (T) -> Int,
+        onSelected: (dialog: android.content.DialogInterface, selected: T) -> Unit
+    ) {
+        val labels = options.map { getString(labelRes(it)) }.toTypedArray()
+        val checkedIndex = options.indexOf(current).coerceAtLeast(0)
+        AlertDialog.Builder(requireContext())
+            .setTitle(titleRes)
+            .setSingleChoiceItems(labels, checkedIndex) { dialog, which ->
+                onSelected(dialog, options[which])
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    companion object {
+        private const val PROJECT_URL = "https://github.com/jedzqer/manga-translator"
+        private const val RELEASES_URL = "https://github.com/jedzqer/manga-translator/releases"
+    }
+
+    private data class ParsedLlmParams(
+        val params: LlmParameterSettings,
+        val hasInvalid: Boolean
+    )
+}

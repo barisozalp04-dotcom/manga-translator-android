@@ -1,5 +1,7 @@
 package com.manga.translate
 
+import com.manga.translate.reader.canPanReadingImageHorizontally
+import com.manga.translate.reader.resolveHorizontalEdgeSwipeDirection
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull

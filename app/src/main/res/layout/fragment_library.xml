@@ -22,7 +22,7 @@
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintBottom_toBottomOf="parent">
 
-        <com.manga.translate.SafeNestedScrollView
+        <com.manga.translate.platform.SafeNestedScrollView
             android:layout_width="match_parent"
             android:layout_height="0dp"
             android:clipChildren="false"
@@ -290,7 +290,7 @@
                         android:visibility="gone" />
                 </LinearLayout>
             </LinearLayout>
-        </com.manga.translate.SafeNestedScrollView>
+        </com.manga.translate.platform.SafeNestedScrollView>
     </androidx.constraintlayout.widget.ConstraintLayout>
 
     <FrameLayout
@@ -305,7 +305,7 @@
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintBottom_toBottomOf="parent">
 
-        <com.manga.translate.SafeNestedScrollView
+        <com.manga.translate.platform.SafeNestedScrollView
             android:id="@+id/folder_detail_scroll"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
@@ -737,7 +737,7 @@
                         android:visibility="gone" />
                 </LinearLayout>
             </LinearLayout>
-        </com.manga.translate.SafeNestedScrollView>
+        </com.manga.translate.platform.SafeNestedScrollView>
 
         <LinearLayout
             android:id="@+id/folder_top_bar"

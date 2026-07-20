@@ -2,6 +2,7 @@ package com.manga.translate
 
 import android.graphics.Bitmap
 import android.graphics.Color
+import com.manga.translate.detection.OnnxImagePreprocessor
 import org.junit.Assert.assertArrayEquals
 import org.junit.Test
 import org.junit.runner.RunWith

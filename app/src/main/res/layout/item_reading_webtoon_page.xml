@@ -21,7 +21,7 @@
             android:textSize="13sp" />
     </FrameLayout>
 
-    <com.manga.translate.ReadingRegionImageView
+    <com.manga.translate.reader.ReadingRegionImageView
         android:id="@+id/reading_page_image"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -29,7 +29,7 @@
         android:contentDescription="@string/preview_image"
         android:scaleType="fitCenter" />
 
-    <com.manga.translate.FloatingTranslationView
+    <com.manga.translate.reader.FloatingTranslationView
         android:id="@+id/reading_page_overlay"
         android:layout_width="match_parent"
         android:layout_height="match_parent"

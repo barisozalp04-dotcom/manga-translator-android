@@ -1,5 +1,7 @@
 package com.manga.translate
 
+import com.manga.translate.model.TranslationLanguage
+import com.manga.translate.ocr.OcrTextSanitizer
 import org.junit.Assert.assertEquals
 import org.junit.Test
 

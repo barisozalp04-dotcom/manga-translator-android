@@ -10,14 +10,19 @@ import android.os.Looper
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
+import com.manga.translate.model.BubbleSource
+import com.manga.translate.model.BubbleTranslation
+import com.manga.translate.model.TranslationResult
+import com.manga.translate.reader.FloatingTranslationView
+import com.manga.translate.settings.NormalBubbleRenderSettings
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
-import org.robolectric.annotation.GraphicsMode
 import org.robolectric.Shadows.shadowOf
+import org.robolectric.annotation.GraphicsMode
 
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)

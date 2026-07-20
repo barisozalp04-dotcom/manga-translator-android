@@ -2,8 +2,13 @@ package com.manga.translate
 
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
-import kotlinx.coroutines.async
+import com.manga.translate.library.LibraryPreferencesGateway
+import com.manga.translate.library.LibraryRepository
+import com.manga.translate.model.ThemeMode
+import com.manga.translate.model.TranslationLanguage
+import com.manga.translate.settings.SettingsStore
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout

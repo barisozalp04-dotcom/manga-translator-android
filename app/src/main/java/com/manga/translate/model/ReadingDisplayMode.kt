@@ -1,0 +1,18 @@
+package com.manga.translate.model
+
+import androidx.annotation.StringRes
+import com.manga.translate.R
+
+enum class ReadingDisplayMode(
+    val prefValue: String,
+    @param:StringRes val labelRes: Int
+) {
+    FIT_WIDTH("fit_width", R.string.reading_display_fit_width),
+    FIT_HEIGHT("fit_height", R.string.reading_display_fit_height);
+
+    companion object {
+        fun fromPref(value: String?): ReadingDisplayMode {
+            return entries.firstOrNull { it.prefValue == value } ?: FIT_WIDTH
+        }
+    }
+}

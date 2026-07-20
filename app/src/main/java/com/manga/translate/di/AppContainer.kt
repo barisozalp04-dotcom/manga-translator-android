@@ -1,31 +1,33 @@
 package com.manga.translate.di
 
 import android.content.Context
-import com.manga.translate.BaiduAccessTokenManager
-import com.manga.translate.CrashStateStore
-import com.manga.translate.ExtractStateStore
-import com.manga.translate.FloatingBubbleTranslationCoordinator
-import com.manga.translate.FloatingEmptyBubbleCoordinator
-import com.manga.translate.FloatingTranslationCacheStore
-import com.manga.translate.FolderTranslationCoordinator
-import com.manga.translate.GlossaryStore
-import com.manga.translate.LibraryPreferencesGateway
-import com.manga.translate.LibraryRepository
-import com.manga.translate.LibraryUiCallbacks
-import com.manga.translate.LocalModelMemoryManager
-import com.manga.translate.LlmClient
-import com.manga.translate.MangaTranslateApp
-import com.manga.translate.OnnxRuntimeSupport
-import com.manga.translate.OcrStore
-import com.manga.translate.PendingBubbleRetranslator
-import com.manga.translate.ReadingEmptyBubbleCoordinator
-import com.manga.translate.ReadingProgressStore
-import com.manga.translate.SettingsStore
-import com.manga.translate.TextBubbleTranslationCoordinator
-import com.manga.translate.TranslationPipeline
-import com.manga.translate.TranslationProgressStore
-import com.manga.translate.TranslationStore
-import com.manga.translate.UpdateIgnoreStore
+import com.manga.translate.app.MangaTranslateApp
+import com.manga.translate.detection.LocalModelMemoryManager
+import com.manga.translate.detection.OnnxRuntimeSupport
+import com.manga.translate.floating.FloatingEmptyBubbleCoordinator
+import com.manga.translate.library.LibraryPreferencesGateway
+import com.manga.translate.library.LibraryRepository
+import com.manga.translate.library.LibraryUiCallbacks
+import com.manga.translate.network.BaiduAccessTokenManager
+import com.manga.translate.network.LlmClient
+import com.manga.translate.ocr.BubbleTextRecognizer
+import com.manga.translate.ocr.OcrEngineRegistry
+import com.manga.translate.reader.ReadingEmptyBubbleCoordinator
+import com.manga.translate.settings.SettingsStore
+import com.manga.translate.storage.CrashStateStore
+import com.manga.translate.storage.ExtractStateStore
+import com.manga.translate.storage.FloatingTranslationCacheStore
+import com.manga.translate.storage.GlossaryStore
+import com.manga.translate.storage.OcrStore
+import com.manga.translate.storage.ReadingProgressStore
+import com.manga.translate.storage.TranslationProgressStore
+import com.manga.translate.storage.TranslationStore
+import com.manga.translate.storage.UpdateIgnoreStore
+import com.manga.translate.translation.FloatingBubbleTranslationCoordinator
+import com.manga.translate.translation.FolderTranslationCoordinator
+import com.manga.translate.translation.PendingBubbleRetranslator
+import com.manga.translate.translation.TextBubbleTranslationCoordinator
+import com.manga.translate.translation.TranslationPipeline
 import java.lang.ref.WeakReference
 import java.util.concurrent.CopyOnWriteArrayList
 
@@ -38,14 +40,14 @@ internal class AppContainer(private val appContext: Context) {
     val readingProgressStore = ReadingProgressStore(appContext)
     val libraryRepository = LibraryRepository(appContext)
     val llmClient = LlmClient(appContext, settingsStore, baiduAccessTokenManager)
-    val ocrEngineRegistry = com.manga.translate.OcrEngineRegistry(appContext, settingsStore)
+    val ocrEngineRegistry = com.manga.translate.ocr.OcrEngineRegistry(appContext, settingsStore)
     val localModelMemoryManager = LocalModelMemoryManager {
         releasePipelineModels()
         ocrEngineRegistry.releaseLoadedEngines()
         OnnxRuntimeSupport.closeCachedSessions()
     }
     val bubbleTextRecognizer =
-        com.manga.translate.BubbleTextRecognizer(llmClient, ocrEngineRegistry, settingsStore)
+        com.manga.translate.ocr.BubbleTextRecognizer(llmClient, ocrEngineRegistry, settingsStore)
     val translationStore = TranslationStore()
     val ocrStore = OcrStore()
     val glossaryStore = GlossaryStore()

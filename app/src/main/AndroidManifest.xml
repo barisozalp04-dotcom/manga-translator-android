@@ -25,7 +25,7 @@
     </queries>
 
     <application
-        android:name=".MangaTranslateApp"
+        android:name="com.manga.translate.app.MangaTranslateApp"
         android:allowBackup="false"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
@@ -36,11 +36,11 @@
         android:theme="@style/Theme.MangaTranslator"
         android:usesCleartextTraffic="true">
         <service
-            android:name=".TranslationKeepAliveService"
+            android:name="com.manga.translate.background.TranslationKeepAliveService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
         <service
-            android:name=".FloatingBallOverlayService"
+            android:name="com.manga.translate.floating.FloatingBallOverlayService"
             android:exported="false"
             android:foregroundServiceType="mediaProjection" />
         <provider
@@ -53,7 +53,7 @@
                 android:resource="@xml/file_paths" />
         </provider>
         <activity
-            android:name=".MainActivity"
+            android:name="com.manga.translate.app.MainActivity"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

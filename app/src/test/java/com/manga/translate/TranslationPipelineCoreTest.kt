@@ -1,9 +1,12 @@
 package com.manga.translate
 
+import android.graphics.RectF
+import com.manga.translate.model.OcrBubble
+import com.manga.translate.model.PageOcrResult
+import com.manga.translate.translation.withRecognizedTextBubblesOnly
 import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Test
-import android.graphics.RectF
 
 class TranslationPipelineCoreTest {
     @Test

@@ -1,11 +1,12 @@
 package com.manga.translate
 
+import com.manga.translate.app.UpdateChecker
+import java.util.Locale
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
-import java.util.Locale
 
 @RunWith(RobolectricTestRunner::class)
 class UpdateCheckerTest {

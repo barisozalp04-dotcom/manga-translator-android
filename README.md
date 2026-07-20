@@ -97,7 +97,7 @@
 
 ### 发布版本号同步
 需同时修改：
-- `app/src/main/java/com/manga/translate/VersionInfo.kt`
+- `app/src/main/java/com/manga/translate/app/VersionInfo.kt`
 - `app/build.gradle.kts`
 - `update.json`
 
