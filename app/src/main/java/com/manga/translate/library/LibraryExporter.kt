@@ -19,7 +19,6 @@ import com.manga.translate.R
 import com.manga.translate.background.TranslationKeepAliveService
 import com.manga.translate.model.TranslationResult
 import com.manga.translate.platform.AppLogger
-import com.manga.translate.platform.GlobalTaskProgressStore
 import com.manga.translate.platform.ImageFileSupport
 import com.manga.translate.platform.PdfImageCodec
 import com.manga.translate.rendering.BubbleRenderer
@@ -33,6 +32,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -271,17 +271,11 @@ internal class LibraryExporter(
         val verticalLayoutEnabled = !settingsStore.loadNormalBubbleRenderSettings().useHorizontalText
 
         onSetExportEnabled(false)
-        TranslationKeepAliveService.start(
+        val exportTaskId = TranslationKeepAliveService.startExportTask(
             appContext,
             appContext.getString(R.string.export_keepalive_title),
             appContext.getString(R.string.translation_keepalive_message),
             appContext.getString(R.string.exporting_progress, 0, exportImages.size)
-        )
-        TranslationKeepAliveService.updateStatus(
-            appContext,
-            appContext.getString(R.string.exporting_progress, 0, exportImages.size),
-            appContext.getString(R.string.export_keepalive_title),
-            appContext.getString(R.string.translation_keepalive_message)
         )
 
         launchExportTask exportTask@{
@@ -304,10 +298,6 @@ internal class LibraryExporter(
                 if (!exportDirReady) {
                     failed = true
                     ui.setFolderStatus(appContext.getString(R.string.export_failed))
-                    GlobalTaskProgressStore.fail(
-                        appContext.getString(R.string.export_keepalive_title),
-                        appContext.getString(R.string.export_failed)
-                    )
                     return@exportTask
                 }
                 ui.setFolderStatus(appContext.getString(R.string.exporting_progress, 0, exportImages.size))
@@ -327,13 +317,12 @@ internal class LibraryExporter(
                                 ui.setFolderStatus(
                                     appContext.getString(R.string.exporting_progress, count, exportImages.size)
                                 )
-                                TranslationKeepAliveService.updateProgress(
+                                TranslationKeepAliveService.updateExportProgress(
                                     appContext,
+                                    exportTaskId,
                                     count,
                                     exportImages.size,
-                                    appContext.getString(R.string.exporting_progress, count, exportImages.size),
-                                    appContext.getString(R.string.export_keepalive_title),
-                                    appContext.getString(R.string.translation_keepalive_message)
+                                    appContext.getString(R.string.exporting_progress, count, exportImages.size)
                                 )
                             }
                         }
@@ -353,13 +342,12 @@ internal class LibraryExporter(
                                 ui.setFolderStatus(
                                     appContext.getString(R.string.exporting_progress, count, exportImages.size)
                                 )
-                                TranslationKeepAliveService.updateProgress(
+                                TranslationKeepAliveService.updateExportProgress(
                                     appContext,
+                                    exportTaskId,
                                     count,
                                     exportImages.size,
-                                    appContext.getString(R.string.exporting_progress, count, exportImages.size),
-                                    appContext.getString(R.string.export_keepalive_title),
-                                    appContext.getString(R.string.translation_keepalive_message)
+                                    appContext.getString(R.string.exporting_progress, count, exportImages.size)
                                 )
                             }
                         }
@@ -392,13 +380,12 @@ internal class LibraryExporter(
                                             ui.setFolderStatus(
                                                 appContext.getString(R.string.exporting_progress, count, exportImages.size)
                                             )
-                                            TranslationKeepAliveService.updateProgress(
+                                            TranslationKeepAliveService.updateExportProgress(
                                                 appContext,
+                                                exportTaskId,
                                                 count,
                                                 exportImages.size,
-                                                appContext.getString(R.string.exporting_progress, count, exportImages.size),
-                                                appContext.getString(R.string.export_keepalive_title),
-                                                appContext.getString(R.string.translation_keepalive_message)
+                                                appContext.getString(R.string.exporting_progress, count, exportImages.size)
                                             )
                                         }
                                     }
@@ -413,17 +400,6 @@ internal class LibraryExporter(
                 ui.setFolderStatus(
                     if (failed) appContext.getString(R.string.export_failed) else appContext.getString(R.string.export_done)
                 )
-                if (failed) {
-                    GlobalTaskProgressStore.fail(
-                        appContext.getString(R.string.export_keepalive_title),
-                        appContext.getString(R.string.export_failed)
-                    )
-                } else {
-                    GlobalTaskProgressStore.complete(
-                        appContext.getString(R.string.export_keepalive_title),
-                        appContext.getString(R.string.export_done)
-                    )
-                }
                 if (!failed && ui.isFragmentActive()) {
                     val path = successPathHint ?: if (exportTreeUri != null) {
                         buildExportPathHint(exportTreeUri, folder.name)
@@ -436,9 +412,23 @@ internal class LibraryExporter(
                     "Library",
                     "Export ${if (failed) "completed with failures" else "completed"}: ${folder.name}"
                 )
+            } catch (e: CancellationException) {
+                failed = true
+                throw e
+            } catch (e: Exception) {
+                failed = true
+                AppLogger.log("Library", "Export failed: ${folder.name}", e)
+                ui.setFolderStatus(appContext.getString(R.string.export_failed))
             } finally {
                 onSetExportEnabled(true)
-                TranslationKeepAliveService.stop(appContext)
+                TranslationKeepAliveService.finishExportTask(
+                    context = appContext,
+                    taskId = exportTaskId,
+                    failed = failed,
+                    content = appContext.getString(
+                        if (failed) R.string.export_failed else R.string.export_done
+                    )
+                )
             }
         }
     }
@@ -466,17 +456,11 @@ internal class LibraryExporter(
         val verticalLayoutEnabled = !settingsStore.loadNormalBubbleRenderSettings().useHorizontalText
 
         onSetExportEnabled(false)
-        TranslationKeepAliveService.start(
+        val exportTaskId = TranslationKeepAliveService.startExportTask(
             appContext,
             appContext.getString(R.string.export_keepalive_title),
             appContext.getString(R.string.translation_keepalive_message),
             appContext.getString(R.string.exporting_progress, 0, allImages.size)
-        )
-        TranslationKeepAliveService.updateStatus(
-            appContext,
-            appContext.getString(R.string.exporting_progress, 0, allImages.size),
-            appContext.getString(R.string.export_keepalive_title),
-            appContext.getString(R.string.translation_keepalive_message)
         )
 
         launchExportTask {
@@ -491,7 +475,8 @@ internal class LibraryExporter(
                             verticalLayoutEnabled = verticalLayoutEnabled,
                             exportThreads = normalizeExportThreads(exportThreads),
                             exportTreeUri = exportTreeUri,
-                            totalImages = allImages.size
+                            totalImages = allImages.size,
+                            exportTaskId = exportTaskId
                         )
                     }
                     ExportFormat.CBZ -> {
@@ -501,7 +486,8 @@ internal class LibraryExporter(
                             chapterImages = chapterImages,
                             verticalLayoutEnabled = verticalLayoutEnabled,
                             exportThreads = normalizeExportThreads(exportThreads),
-                            exportTreeUri = exportTreeUri
+                            exportTreeUri = exportTreeUri,
+                            exportTaskId = exportTaskId
                         )
                         failed = !result.success
                         if (!failed) {
@@ -522,7 +508,8 @@ internal class LibraryExporter(
                             chapterImages = chapterImages,
                             verticalLayoutEnabled = verticalLayoutEnabled,
                             exportThreads = normalizeExportThreads(exportThreads),
-                            exportTreeUri = exportTreeUri
+                            exportTreeUri = exportTreeUri,
+                            exportTaskId = exportTaskId
                         )
                         failed = !result.success
                         if (!failed) {
@@ -541,24 +528,27 @@ internal class LibraryExporter(
                 ui.setFolderStatus(
                     if (failed) appContext.getString(R.string.export_failed) else appContext.getString(R.string.export_done)
                 )
-                if (failed) {
-                    GlobalTaskProgressStore.fail(
-                        appContext.getString(R.string.export_keepalive_title),
-                        appContext.getString(R.string.export_failed)
-                    )
-                } else {
-                    GlobalTaskProgressStore.complete(
-                        appContext.getString(R.string.export_keepalive_title),
-                        appContext.getString(R.string.export_done)
-                    )
-                }
                 AppLogger.log(
                     "Library",
                     "Collection export ${if (failed) "completed with failures" else "completed"}: ${collectionFolder.name}"
                 )
+            } catch (e: CancellationException) {
+                failed = true
+                throw e
+            } catch (e: Exception) {
+                failed = true
+                AppLogger.log("Library", "Collection export failed: ${collectionFolder.name}", e)
+                ui.setFolderStatus(appContext.getString(R.string.export_failed))
             } finally {
                 onSetExportEnabled(true)
-                TranslationKeepAliveService.stop(appContext)
+                TranslationKeepAliveService.finishExportTask(
+                    context = appContext,
+                    taskId = exportTaskId,
+                    failed = failed,
+                    content = appContext.getString(
+                        if (failed) R.string.export_failed else R.string.export_done
+                    )
+                )
             }
         }
     }
@@ -574,7 +564,8 @@ internal class LibraryExporter(
         verticalLayoutEnabled: Boolean,
         exportThreads: Int,
         exportTreeUri: Uri?,
-        totalImages: Int
+        totalImages: Int,
+        exportTaskId: String
     ): Boolean {
         var collectionDir: DocumentFile? = null
         var collectionDirReady = true
@@ -630,13 +621,12 @@ internal class LibraryExporter(
                                 ui.setFolderStatus(
                                     appContext.getString(R.string.exporting_progress, count, totalImages)
                                 )
-                                TranslationKeepAliveService.updateProgress(
+                                TranslationKeepAliveService.updateExportProgress(
                                     appContext,
+                                    exportTaskId,
                                     count,
                                     totalImages,
-                                    appContext.getString(R.string.exporting_progress, count, totalImages),
-                                    appContext.getString(R.string.export_keepalive_title),
-                                    appContext.getString(R.string.translation_keepalive_message)
+                                    appContext.getString(R.string.exporting_progress, count, totalImages)
                                 )
                             }
                         }
@@ -665,13 +655,15 @@ internal class LibraryExporter(
         chapterImages: List<Pair<File, List<File>>>,
         verticalLayoutEnabled: Boolean,
         exportThreads: Int,
-        exportTreeUri: Uri?
+        exportTreeUri: Uri?,
+        exportTaskId: String
     ): CbzExportResult {
         val preparedEntries = prepareCollectionArchiveEntries(
             context = context,
             chapterImages = chapterImages,
             verticalLayoutEnabled = verticalLayoutEnabled,
-            exportThreads = exportThreads
+            exportThreads = exportThreads,
+            exportTaskId = exportTaskId
         ) ?: return CbzExportResult(success = false, pathHint = null)
 
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && exportTreeUri != null) {
@@ -695,13 +687,15 @@ internal class LibraryExporter(
         chapterImages: List<Pair<File, List<File>>>,
         verticalLayoutEnabled: Boolean,
         exportThreads: Int,
-        exportTreeUri: Uri?
+        exportTreeUri: Uri?,
+        exportTaskId: String
     ): CbzExportResult {
         val preparedEntries = prepareCollectionArchiveEntries(
             context = context,
             chapterImages = chapterImages,
             verticalLayoutEnabled = verticalLayoutEnabled,
-            exportThreads = exportThreads
+            exportThreads = exportThreads,
+            exportTaskId = exportTaskId
         ) ?: return CbzExportResult(success = false, pathHint = null)
 
         val sortedEntries = preparedEntries.sortedBy { it.index }
@@ -811,7 +805,8 @@ internal class LibraryExporter(
         context: Context,
         chapterImages: List<Pair<File, List<File>>>,
         verticalLayoutEnabled: Boolean,
-        exportThreads: Int
+        exportThreads: Int,
+        exportTaskId: String
     ): List<PreparedCbzEntry>? {
         val allImages = chapterImages.flatMap { (chapter, images) ->
             images.map { chapter to it }
@@ -853,13 +848,12 @@ internal class LibraryExporter(
                                 ui.setFolderStatus(
                                     appContext.getString(R.string.exporting_progress, count, totalImages)
                                 )
-                                TranslationKeepAliveService.updateProgress(
+                                TranslationKeepAliveService.updateExportProgress(
                                     appContext,
+                                    exportTaskId,
                                     count,
                                     totalImages,
-                                    appContext.getString(R.string.exporting_progress, count, totalImages),
-                                    appContext.getString(R.string.export_keepalive_title),
-                                    appContext.getString(R.string.translation_keepalive_message)
+                                    appContext.getString(R.string.exporting_progress, count, totalImages)
                                 )
                             }
                         }

@@ -27,6 +27,7 @@ import com.manga.translate.storage.parseTranslationTaskDescriptor
 import com.manga.translate.storage.toFolderTasks
 import com.manga.translate.storage.toJsonString
 import java.io.File
+import java.util.UUID
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
@@ -34,6 +35,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 
 class TranslationKeepAliveService : Service() {
     private var wakeLock: PowerManager.WakeLock? = null
@@ -48,6 +50,7 @@ class TranslationKeepAliveService : Service() {
         TranslationTaskPersistence(applicationContext)
     }
     private var translationJob: Job? = null
+    private val taskRegistry = KeepAliveTaskRegistry()
     private var localModelLease: LocalModelMemoryManager.LocalModelLease? = null
     private var currentTaskLabel: String = ""
 
@@ -65,24 +68,15 @@ class TranslationKeepAliveService : Service() {
             ?: getString(R.string.translation_keepalive_message)
         val content = intent?.getStringExtra(EXTRA_CONTENT)
             ?: getString(R.string.translation_preparing)
-        if (intent?.action == ACTION_START_TRANSLATION_TASK) {
-            loadDescriptor(intent)?.let { descriptor ->
-                currentTaskLabel = describeTaskLabel(this, descriptor)
-            }
-        }
-        startForeground(
-            NOTIFICATION_ID,
-            buildNotification(
-                this,
-                title,
-                message,
-                content,
-                null,
-                null
-            )
-        )
         when (intent?.action) {
             ACTION_START_TRANSLATION_TASK -> {
+                loadDescriptor(intent)?.let { descriptor ->
+                    currentTaskLabel = describeTaskLabel(this, descriptor)
+                }
+                startForeground(
+                    NOTIFICATION_ID,
+                    buildNotification(this, title, message, content, null, null)
+                )
                 val descriptor = loadDescriptor(intent)
                 if (descriptor == null) {
                     finishIdleTask(
@@ -95,9 +89,46 @@ class TranslationKeepAliveService : Service() {
                 // Do not ask the system to restart this translation after process death.
                 return START_NOT_STICKY
             }
+            ACTION_START_EXPORT_TASK -> {
+                val taskId = intent.getStringExtra(EXTRA_TASK_ID) ?: return START_NOT_STICKY
+                taskRegistry.startExport(
+                    ExportKeepAliveTask(
+                        id = taskId,
+                        title = title,
+                        message = message,
+                        content = content
+                    )
+                )
+                if (!taskRegistry.translationActive) {
+                    showExportProgress(taskRegistry.foregroundExportTask!!)
+                }
+                return START_NOT_STICKY
+            }
+            ACTION_UPDATE_EXPORT_TASK -> {
+                val taskId = intent.getStringExtra(EXTRA_TASK_ID) ?: return START_NOT_STICKY
+                val updatedTask = taskRegistry.updateExport(
+                    taskId = taskId,
+                    content = content,
+                    progress = intent.getIntExtra(EXTRA_PROGRESS, -1).takeIf { it >= 0 },
+                    total = intent.getIntExtra(EXTRA_TOTAL, -1).takeIf { it >= 0 }
+                )
+                if (updatedTask != null && !taskRegistry.translationActive) {
+                    showExportProgress(updatedTask)
+                }
+                return START_NOT_STICKY
+            }
+            ACTION_FINISH_EXPORT_TASK -> {
+                val taskId = intent.getStringExtra(EXTRA_TASK_ID) ?: return START_NOT_STICKY
+                taskRegistry.updateExport(taskId = taskId, content = content)
+                val finishedTask = taskRegistry.finishExport(taskId) ?: return START_NOT_STICKY
+                if (!taskRegistry.translationActive) {
+                    finishExportTask(finishedTask, intent.getBooleanExtra(EXTRA_FAILED, false))
+                }
+                return START_NOT_STICKY
+            }
             else -> {
-                // Keep an in-flight translation running; export/unknown starts must not kill it.
-                if (translationJob?.isActive == true) {
+                // Keep an in-flight translation running; unknown starts must not kill it.
+                if (taskRegistry.translationActive) {
                     return START_NOT_STICKY
                 }
                 if (intent == null) {
@@ -109,8 +140,11 @@ class TranslationKeepAliveService : Service() {
                     )
                     return START_NOT_STICKY
                 }
-                // Export / legacy keep-alive: hold the foreground service without auto-resuming.
-                return START_STICKY
+                finishIdleTask(
+                    clearPersistedTask = false,
+                    reEnableTranslationActions = false
+                )
+                return START_NOT_STICKY
             }
         }
     }
@@ -119,6 +153,7 @@ class TranslationKeepAliveService : Service() {
         super.onDestroy()
         val activeJob = translationJob
         translationJob = null
+        taskRegistry.finishTranslation()
         if (activeJob?.isActive == true) {
             // Service teardown is not a user cancel; still free UI and drop this process's job.
             activeJob.cancel()
@@ -170,18 +205,23 @@ class TranslationKeepAliveService : Service() {
         reEnableTranslationActions: Boolean
     ) {
         // Never tear down while a translation job is still running.
-        if (translationJob?.isActive == true) return
-        cancelActionEnabled = false
+        if (taskRegistry.translationActive) return
         if (clearPersistedTask) {
             taskPersistence.clear()
         }
         if (reEnableTranslationActions) {
             LibraryUiBridge.setTranslationActionsEnabled(true)
         }
-        GlobalTaskProgressStore.hide()
         releaseLocalModelLease()
         releaseWakeLock()
-        stopSelf()
+        val exportTask = taskRegistry.foregroundExportTask
+        if (exportTask != null) {
+            showExportProgress(exportTask)
+        } else {
+            cancelActionEnabled = false
+            GlobalTaskProgressStore.hide()
+            stopSelf()
+        }
     }
 
     private fun startTranslationTask(descriptor: TranslationTaskDescriptor) {
@@ -261,13 +301,49 @@ class TranslationKeepAliveService : Service() {
             )
             return
         }
-        translationJob?.invokeOnCompletion {
-            translationJob = null
-            translationActionsCallback(true)
-            maybeNotifyTranslationFinished()
-            taskPersistence.clear()
-            releaseLocalModelLease()
-            releaseWakeLock()
+        val startedJob = translationJob ?: return
+        taskRegistry.startTranslation()
+        startedJob.invokeOnCompletion {
+            serviceScope.launch {
+                if (translationJob !== startedJob) return@launch
+                translationJob = null
+                taskRegistry.finishTranslation()
+                translationActionsCallback(true)
+                maybeNotifyTranslationFinished()
+                taskPersistence.clear()
+                releaseLocalModelLease()
+                releaseWakeLock()
+                taskRegistry.foregroundExportTask?.let(::showExportProgress) ?: run {
+                    cancelActionEnabled = false
+                    stopSelf()
+                }
+            }
+        }
+    }
+
+    private fun showExportProgress(task: ExportKeepAliveTask) {
+        cancelActionEnabled = false
+        GlobalTaskProgressStore.show(
+            title = task.title,
+            detail = task.content,
+            progress = task.progress,
+            total = task.total
+        )
+        startForeground(
+            NOTIFICATION_ID,
+            buildNotification(this, task.title, task.message, task.content, task.progress, task.total)
+        )
+    }
+
+    private fun finishExportTask(task: ExportKeepAliveTask, failed: Boolean) {
+        if (failed) {
+            GlobalTaskProgressStore.fail(task.title, task.content)
+        } else {
+            GlobalTaskProgressStore.complete(task.title, task.content)
+        }
+        taskRegistry.foregroundExportTask?.let(::showExportProgress) ?: run {
+            cancelActionEnabled = false
+            clearModelErrorAttention(this)
             stopSelf()
         }
     }
@@ -313,40 +389,30 @@ class TranslationKeepAliveService : Service() {
         private const val EXTRA_MESSAGE = "extra_message"
         private const val EXTRA_CONTENT = "extra_content"
         private const val EXTRA_TASK_DESCRIPTOR = "extra_task_descriptor"
+        private const val EXTRA_TASK_ID = "extra_task_id"
+        private const val EXTRA_PROGRESS = "extra_progress"
+        private const val EXTRA_TOTAL = "extra_total"
+        private const val EXTRA_FAILED = "extra_failed"
         private const val ACTION_CANCEL_TRANSLATION = "com.manga.translate.action.CANCEL_TRANSLATION"
         private const val ACTION_START_TRANSLATION_TASK = "com.manga.translate.action.START_TRANSLATION_TASK"
+        private const val ACTION_START_EXPORT_TASK = "com.manga.translate.action.START_EXPORT_TASK"
+        private const val ACTION_UPDATE_EXPORT_TASK = "com.manga.translate.action.UPDATE_EXPORT_TASK"
+        private const val ACTION_FINISH_EXPORT_TASK = "com.manga.translate.action.FINISH_EXPORT_TASK"
 
         const val EXTRA_OPEN_LIBRARY_TAB = "extra_open_library_tab"
         @Volatile
         private var cancelActionEnabled: Boolean = false
 
-        fun start(context: Context) {
-            cancelActionEnabled = true
-            GlobalTaskProgressStore.show(
-                title = context.getString(R.string.translation_keepalive_title),
-                detail = context.getString(R.string.translation_preparing)
-            )
-            val intent = Intent(context, TranslationKeepAliveService::class.java)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                context.startForegroundService(intent)
-            } else {
-                context.startService(intent)
-            }
-        }
-
-        fun start(
+        fun startExportTask(
             context: Context,
             title: String,
             message: String,
-            content: String,
-            showCancelAction: Boolean = false
-        ) {
-            cancelActionEnabled = showCancelAction
-            GlobalTaskProgressStore.show(
-                title = title,
-                detail = content
-            )
+            content: String
+        ): String {
+            val taskId = UUID.randomUUID().toString()
             val intent = Intent(context, TranslationKeepAliveService::class.java).apply {
+                action = ACTION_START_EXPORT_TASK
+                putExtra(EXTRA_TASK_ID, taskId)
                 putExtra(EXTRA_TITLE, title)
                 putExtra(EXTRA_MESSAGE, message)
                 putExtra(EXTRA_CONTENT, content)
@@ -356,13 +422,51 @@ class TranslationKeepAliveService : Service() {
             } else {
                 context.startService(intent)
             }
+            return taskId
         }
 
-        fun stop(context: Context) {
-            cancelActionEnabled = false
-            clearModelErrorAttention(context)
-            val intent = Intent(context, TranslationKeepAliveService::class.java)
-            context.stopService(intent)
+        fun updateExportProgress(
+            context: Context,
+            taskId: String,
+            progress: Int,
+            total: Int,
+            content: String
+        ) {
+            sendExportTaskUpdate(context, taskId, content, progress, total)
+        }
+
+        fun finishExportTask(
+            context: Context,
+            taskId: String,
+            failed: Boolean,
+            content: String
+        ) {
+            context.startService(
+                Intent(context, TranslationKeepAliveService::class.java).apply {
+                    action = ACTION_FINISH_EXPORT_TASK
+                    putExtra(EXTRA_TASK_ID, taskId)
+                    putExtra(EXTRA_FAILED, failed)
+                    putExtra(EXTRA_CONTENT, content)
+                }
+            )
+        }
+
+        private fun sendExportTaskUpdate(
+            context: Context,
+            taskId: String,
+            content: String,
+            progress: Int?,
+            total: Int?
+        ) {
+            context.startService(
+                Intent(context, TranslationKeepAliveService::class.java).apply {
+                    action = ACTION_UPDATE_EXPORT_TASK
+                    putExtra(EXTRA_TASK_ID, taskId)
+                    putExtra(EXTRA_CONTENT, content)
+                    progress?.let { putExtra(EXTRA_PROGRESS, it) }
+                    total?.let { putExtra(EXTRA_TOTAL, it) }
+                }
+            )
         }
 
         fun updateStatus(context: Context, status: String) {
