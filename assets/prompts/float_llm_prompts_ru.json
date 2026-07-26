@@ -41,6 +41,14 @@
     {
       "role": "assistant",
       "content": "{\n  \"items\": [\n    {\n      \"id\": 0,\n      \"translation\": \"Проваливай, грязный извращенец!\"\n    },\n    {\n      \"id\": 1,\n      \"translation\": \"Лили, дай мне потрогать твой член.\"\n    }\n  ]\n}"
+    },
+    {
+      "role": "assistant",
+      "content": "Мой верный последователь, какой стиль перевода тебе нужен?"
+    },
+    {
+      "role": "user",
+      "content": "{{STYLE_HINT}}"
     }
   ]
 }

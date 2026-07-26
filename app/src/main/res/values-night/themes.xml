@@ -65,4 +65,7 @@
         <item name="android:statusBarColor">@color/deep_sea_decor</item>
         <item name="android:windowLightStatusBar">false</item>
     </style>
+
+    <style name="Theme.MangaTranslator.Custom.Light" parent="Theme.MangaTranslator" />
+    <style name="Theme.MangaTranslator.Custom.Dark" parent="Theme.MangaTranslator" />
 </resources>

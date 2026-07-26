@@ -7,6 +7,7 @@ import com.manga.translate.library.LibraryRepository
 import com.manga.translate.model.ThemeMode
 import com.manga.translate.model.TranslationLanguage
 import com.manga.translate.settings.SettingsStore
+import com.manga.translate.settings.CustomThemeColors
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.first
@@ -65,6 +66,30 @@ class SettingsStoreTest {
         val changedKeys = changeDeferred.await()
         assertTrue(changedKeys.isNotEmpty())
         assertTrue(store.settingsVersion.value > initialVersion)
+    }
+
+    @Test
+    fun `custom theme colors persist as opaque rgb values`() {
+        val store = SettingsStore(context)
+        val colors = CustomThemeColors.DEFAULT.copy(
+            background = 0xFF123456.toInt(),
+            surface = 0xFFABCDEF.toInt(),
+            surfaceAlt = 0xFF223344.toInt(),
+            accent = 0xFFCC5500.toInt(),
+            accentContent = 0xFF112233.toInt(),
+            foreground = 0xFF334455.toInt(),
+            mutedForeground = 0xFF556677.toInt(),
+            outline = 0xFF778899.toInt(),
+            buttonFill = 0xFF99AABB.toInt(),
+            buttonPressed = 0xFFBBAA99.toInt(),
+            buttonText = 0xFF102030.toInt(),
+            heroStart = 0xFF405060.toInt(),
+            heroEnd = 0xFF607080.toInt()
+        )
+
+        store.saveCustomThemeColors(colors)
+
+        assertEquals(colors, SettingsStore(context).loadCustomThemeColors())
     }
 
     @Test

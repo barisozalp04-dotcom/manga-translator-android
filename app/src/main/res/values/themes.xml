@@ -65,4 +65,40 @@
         <item name="android:statusBarColor">@color/deep_sea_decor</item>
         <item name="android:windowLightStatusBar">false</item>
     </style>
+
+    <style name="Theme.MangaTranslator.Custom.Light" parent="Theme.MangaTranslator">
+        <item name="colorPrimary">@color/custom_light_foreground</item>
+        <item name="colorPrimaryDark">@color/custom_light_foreground</item>
+        <item name="colorAccent">@color/custom_light_foreground</item>
+        <item name="surfaceColor">@color/light_surface</item>
+        <item name="surfaceAltColor">@color/light_surface_alt</item>
+        <item name="buttonFillColor">@color/light_button</item>
+        <item name="buttonFillPressedColor">@color/light_decor</item>
+        <item name="buttonTextColor">@color/custom_light_foreground</item>
+        <item name="dialogTextColor">@color/custom_light_foreground</item>
+        <item name="dialogHintTextColor">@color/custom_light_muted</item>
+        <item name="outlineColor">@color/custom_light_outline</item>
+        <item name="mutedTextColor">@color/custom_light_muted</item>
+        <item name="heroStartColor">@color/light_decor</item>
+        <item name="heroEndColor">@color/light_hero_end</item>
+        <item name="android:windowLightStatusBar">true</item>
+    </style>
+
+    <style name="Theme.MangaTranslator.Custom.Dark" parent="Theme.MangaTranslator">
+        <item name="colorPrimary">@color/custom_dark_foreground</item>
+        <item name="colorPrimaryDark">@color/custom_dark_foreground</item>
+        <item name="colorAccent">@color/custom_dark_foreground</item>
+        <item name="surfaceColor">@color/dark_surface</item>
+        <item name="surfaceAltColor">@color/dark_surface_alt</item>
+        <item name="buttonFillColor">@color/dark_button</item>
+        <item name="buttonFillPressedColor">@color/dark_decor</item>
+        <item name="buttonTextColor">@color/custom_dark_foreground</item>
+        <item name="dialogTextColor">@color/custom_dark_foreground</item>
+        <item name="dialogHintTextColor">@color/custom_dark_muted</item>
+        <item name="outlineColor">@color/custom_dark_outline</item>
+        <item name="mutedTextColor">@color/custom_dark_muted</item>
+        <item name="heroStartColor">@color/dark_decor</item>
+        <item name="heroEndColor">@color/dark_hero_end</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
 </resources>

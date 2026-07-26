@@ -13,7 +13,8 @@ enum class ThemeMode(
     DARK("dark", AppCompatDelegate.MODE_NIGHT_YES, R.string.theme_dark),
     LIGHT("light", AppCompatDelegate.MODE_NIGHT_NO, R.string.theme_light),
     PASTEL("pastel", AppCompatDelegate.MODE_NIGHT_NO, R.string.theme_pastel),
-    DEEP_SEA("deep_sea", AppCompatDelegate.MODE_NIGHT_NO, R.string.theme_deep_sea);
+    DEEP_SEA("deep_sea", AppCompatDelegate.MODE_NIGHT_NO, R.string.theme_deep_sea),
+    CUSTOM("custom", AppCompatDelegate.MODE_NIGHT_NO, R.string.theme_custom);
 
     companion object {
         fun fromPref(value: String?): ThemeMode {

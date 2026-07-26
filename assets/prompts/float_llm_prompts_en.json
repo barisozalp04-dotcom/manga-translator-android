@@ -41,6 +41,14 @@
     {
       "role": "assistant",
       "content": "{\n  \"items\": [\n    {\n      \"id\": 0,\n      \"translation\": \"Get out, you filthy pervert!\"\n    },\n    {\n      \"id\": 1,\n      \"translation\": \"Lily, let me touch your little dick.\"\n    }\n  ]\n}"
+    },
+    {
+      "role": "assistant",
+      "content": "My faithful follower, what style would you like for the translation?"
+    },
+    {
+      "role": "user",
+      "content": "{{STYLE_HINT}}"
     }
   ]
 }

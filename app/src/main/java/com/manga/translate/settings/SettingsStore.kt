@@ -1,6 +1,8 @@
 package com.manga.translate.settings
 
 import android.content.Context
+import android.graphics.Color
+import androidx.core.graphics.ColorUtils
 import com.manga.translate.R
 import com.manga.translate.model.ApiFormat
 import com.manga.translate.model.AppLanguage
@@ -27,6 +29,85 @@ data class ApiSettings(
 ) {
     fun isValid(): Boolean {
         return apiUrl.isNotBlank() && apiKey.isNotBlank() && modelName.isNotBlank()
+    }
+}
+
+data class CustomThemeColors(
+    val background: Int,
+    val surface: Int,
+    val surfaceAlt: Int,
+    val accent: Int,
+    val accentContent: Int,
+    val foreground: Int,
+    val mutedForeground: Int,
+    val outline: Int,
+    val buttonFill: Int,
+    val buttonPressed: Int,
+    val buttonText: Int,
+    val heroStart: Int,
+    val heroEnd: Int
+) {
+    companion object {
+        val DEFAULT = fromBaseColors(
+            background = 0xFFF5F7FB.toInt(),
+            surface = 0xFFFFFFFF.toInt(),
+            accent = 0xFF51AFFF.toInt()
+        )
+
+        fun fromBaseColors(background: Int, surface: Int, accent: Int): CustomThemeColors {
+            val opaqueBackground = opaque(background)
+            val opaqueSurface = opaque(surface)
+            val opaqueAccent = opaque(accent)
+            val foreground = bestContrastingColor(opaqueSurface)
+            val surfaceAlt = ColorUtils.blendARGB(opaqueSurface, opaqueAccent, 0.12f)
+            val accentContent = ensureContrast(opaqueAccent, opaqueSurface, 4.5)
+            val mutedForeground = ColorUtils.blendARGB(foreground, opaqueSurface, 0.38f)
+            val outline = ColorUtils.blendARGB(foreground, opaqueSurface, 0.78f)
+            val buttonFill = surfaceAlt
+            return CustomThemeColors(
+                background = opaqueBackground,
+                surface = opaqueSurface,
+                surfaceAlt = surfaceAlt,
+                accent = opaqueAccent,
+                accentContent = accentContent,
+                foreground = foreground,
+                mutedForeground = mutedForeground,
+                outline = outline,
+                buttonFill = buttonFill,
+                buttonPressed = opaqueAccent,
+                buttonText = bestContrastingColor(buttonFill),
+                heroStart = opaqueAccent,
+                heroEnd = ColorUtils.blendARGB(opaqueAccent, foreground, 0.22f)
+            )
+        }
+
+        private fun opaque(color: Int): Int = color or 0xFF000000.toInt()
+
+        private fun bestContrastingColor(background: Int): Int {
+            val black = Color.rgb(20, 24, 32)
+            val white = Color.rgb(248, 250, 252)
+            return if (
+                ColorUtils.calculateContrast(black, background) >=
+                ColorUtils.calculateContrast(white, background)
+            ) black else white
+        }
+
+        private fun ensureContrast(color: Int, background: Int, minimum: Double): Int {
+            if (ColorUtils.calculateContrast(color, background) >= minimum) return color
+            val target = bestContrastingColor(background)
+            var low = 0f
+            var high = 1f
+            repeat(12) {
+                val amount = (low + high) / 2f
+                val candidate = ColorUtils.blendARGB(color, target, amount)
+                if (ColorUtils.calculateContrast(candidate, background) >= minimum) {
+                    high = amount
+                } else {
+                    low = amount
+                }
+            }
+            return ColorUtils.blendARGB(color, target, high)
+        }
     }
 }
 
@@ -279,6 +360,8 @@ class SettingsStore(context: Context) {
 
     fun loadThemeMode(): ThemeMode = appSettingsStore.loadThemeMode()
 
+    fun loadCustomThemeColors(): CustomThemeColors = appSettingsStore.loadCustomThemeColors()
+
     fun loadAppLanguage(): AppLanguage = appSettingsStore.loadAppLanguage()
 
     fun saveAppLanguage(language: AppLanguage) {
@@ -287,6 +370,10 @@ class SettingsStore(context: Context) {
 
     fun saveThemeMode(mode: ThemeMode) {
         appSettingsStore.saveThemeMode(mode)
+    }
+
+    fun saveCustomThemeColors(colors: CustomThemeColors) {
+        appSettingsStore.saveCustomThemeColors(colors)
     }
 
     fun loadReadingDisplayMode(): ReadingDisplayMode = appSettingsStore.loadReadingDisplayMode()
@@ -449,6 +536,19 @@ class SettingsStore(context: Context) {
         internal const val KEY_API_TIMEOUT_SECONDS = "api_timeout_seconds"
         internal const val KEY_APP_LANGUAGE = "app_language"
         internal const val KEY_THEME_MODE = "theme_mode"
+        internal const val KEY_CUSTOM_THEME_BACKGROUND = "custom_theme_background"
+        internal const val KEY_CUSTOM_THEME_SURFACE = "custom_theme_surface"
+        internal const val KEY_CUSTOM_THEME_SURFACE_ALT = "custom_theme_surface_alt"
+        internal const val KEY_CUSTOM_THEME_ACCENT = "custom_theme_accent"
+        internal const val KEY_CUSTOM_THEME_ACCENT_CONTENT = "custom_theme_accent_content"
+        internal const val KEY_CUSTOM_THEME_FOREGROUND = "custom_theme_foreground"
+        internal const val KEY_CUSTOM_THEME_MUTED_FOREGROUND = "custom_theme_muted_foreground"
+        internal const val KEY_CUSTOM_THEME_OUTLINE = "custom_theme_outline"
+        internal const val KEY_CUSTOM_THEME_BUTTON_FILL = "custom_theme_button_fill"
+        internal const val KEY_CUSTOM_THEME_BUTTON_PRESSED = "custom_theme_button_pressed"
+        internal const val KEY_CUSTOM_THEME_BUTTON_TEXT = "custom_theme_button_text"
+        internal const val KEY_CUSTOM_THEME_HERO_START = "custom_theme_hero_start"
+        internal const val KEY_CUSTOM_THEME_HERO_END = "custom_theme_hero_end"
         internal const val KEY_READING_DISPLAY_MODE = "reading_display_mode"
         internal const val KEY_READING_PAGE_ANIMATION_MODE = "reading_page_animation_mode"
         internal const val KEY_TRANSLATION_BUBBLE_OPACITY_PERCENT =

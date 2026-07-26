@@ -31,4 +31,10 @@
     <color name="dark_muted_text">#A5B4CB</color>
     <color name="dark_hero_start">#162033</color>
     <color name="dark_hero_end">#243557</color>
+    <color name="custom_light_foreground">#182033</color>
+    <color name="custom_light_muted">#657086</color>
+    <color name="custom_light_outline">#CBD4E2</color>
+    <color name="custom_dark_foreground">#F7F9FC</color>
+    <color name="custom_dark_muted">#B5C0D2</color>
+    <color name="custom_dark_outline">#45536A</color>
 </resources>

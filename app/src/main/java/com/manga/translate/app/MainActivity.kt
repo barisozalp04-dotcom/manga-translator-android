@@ -20,6 +20,8 @@ import androidx.appcompat.widget.AppCompatButton
 import androidx.core.content.ContextCompat
 import androidx.core.net.toUri
 import androidx.core.widget.NestedScrollView
+import androidx.fragment.app.Fragment
+import androidx.fragment.app.FragmentManager
 import androidx.lifecycle.lifecycleScope
 import com.google.android.material.switchmaterial.SwitchMaterial
 import com.google.android.material.tabs.TabLayoutMediator
@@ -33,6 +35,8 @@ import com.manga.translate.platform.AppLogger
 import com.manga.translate.platform.GlobalTaskProgressState
 import com.manga.translate.platform.GlobalTaskProgressStore
 import com.manga.translate.platform.showWithScrollableMessage
+import com.manga.translate.theming.CustomThemeUiApplier
+import com.manga.translate.theming.ThemePaletteRuntime
 import java.util.Locale
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -75,11 +79,33 @@ class MainActivity : AppCompatActivity() {
             setTheme(R.style.Theme_MangaTranslator_Pastel)
         } else if (themeMode == ThemeMode.DEEP_SEA) {
             setTheme(R.style.Theme_MangaTranslator_DeepSea)
+        } else if (themeMode == ThemeMode.CUSTOM) {
+            val palette = ThemePaletteRuntime.activate(settingsStore.loadCustomThemeColors())
+            setTheme(
+                if (palette.isDark) R.style.Theme_MangaTranslator_Custom_Dark
+                else R.style.Theme_MangaTranslator_Custom_Light
+            )
+        } else {
+            ThemePaletteRuntime.clear()
         }
         AppCompatDelegate.setDefaultNightMode(themeMode.nightMode)
         super.onCreate(savedInstanceState)
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
+        supportFragmentManager.registerFragmentLifecycleCallbacks(
+            object : FragmentManager.FragmentLifecycleCallbacks() {
+                override fun onFragmentViewCreated(
+                    fm: FragmentManager,
+                    fragment: Fragment,
+                    view: View,
+                    savedInstanceState: Bundle?
+                ) {
+                    CustomThemeUiApplier.apply(view)
+                }
+            },
+            true
+        )
+        CustomThemeUiApplier.applyToActivity(this)
 
         pagerAdapter = MainPagerAdapter(this)
         binding.mainPager.adapter = pagerAdapter
@@ -221,21 +247,23 @@ class MainActivity : AppCompatActivity() {
 
     private fun styleUpdateDialogButton(button: AppCompatButton) {
         button.background = ContextCompat.getDrawable(this, R.drawable.bg_button_rounded)
-        button.setTextColor(ContextCompat.getColor(this, resolveThemeButtonTextColor()))
+        button.setTextColor(resolveThemeButtonTextColor())
         button.isAllCaps = false
         button.visibility = View.VISIBLE
     }
 
     private fun resolveThemeButtonTextColor(): Int {
         return when (settingsStore.loadThemeMode()) {
-            ThemeMode.PASTEL -> R.color.pastel_button_text
-            ThemeMode.DEEP_SEA -> R.color.deep_sea_button_text
+            ThemeMode.PASTEL -> ContextCompat.getColor(this, R.color.pastel_button_text)
+            ThemeMode.DEEP_SEA -> ContextCompat.getColor(this, R.color.deep_sea_button_text)
+            ThemeMode.CUSTOM -> ThemePaletteRuntime.customPalette?.buttonText
+                ?: ContextCompat.getColor(this, R.color.light_button_text)
             else -> if (resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK ==
                 android.content.res.Configuration.UI_MODE_NIGHT_YES
             ) {
-                R.color.dark_button_text
+                ContextCompat.getColor(this, R.color.dark_button_text)
             } else {
-                R.color.light_button_text
+                ContextCompat.getColor(this, R.color.light_button_text)
             }
         }
     }

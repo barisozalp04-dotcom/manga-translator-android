@@ -38,6 +38,104 @@ internal class AppSettingsStore(
         }
     }
 
+    fun loadCustomThemeColors(): CustomThemeColors {
+        val background = storage.prefs.getInt(
+            SettingsStore.KEY_CUSTOM_THEME_BACKGROUND,
+            CustomThemeColors.DEFAULT.background
+        ) or 0xFF000000.toInt()
+        val surface = storage.prefs.getInt(
+            SettingsStore.KEY_CUSTOM_THEME_SURFACE,
+            CustomThemeColors.DEFAULT.surface
+        ) or 0xFF000000.toInt()
+        val accent = storage.prefs.getInt(
+            SettingsStore.KEY_CUSTOM_THEME_ACCENT,
+            CustomThemeColors.DEFAULT.accent
+        ) or 0xFF000000.toInt()
+        fun loadColor(key: String, fallback: Int): Int {
+            return storage.prefs.getInt(key, fallback) or 0xFF000000.toInt()
+        }
+
+        return CustomThemeColors(
+            background = background,
+            surface = surface,
+            surfaceAlt = loadColor(
+                SettingsStore.KEY_CUSTOM_THEME_SURFACE_ALT,
+                CustomThemeColors.DEFAULT.surfaceAlt
+            ),
+            accent = accent,
+            accentContent = loadColor(
+                SettingsStore.KEY_CUSTOM_THEME_ACCENT_CONTENT,
+                CustomThemeColors.DEFAULT.accentContent
+            ),
+            foreground = loadColor(
+                SettingsStore.KEY_CUSTOM_THEME_FOREGROUND,
+                CustomThemeColors.DEFAULT.foreground
+            ),
+            mutedForeground = loadColor(
+                SettingsStore.KEY_CUSTOM_THEME_MUTED_FOREGROUND,
+                CustomThemeColors.DEFAULT.mutedForeground
+            ),
+            outline = loadColor(
+                SettingsStore.KEY_CUSTOM_THEME_OUTLINE,
+                CustomThemeColors.DEFAULT.outline
+            ),
+            buttonFill = loadColor(
+                SettingsStore.KEY_CUSTOM_THEME_BUTTON_FILL,
+                CustomThemeColors.DEFAULT.buttonFill
+            ),
+            buttonPressed = loadColor(
+                SettingsStore.KEY_CUSTOM_THEME_BUTTON_PRESSED,
+                CustomThemeColors.DEFAULT.buttonPressed
+            ),
+            buttonText = loadColor(
+                SettingsStore.KEY_CUSTOM_THEME_BUTTON_TEXT,
+                CustomThemeColors.DEFAULT.buttonText
+            ),
+            heroStart = loadColor(
+                SettingsStore.KEY_CUSTOM_THEME_HERO_START,
+                CustomThemeColors.DEFAULT.heroStart
+            ),
+            heroEnd = loadColor(
+                SettingsStore.KEY_CUSTOM_THEME_HERO_END,
+                CustomThemeColors.DEFAULT.heroEnd
+            )
+        )
+    }
+
+    fun saveCustomThemeColors(colors: CustomThemeColors) {
+        storage.editSettings(
+            setOf(
+                SettingsStore.KEY_CUSTOM_THEME_BACKGROUND,
+                SettingsStore.KEY_CUSTOM_THEME_SURFACE,
+                SettingsStore.KEY_CUSTOM_THEME_SURFACE_ALT,
+                SettingsStore.KEY_CUSTOM_THEME_ACCENT,
+                SettingsStore.KEY_CUSTOM_THEME_ACCENT_CONTENT,
+                SettingsStore.KEY_CUSTOM_THEME_FOREGROUND,
+                SettingsStore.KEY_CUSTOM_THEME_MUTED_FOREGROUND,
+                SettingsStore.KEY_CUSTOM_THEME_OUTLINE,
+                SettingsStore.KEY_CUSTOM_THEME_BUTTON_FILL,
+                SettingsStore.KEY_CUSTOM_THEME_BUTTON_PRESSED,
+                SettingsStore.KEY_CUSTOM_THEME_BUTTON_TEXT,
+                SettingsStore.KEY_CUSTOM_THEME_HERO_START,
+                SettingsStore.KEY_CUSTOM_THEME_HERO_END
+            )
+        ) {
+            putInt(SettingsStore.KEY_CUSTOM_THEME_BACKGROUND, colors.background)
+            putInt(SettingsStore.KEY_CUSTOM_THEME_SURFACE, colors.surface)
+            putInt(SettingsStore.KEY_CUSTOM_THEME_SURFACE_ALT, colors.surfaceAlt)
+            putInt(SettingsStore.KEY_CUSTOM_THEME_ACCENT, colors.accent)
+            putInt(SettingsStore.KEY_CUSTOM_THEME_ACCENT_CONTENT, colors.accentContent)
+            putInt(SettingsStore.KEY_CUSTOM_THEME_FOREGROUND, colors.foreground)
+            putInt(SettingsStore.KEY_CUSTOM_THEME_MUTED_FOREGROUND, colors.mutedForeground)
+            putInt(SettingsStore.KEY_CUSTOM_THEME_OUTLINE, colors.outline)
+            putInt(SettingsStore.KEY_CUSTOM_THEME_BUTTON_FILL, colors.buttonFill)
+            putInt(SettingsStore.KEY_CUSTOM_THEME_BUTTON_PRESSED, colors.buttonPressed)
+            putInt(SettingsStore.KEY_CUSTOM_THEME_BUTTON_TEXT, colors.buttonText)
+            putInt(SettingsStore.KEY_CUSTOM_THEME_HERO_START, colors.heroStart)
+            putInt(SettingsStore.KEY_CUSTOM_THEME_HERO_END, colors.heroEnd)
+        }
+    }
+
     fun loadReadingDisplayMode(): ReadingDisplayMode {
         val saved = storage.prefs.getString(
             SettingsStore.KEY_READING_DISPLAY_MODE,

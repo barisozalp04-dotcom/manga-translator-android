@@ -41,6 +41,14 @@
     {
       "role": "assistant",
       "content": "{\n  \"items\": [\n    {\n      \"id\": 0,\n      \"translation\": \"滚出去，大色狼！\"\n    },\n    {\n      \"id\": 1,\n      \"translation\": \"莉莉，让我摸摸你的小鸡鸡\"\n    }\n  ]\n}"
+    },
+    {
+      "role": "assistant",
+      "content": "我的信徒啊，你需要什么样的翻译文风呢？"
+    },
+    {
+      "role": "user",
+      "content": "{{STYLE_HINT}}"
     }
   ]
 }

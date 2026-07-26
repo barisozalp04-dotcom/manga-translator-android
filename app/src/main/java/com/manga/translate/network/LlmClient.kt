@@ -1800,7 +1800,6 @@ class LlmClient(
     private fun loadPromptConfig(name: String, styleHint: String): LlmPromptConfig {
         val json = JSONObject(readAsset(name))
         val systemPrompt = json.optString("system_prompt")
-            .replace("{{STYLE_HINT}}", styleHint)
         val userPromptPrefix = json.optString("user_prompt_prefix")
         val examplesJson = json.optJSONArray("example_messages") ?: JSONArray()
         val examples = ArrayList<PromptMessage>(examplesJson.length())
@@ -1808,6 +1807,7 @@ class LlmClient(
             val messageObj = examplesJson.optJSONObject(i) ?: continue
             val role = messageObj.optString("role")
             val content = messageObj.optString("content")
+                .replace("{{STYLE_HINT}}", styleHint)
             if (role.isNotBlank() && content.isNotBlank()) {
                 examples.add(PromptMessage(role, content))
             }

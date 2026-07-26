@@ -5,8 +5,10 @@ import android.app.Application
 import android.os.Bundle
 import androidx.appcompat.app.AppCompatDelegate
 import com.manga.translate.di.AppContainer
+import com.manga.translate.model.ThemeMode
 import com.manga.translate.platform.AppLogger
 import com.manga.translate.storage.TranslationTaskPersistence
+import com.manga.translate.theming.ThemePaletteRuntime
 import java.util.concurrent.atomic.AtomicInteger
 
 class MangaTranslateApp : Application() {
@@ -41,6 +43,11 @@ class MangaTranslateApp : Application() {
         syncAppLocales()
         val settingsStore = appContainer.settingsStore
         val themeMode = settingsStore.loadThemeMode()
+        if (themeMode == ThemeMode.CUSTOM) {
+            ThemePaletteRuntime.activate(settingsStore.loadCustomThemeColors())
+        } else {
+            ThemePaletteRuntime.clear()
+        }
         AppCompatDelegate.setDefaultNightMode(themeMode.nightMode)
         val crashStateStore = appContainer.crashStateStore
         val previousHandler = Thread.getDefaultUncaughtExceptionHandler()

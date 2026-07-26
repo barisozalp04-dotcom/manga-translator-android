@@ -73,6 +73,29 @@
     <string name="theme_light">白色</string>
     <string name="theme_pastel">粉彩</string>
     <string name="theme_deep_sea">深海</string>
+    <string name="theme_custom">自定义</string>
+    <string name="custom_theme_title">自定义主题色</string>
+    <string name="custom_theme_colors_button">自定义颜色</string>
+    <string name="custom_theme_primary_colors">主要颜色</string>
+    <string name="custom_theme_secondary_colors">次要颜色</string>
+    <string name="custom_theme_auto_generate">自动生成次要颜色</string>
+    <string name="custom_theme_background">背景</string>
+    <string name="custom_theme_surface">卡片</string>
+    <string name="custom_theme_surface_alt">次级面板与标签</string>
+    <string name="custom_theme_accent">强调</string>
+    <string name="custom_theme_accent_content">标题与重点文字</string>
+    <string name="custom_theme_foreground">正文文字</string>
+    <string name="custom_theme_muted_foreground">次要文字</string>
+    <string name="custom_theme_outline">边框与分隔线</string>
+    <string name="custom_theme_button_fill">按钮背景</string>
+    <string name="custom_theme_button_pressed">按钮按下</string>
+    <string name="custom_theme_button_text">按钮文字</string>
+    <string name="custom_theme_hero_start">顶部与状态栏</string>
+    <string name="custom_theme_hero_end">顶部渐变结束</string>
+    <string name="custom_theme_hue">色相</string>
+    <string name="custom_theme_saturation">饱和度</string>
+    <string name="custom_theme_brightness">明度</string>
+    <string name="custom_theme_reset">恢复默认</string>
 
     <!-- Settings / Model & Params -->
     <string name="fetch_models">获取模型列表</string>
@@ -145,8 +168,8 @@
     <string name="ocr_settings_button">OCR 设置</string>
     <string name="translation_style_button">翻译文风设定</string>
     <string name="translation_style_title">翻译文风设定</string>
-    <string name="translation_style_hint">文风描述（将附加到翻译提示词中）</string>
-    <string name="translation_style_note">此文字将作为文风指令附加到翻译提示词末尾，可用于指定译文风格、语气或特殊要求。</string>
+    <string name="translation_style_hint">文风描述（将作为提示词对话回答）</string>
+    <string name="translation_style_note">此文字将作为助手询问翻译文风后的回答，置于翻译提示词的最后一段对话中，可用于指定译文风格、语气或特殊要求。</string>
     <string name="translation_style_saved">文风设定已保存</string>
     <string name="translation_style_reset">恢复默认</string>
     <string name="ocr_settings_title">OCR 设置</string>

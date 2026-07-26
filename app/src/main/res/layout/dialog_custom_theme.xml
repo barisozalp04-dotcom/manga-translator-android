@@ -1,0 +1,126 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:clipToPadding="false">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="20dp">
+
+        <com.manga.translate.settings.ui.CustomThemePreviewView
+            android:id="@+id/theme_preview"
+            android:layout_width="match_parent"
+            android:layout_height="150dp" />
+
+        <RadioGroup
+            android:id="@+id/color_group_toggle"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="14dp"
+            android:checkedButton="@id/primary_colors_button"
+            android:orientation="horizontal">
+
+            <androidx.appcompat.widget.AppCompatRadioButton
+                android:id="@+id/primary_colors_button"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/custom_theme_primary_colors" />
+
+            <androidx.appcompat.widget.AppCompatRadioButton
+                android:id="@+id/secondary_colors_button"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/custom_theme_secondary_colors" />
+        </RadioGroup>
+
+        <GridLayout
+            android:id="@+id/color_target_grid"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:alignmentMode="alignMargins"
+            android:columnCount="5"
+            android:useDefaultMargins="false" />
+
+        <Button
+            android:id="@+id/auto_generate_secondary_button"
+            style="@style/Widget.MangaTranslator.DialogActionButton"
+            android:layout_width="wrap_content"
+            android:layout_height="44dp"
+            android:layout_gravity="end"
+            android:layout_marginTop="10dp"
+            android:text="@string/custom_theme_auto_generate"
+            android:visibility="gone" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <View
+                android:id="@+id/selected_color_swatch"
+                android:layout_width="32dp"
+                android:layout_height="32dp" />
+
+            <TextView
+                android:id="@+id/selected_color_label"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="12dp"
+                android:layout_weight="1"
+                android:textColor="?attr/dialogTextColor"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/selected_color_value"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="12dp"
+                android:textColor="?attr/dialogHintTextColor"
+                android:textStyle="bold" />
+        </LinearLayout>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="14dp"
+            android:text="@string/custom_theme_hue"
+            android:textColor="?attr/dialogTextColor" />
+
+        <com.manga.translate.settings.ui.ColorSliderView
+            android:id="@+id/hue_slider"
+            android:layout_width="match_parent"
+            android:layout_height="40dp" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/custom_theme_saturation"
+            android:textColor="?attr/dialogTextColor" />
+
+        <com.manga.translate.settings.ui.ColorSliderView
+            android:id="@+id/saturation_slider"
+            android:layout_width="match_parent"
+            android:layout_height="40dp" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/custom_theme_brightness"
+            android:textColor="?attr/dialogTextColor" />
+
+        <com.manga.translate.settings.ui.ColorSliderView
+            android:id="@+id/brightness_slider"
+            android:layout_width="match_parent"
+            android:layout_height="40dp" />
+    </LinearLayout>
+</ScrollView>
