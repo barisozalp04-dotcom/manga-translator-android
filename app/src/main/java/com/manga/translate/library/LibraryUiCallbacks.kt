@@ -6,8 +6,11 @@ internal interface LibraryUiCallbacks {
     fun setFolderStatus(left: String, right: String = "")
     fun clearFolderStatus()
     fun setTranslationActionsEnabled(enabled: Boolean)
+    fun setFolderExportEnabled(folder: File, enabled: Boolean) = Unit
     fun showToast(resId: Int)
     fun showToastMessage(message: String)
+    fun showImageConversionProgress() = Unit
+    fun hideImageConversionProgress() = Unit
     fun showApiError(code: String, detail: String? = null)
     fun showModelError(
         content: String,
@@ -17,6 +20,7 @@ internal interface LibraryUiCallbacks {
     )
     fun refreshFolders()
     fun refreshImages(folder: File)
+    fun showExportSuccess(path: String) = Unit
     fun isUiAttached(): Boolean
     fun isFragmentActive(): Boolean
     fun isAppInForeground(): Boolean

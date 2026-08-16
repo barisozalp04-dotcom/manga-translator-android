@@ -8,9 +8,11 @@ import com.manga.translate.model.TranslationLanguage
 import com.manga.translate.model.TranslationMetadata
 import com.manga.translate.model.TranslationResult
 import com.manga.translate.model.deriveStatus
+import com.manga.translate.reader.projectPreviousSpillBubbles
 import com.manga.translate.translation.CrossPageBubbleMerger
 import com.manga.translate.model.OcrBubble
 import com.manga.translate.model.PageOcrResult
+import com.manga.translate.storage.OcrStore
 import com.manga.translate.translation.withRecognizedTextBubblesOnly
 import java.io.File
 import org.junit.Assert.assertEquals
@@ -82,12 +84,6 @@ class TranslationModelsTest {
     }
 
     @Test
-    fun `translation language exposes baidu ocr types`() {
-        assertEquals("CHN_ENG", TranslationLanguage.CHN_ENG_TO_ZH.baiduLanguageType)
-        assertEquals("RUS", TranslationLanguage.RU_TO_ZH.baiduLanguageType)
-    }
-
-    @Test
     fun `cross page merge returns detached list for single page input`() {
         val pages = mutableListOf(
             PageOcrResult(
@@ -109,6 +105,136 @@ class TranslationModelsTest {
         assertEquals(1, pages.size)
         assertEquals(1, pages.first().bubbles.size)
         assertEquals("hello", pages.first().bubbles.first().text)
+    }
+
+    @Test
+    fun `cross page merge persists both pages and scales next page coordinates`() {
+        val firstImage = File.createTempFile("cross-page-first", ".jpg")
+        val secondImage = File.createTempFile("cross-page-second", ".jpg")
+        val store = OcrStore()
+        try {
+            val merged = CrossPageBubbleMerger.merge(
+                pages = listOf(
+                    PageOcrResult(
+                        imageFile = firstImage,
+                        width = 1000,
+                        height = 1600,
+                        bubbles = listOf(
+                            OcrBubble(
+                                0,
+                                RectF(100f, 1500f, 300f, 1700f),
+                                "first",
+                                BubbleSource.BUBBLE_DETECTOR
+                            )
+                        )
+                    ),
+                    PageOcrResult(
+                        imageFile = secondImage,
+                        width = 500,
+                        height = 1600,
+                        bubbles = listOf(
+                            OcrBubble(
+                                0,
+                                RectF(50f, -100f, 150f, 150f),
+                                "second",
+                                BubbleSource.BUBBLE_DETECTOR
+                            )
+                        )
+                    )
+                ),
+                ocrStore = store
+            )
+
+            val mergedBubble = merged.first().bubbles.single()
+            assertEquals(100f, mergedBubble.rect.left)
+            assertEquals(300f, mergedBubble.rect.right)
+            assertEquals(1900f, mergedBubble.rect.bottom)
+            assertEquals(1, store.load(firstImage)?.bubbles?.size)
+            assertEquals(0, store.load(secondImage)?.bubbles?.size)
+        } finally {
+            store.ocrFileFor(firstImage).delete()
+            store.ocrFileFor(secondImage).delete()
+            firstImage.delete()
+            secondImage.delete()
+        }
+    }
+
+    @Test
+    fun `webtoon projects detector bubbles that spill into the next page`() {
+        val previous = TranslationResult(
+            imageName = "first.jpg",
+            width = 1000,
+            height = 1600,
+            bubbles = listOf(
+                BubbleTranslation.translated(
+                    id = 0,
+                    rect = RectF(100f, 1500f, 300f, 1900f),
+                    originalText = "source",
+                    translatedText = "translated text",
+                    source = BubbleSource.BUBBLE_DETECTOR
+                ),
+                BubbleTranslation.translated(
+                    id = 1,
+                    rect = RectF(400f, 1400f, 600f, 1800f),
+                    translatedText = "free text",
+                    source = BubbleSource.TEXT_DETECTOR
+                )
+            )
+        )
+
+        val projected = projectPreviousSpillBubbles(
+            previous = previous,
+            previousImageName = "first.jpg",
+            currentWidth = 500,
+            currentHeight = 1200
+        )
+
+        assertEquals(listOf(BubbleSource.BUBBLE_DETECTOR, BubbleSource.TEXT_DETECTOR), projected.map { it.source })
+        assertEquals("translated text", projected.first().translatedText)
+        assertEquals("first.jpg", projected.first().ownerImageName)
+        assertEquals(50f, projected.first().rect.left)
+        assertEquals(-50f, projected.first().rect.top)
+        assertEquals(150f, projected.first().rect.right)
+        assertEquals(150f, projected.first().rect.bottom)
+    }
+
+    @Test
+    fun `webtoon spill projection excludes bubbles outside the current continuation`() {
+        val previous = TranslationResult(
+            imageName = "first.jpg",
+            width = 1000,
+            height = 1600,
+            bubbles = listOf(
+                BubbleTranslation.translated(
+                    id = 0,
+                    rect = RectF(100f, 1200f, 300f, 1500f),
+                    translatedText = "inside previous page",
+                    source = BubbleSource.BUBBLE_DETECTOR
+                ),
+                BubbleTranslation.translated(
+                    id = 1,
+                    rect = RectF(100f, 4000f, 300f, 4300f),
+                    translatedText = "beyond current page",
+                    source = BubbleSource.TEXT_DETECTOR
+                ),
+                BubbleTranslation.translated(
+                    id = 2,
+                    rect = RectF(100f, 1500f, 300f, 1800f),
+                    translatedText = "belongs elsewhere",
+                    source = BubbleSource.MANUAL,
+                    ownerImageName = "other.jpg"
+                )
+            )
+        )
+
+        val projected = projectPreviousSpillBubbles(
+            previous = previous,
+            previousImageName = "first.jpg",
+            currentWidth = 1000,
+            currentHeight = 1200
+        )
+
+        assertEquals(emptyList<BubbleTranslation>(), projected)
     }
 
     private fun rect(index: Int): RectF {

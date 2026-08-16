@@ -4,7 +4,7 @@
 
 An Android manga translation app with local speech bubble detection and OCR, combined with an OpenAI-compatible API for translation. Translated text is rendered back onto the original image as draggable text bubbles. It also supports screen translation with a floating overlay, so you can recognize and translate manga text directly from any app or from the home screen.
 
-Tutorial: [Simplified Chinese Tutorial](./Tutorial/简中教程.md)
+Tutorial: [English Tutorial](./Tutorial/Tutorial_EN.md) | [Simplified Chinese Tutorial](./Tutorial/简中教程.md)
 
 | Original | Translated |
 |------|----------|
@@ -14,7 +14,7 @@ Tutorial: [Simplified Chinese Tutorial](./Tutorial/简中教程.md)
 - Translate Japanese, English, Korean, French, Spanish, Portuguese, German, Italian, Russian and more into Chinese, or translate Chinese into English/Russian
 - Screen translation: supports floating-window translation to recognize and translate manga text from any screen
 - Manga library management: create folders, import images in batch, import manga folders, and support CBZ, ZIP, and PDF import/export
-- Translation pipeline: speech bubble detection + OCR (supports OpenAI-compatible / Baidu AI) + LLM translation, with both standard mode and full-text fast translation
+- Translation pipeline: speech bubble detection + local or OpenAI-compatible API OCR + LLM translation, with both standard mode and full-text fast translation
 - Reading experience: translation overlay, draggable translated bubbles, and automatic reading progress saving; new cancel button and +/- fine-tune controls, synchronized zoom between webtoon and normal reading
 - Font settings: custom bubble fonts and bold style are supported; normal bubbles and floating-window bubbles share the same font configuration
 - Glossary and cache: maintain `glossary.json` per folder and automatically accumulate consistent name translations
@@ -35,14 +35,14 @@ Tutorial: [Simplified Chinese Tutorial](./Tutorial/简中教程.md)
 ## Quick Start 🚀
 1. Create a folder in the manga library and import images
 2. Make sure image filenames match the reading order, such as `1.jpg`, `2.jpg`
-3. In Settings > OCR Settings, choose the OCR API format (OpenAI-compatible / Baidu AI) and fill in the required fields
+3. In Settings > OCR Settings, choose local OCR or enter the URL, key, and model for an OpenAI-compatible OCR API
 4. Return to the library, choose a folder, and tap "Translate Folder"
 5. After translation finishes, tap "Start Reading" and drag bubble positions on the reader page as needed
 
 *For full-text fast translation, it is recommended to upload and translate in batches for large folders, or increase the API timeout in Settings.*
 
 ## FAQ ❓
-- Translation fails or returns empty results: make sure the API URL is the OpenAI-compatible base URL provided by the service (for example, `https://api.deepseek.com/v1` or `https://open.bigmodel.cn/api/paas/v4`); the app will auto-append `/chat/completions`. The model name must match the provider and the network must be reachable. If using Baidu AI OCR, verify that both the API Key and Secret Key are correct
+- Translation fails or returns empty results: make sure the API URL is the OpenAI-compatible base URL provided by the service (for example, `https://api.deepseek.com/v1` or `https://open.bigmodel.cn/api/paas/v4`); the app will auto-append `/chat/completions`. The model name must match the provider and the network must be reachable
 - Translation order is incorrect: rename images first so they match the reading order
 - How do I get an AI API: please search for a suitable provider based on your needs
 
@@ -51,7 +51,7 @@ Join the QQ group for questions and discussion: `1080302768`
 
 ## Star History
 ** If you like this project, please consider giving it a star **
-[![Star History Chart](https://api.star-history.com/svg?repos=jedzqer/manga-translator&type=date&legend=top-left)](https://www.star-history.com/#jedzqer/manga-translator&type=date&legend=top-left)
+[![Star History Chart](https://api.star-history.com/svg?repos=jedzqer/manga-translator-android&type=date&legend=top-left)](https://www.star-history.com/#jedzqer/manga-translator-android&type=date&legend=top-left)
 
 ## Data and File Layout 🗂️
 - Manga library storage: `/Android/data/<package>/files/manga_library/`
@@ -74,24 +74,39 @@ Join the QQ group for questions and discussion: `1080302768`
 ```
 
 ### Models and Assets
-Place the following model files into the corresponding subdirectories under `assets/`:
-- `models/detection/manga109-segmentation-bubble.onnx` (YOLO11n-seg speech-bubble detector at 1600x1600; also provides bubble contours)
-- `models/detection/yolo11n-text.onnx` (supplemental free-text detector; speech-bubble areas are masked first)
-- `models/ocr/manga_ocr/encoder_model.onnx`, `models/ocr/manga_ocr/decoder_model.onnx` (Japanese OCR: MangaOcr, switchable in Settings)
-- `models/ocr/manga_ocr/generation_config.json`, `models/ocr/manga_ocr/preprocessor_config.json`, `models/ocr/manga_ocr/tokenizer.json`, `models/ocr/manga_ocr/special_tokens_map.json`
-- `models/ocr/manga_ocr_mobile/encoder.tflite`, `models/ocr/manga_ocr_mobile/decoder.tflite` and tokenizer/config files (currently the default Japanese OCR: MangaOcr Mobile)
-- `models/ocr/PP-OCRv6_small_rec.onnx` (English/Chinese/mixed OCR)
-- `models/ocr/korean_PP-OCRv3_rec_infer.onnx` (Korean OCR)
-- `models/detection/PP-OCRv6_det_mobile_infer.onnx` (English line detection)
+Model files are not included in the source repository to keep it lightweight. Download them and place them in the matching subdirectories under `assets/`:
 
-Model download links:
-- Speech-bubble detection model: Manga109 YOLO11n-seg bubble segmentation model (bundled in app assets)
-- Free-text detection model: https://huggingface.co/RoyRud1902/yolo11n-text
-- English recognition model: https://huggingface.co/PaddlePaddle/PP-OCRv6_small_rec_onnx
-- English detection model: https://huggingface.co/PaddlePaddle/PP-OCRv6_small_det_onnx
-- Korean OCR model: https://huggingface.co/breezedeus/cnocr-ppocr-korean_PP-OCRv3
+- `models/detection/manga-bubble-seg-yolo26n-1472.onnx`: YOLO26n-seg speech-bubble segmentation model with 1472x1472 ONNX input and bubble-contour output.
+- `models/detection/PP-OCRv6_det_mobile_infer.onnx`: PaddleOCR PP-OCRv6 mobile text-line detector.
+- `models/ocr/PP-OCRv6_small_rec.onnx` and `models/ocr/ppocr_keys_v6_small.txt`: Japanese, English, Chinese, and mixed-text recognizer plus character dictionary.
+- `models/ocr/korean_PP-OCRv5_mobile_rec.onnx` and `models/ocr/korean_PP-OCRv5_mobile_rec_dict.txt`: Korean recognizer plus character dictionary.
 
-Prompts, fonts, and OCR configuration files are located in subdirectories under `assets/`, and their names must stay consistent with the code.
+Model sources:
+
+- Text detection and general recognition: [PaddleOCR ONNX models](https://huggingface.co/PaddlePaddle/PP-OCRv6_small_rec_onnx)
+- Korean recognition: [PaddleOCR Korean PP-OCRv5 ONNX model](https://huggingface.co/PaddlePaddle/korean_PP-OCRv5_mobile_rec_onnx)
+- Speech-bubble segmentation: use a YOLO26n-seg bubble model whose filename matches `manga-bubble-seg-yolo26n-1472.onnx` for this version.
+
+Prompts, fonts, and OCR configuration files are also stored under `assets/`; their names must remain consistent with the code.
+
+### Local signing configuration
+
+This repository contains no signing key or passwords. To build a signed release, create an untracked local `signing.properties` and pass its values as Gradle properties:
+
+```properties
+STORE_FILE=/absolute/path/to/your-release-key.jks
+STORE_PASSWORD=your-store-password
+KEY_ALIAS=your-key-alias
+KEY_PASSWORD=your-key-password
+```
+
+```bash
+./gradlew :app:assembleRelease \
+  -PSTORE_FILE="$(grep '^STORE_FILE=' signing.properties | cut -d= -f2-)" \
+  -PSTORE_PASSWORD="$(grep '^STORE_PASSWORD=' signing.properties | cut -d= -f2-)" \
+  -PKEY_ALIAS="$(grep '^KEY_ALIAS=' signing.properties | cut -d= -f2-)" \
+  -PKEY_PASSWORD="$(grep '^KEY_PASSWORD=' signing.properties | cut -d= -f2-)"
+```
 
 ### Release Version Sync
 Update all of the following files at the same time:

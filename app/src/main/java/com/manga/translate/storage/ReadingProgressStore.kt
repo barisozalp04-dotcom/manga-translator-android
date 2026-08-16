@@ -23,6 +23,32 @@ class ReadingProgressStore(context: Context) {
         }
     }
 
+    fun removeTree(folder: File) {
+        val rootPath = keyFor(folder)
+        prefs.edit {
+            prefs.all.keys
+                .filter { it == rootPath || it.startsWith("$rootPath${File.separator}") }
+                .forEach(::remove)
+        }
+    }
+
+    fun migrateTree(from: File, to: File) {
+        val fromPath = keyFor(from)
+        val toPath = keyFor(to)
+        if (fromPath == toPath) return
+        prefs.edit {
+            prefs.all
+                .filterKeys { it == fromPath || it.startsWith("$fromPath${File.separator}") }
+                .forEach { (key, value) ->
+                    if (value is Int) {
+                        val suffix = key.removePrefix(fromPath)
+                        putInt(toPath + suffix, value)
+                    }
+                    remove(key)
+                }
+        }
+    }
+
     private fun keyFor(folder: File): String {
         return folder.absolutePath
     }

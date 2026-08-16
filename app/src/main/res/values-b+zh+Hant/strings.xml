@@ -1,8 +1,10 @@
 <resources>
+    <string name="exclamation_mark" translatable="false">!</string>
     <!-- Global / Pipeline -->
     <string name="app_name">MT 閱讀器</string>
     <string name="preview_image">檢測預覽</string>
-    <string name="detecting_bubbles">氣泡檢測中…</string>
+    <string name="detecting_bubbles">文字區域檢測中…</string>
+    <string name="recognizing_bubbles">OCR 識別中（%1$d 個區域）…</string>
     <string name="translating_bubbles">翻譯中…</string>
     <string name="close_action">關閉</string>
 
@@ -42,6 +44,7 @@
 
     <!-- Settings / Display -->
     <string name="text_layout_horizontal">漫畫使用橫向排版</string>
+    <string name="bubble_vertical_text">氣泡使用直向排版</string>
     <string name="model_io_logging">列印 AI 模型輸入輸出</string>
     <string name="theme_setting_button">主題設定</string>
     <string name="theme_setting_title">主題設定</string>
@@ -54,6 +57,7 @@
     <string name="language_traditional_chinese">繁體中文</string>
     <string name="language_english">英語</string>
     <string name="language_russian">俄語</string>
+    <string name="language_portuguese_brazil">巴西葡萄牙語</string>
     <string name="reading_display_button">閱讀設定</string>
     <string name="reading_display_title">閱讀顯示</string>
     <string name="reading_display_format">閱讀顯示：%1$s</string>
@@ -106,7 +110,7 @@
     <string name="ai_provider_profiles_section_label">配置檔列表</string>
     <string name="ai_provider_profiles_current">目前配置：%1$s</string>
     <string name="ai_provider_profiles_current_none">目前配置：未啟用</string>
-    <string name="ai_provider_profiles_note">配置檔會儲存目前主模型、OCR、懸浮窗翻譯覆蓋、AI 參數、多供應商調度和自訂請求參數，切換時會整體套用。</string>
+    <string name="ai_provider_profiles_note">配置檔會儲存目前主模型、重試和並發、OCR、懸浮窗翻譯覆蓋、AI 參數、多供應商調度和自訂請求參數，切換時會整體套用。</string>
     <string name="ai_provider_profiles_empty">還沒有已儲存的配置。</string>
     <string name="ai_provider_profiles_apply">切換到選中配置</string>
     <string name="ai_provider_profiles_save_new">新建並儲存目前配置</string>
@@ -123,6 +127,8 @@
     <string name="ai_provider_profiles_delete_confirm">確定刪除配置「%1$s」嗎？</string>
     <string name="ai_provider_profiles_deleted">配置已刪除</string>
     <string name="ai_provider_profiles_select_required">請先選擇一個配置</string>
+    <string name="ai_provider_profiles_apply_invalid">所選配置的最大並發低於啟用供應商數，無法套用</string>
+    <string name="ai_provider_profiles_write_failed">配置檔寫入失敗，原有配置未變更</string>
     <string name="fetch_models_title">模型列表</string>
     <string name="fetch_models_loading">正在取得模型列表…</string>
     <string name="fetch_models_failed_title">取得模型列表失敗</string>
@@ -150,7 +156,6 @@
     <string name="custom_request_params_title">自訂請求參數</string>
     <string name="custom_request_params_note">會以頂層欄位附加到 AI 請求本體。預設作用於主供應商，也可以單獨指定給 OCR API、供應商 1、供應商 2 等。支援多組鍵值對，自動辨識布林值、數字、null，以及合法 JSON 物件或陣列。不能覆蓋既有內建參數；同一供應商內的重複鍵和衝突會被攔截。</string>
     <string name="custom_request_params_add">新增一項參數</string>
-    <string name="custom_request_params_delete">刪除此參數</string>
     <string name="custom_request_params_enabled">啟用</string>
     <string name="custom_request_param_key_hint">參數鍵名</string>
     <string name="custom_request_param_target_provider_hint">套用到供應商</string>
@@ -161,7 +166,6 @@
     <string name="custom_request_params_provider_primary">主供應商</string>
     <string name="custom_request_params_provider_ocr">OCR API</string>
     <string name="custom_request_params_empty_row_error">參數鍵名不能為空</string>
-    <string name="custom_request_params_duplicate_error">存在重複的自訂參數鍵：%1$s</string>
     <string name="custom_request_params_duplicate_error_scoped">供應商「%1$s」存在重複的自訂參數鍵：%2$s</string>
     <string name="custom_request_params_conflict_error">自訂參數不能覆蓋內建欄位：%1$s</string>
     <string name="custom_request_params_saved">自訂請求參數已儲存</string>
@@ -185,16 +189,12 @@
     <string name="normal_bubble_free_auto_adapt_color">游離氣泡自適應背景色</string>
     <string name="normal_bubble_min_area_per_char_label">文字密度下限（值越大文字越大，可能擴大氣泡）</string>
     <string name="normal_bubble_min_area_value">當前: %d sp² / 字</string>
-    <string name="normal_bubble_layout_horizontal">橫向排版</string>
-    <string name="normal_bubble_layout_vertical">直向排版</string>
     <string name="bubble_font_settings_button">字型設定</string>
     <string name="bubble_font_settings_button_uploaded">字型設定（已上傳）</string>
     <string name="bubble_font_settings_title">字型設定</string>
     <string name="bubble_font_settings_note">普通氣泡框和懸浮窗氣泡框共用這一套字型設定。可選擇系統預設，或從已上傳字型列表中切換；上傳的字型會保留在列表中，無需重複上傳。多數系統內建字型對中文會回退到同一套字形，看起來幾乎沒有差別。</string>
-    <string name="bubble_font_use_uploaded">使用上傳字型檔案</string>
     <string name="bubble_font_upload_button">上傳字型檔案</string>
     <string name="bubble_font_uploaded_file_empty">目前尚未上傳字型檔案</string>
-    <string name="bubble_font_uploaded_file_value">目前字型檔案：%1$s</string>
     <string name="bubble_font_upload_missing">請先上傳字型檔案，或選擇系統預設</string>
     <string name="bubble_font_upload_success">字型檔案已上傳：%1$s</string>
     <string name="bubble_font_upload_failed">上傳字型檔案失敗，請確認檔案有效</string>
@@ -205,15 +205,7 @@
     <string name="bubble_font_delete_confirm_message">確定刪除字型「%1$s」？此操作無法復原。</string>
     <string name="bubble_font_label">字型</string>
     <string name="bubble_font_system_default">系統預設</string>
-    <string name="bubble_font_system_sans_serif">系統無襯線</string>
-    <string name="bubble_font_system_serif">系統襯線</string>
-    <string name="bubble_font_system_monospace">系統等寬</string>
-    <string name="bubble_font_google_noto_sans_sc">Google Noto Sans SC</string>
-    <string name="bubble_font_google_noto_serif_sc">Google Noto Serif SC</string>
-    <string name="bubble_font_custom_url">自訂網路字型</string>
     <string name="bubble_font_custom_file">自訂字型檔案</string>
-    <string name="bubble_font_custom_url_hint">公開字型 URL（如 https://example.com/font.ttf）</string>
-    <string name="bubble_font_custom_file_hint">字型檔案名（assets/ 或私有目錄）</string>
     <string name="bubble_font_bold">字型加粗</string>
     <string name="floating_bubble_render_settings_button">懸浮窗氣泡設定</string>
     <string name="floating_bubble_render_settings_title">懸浮窗氣泡設定</string>
@@ -253,9 +245,7 @@
     <string name="floating_translate_settings_note">留空某一項則使用主設定中的對應配置。</string>
     <string name="ocr_use_local">使用本地 OCR</string>
     <string name="ocr_api_format_openai_compatible">OpenAI 相容</string>
-    <string name="ocr_api_format_baidu_ai">百度 AI</string>
     <string name="ocr_api_format_hint">OCR API 格式</string>
-    <string name="ocr_secret_key_hint">Secret Key（百度 AI）</string>
     <string name="ocr_api_url_hint">OCR API 位址</string>
     <string name="ocr_api_key_hint">OCR API Key</string>
     <string name="ocr_model_name_hint">OCR 模型名稱</string>
@@ -301,6 +291,15 @@
     <!-- Library / Entry -->
     <string name="library_quick_actions">快捷入口</string>
     <string name="library_quick_actions_title">匯入與工具</string>
+    <string name="import_anyway">仍然匯入</string>
+    <string name="import_cancel">取消匯入</string>
+    <string name="memory_warning_title">裝置資源可能不足</string>
+    <string name="memory_warning_message">目前剩餘可用記憶體為 %1$s，預估本次操作峰值用量為 %2$s。繼續操作可能導致應用程式卡頓、失敗或被系統終止。</string>
+    <string name="memory_warning_message_unavailable">無法取得目前剩餘可用記憶體。繼續操作可能導致應用程式卡頓、失敗或被系統終止。</string>
+    <string name="resource_concurrency_warning_message">目前剩餘可用記憶體為 %1$s，預估峰值用量為 %2$s；裝置有 %3$d 個 CPU 核心。目前選擇 %4$d 個執行緒，綜合剩餘記憶體並為系統預留 CPU 後，建議不超過 %5$d 個。繼續操作可能導致卡頓或失敗。</string>
+    <string name="memory_size_unknown">未知</string>
+    <string name="resource_continue_anyway">仍然繼續</string>
+    <string name="resource_cancel">取消</string>
     <string name="library_collection_label">Collection</string>
     <string name="library_collection_title">漫畫專案</string>
     <string name="library_sort_by_name">名稱</string>
@@ -309,6 +308,7 @@
     <string name="library_sort_order_desc">降序</string>
     <string name="library_action_panel_label">操作面板</string>
     <string name="library_translation_settings_hint">為目前資料夾單獨配置翻譯語言與全文速譯策略。</string>
+    <string name="library_translation_settings_info_desc">翻譯設定說明</string>
     <string name="library_pages_label">頁面列表</string>
     <string name="tutorial_button">使用教學</string>
     <string name="tutorial_open_title">開啟教學</string>
@@ -354,10 +354,6 @@
     <string name="floating_service_channel">懸浮窗識別</string>
     <string name="floating_service_title">懸浮窗識別執行中</string>
     <string name="floating_service_message">依照你設定的手勢操作懸浮球</string>
-    <string name="floating_usage_tip_line">%1$s懸浮球：%2$s</string>
-    <string name="floating_usage_tip">單擊懸浮球：識別並翻譯目前螢幕文字區域
-雙擊懸浮球：清除目前識別/翻譯氣泡
-長按懸浮球：彈出選單</string>
     <string name="floating_bubble_placeholder">文字區域</string>
     <string name="tutorial_option_gitee_recommended">鏡像站</string>
     <string name="tutorial_option_github">GitHub</string>
@@ -402,7 +398,6 @@
     <string name="folder_delete_failed">刪除失敗，請稍後重試</string>
     <string name="folder_delete_empty">請先選擇要刪除的資料夾</string>
     <string name="folder_rename_failed">重新命名失敗，請檢查名稱</string>
-    <string name="folder_multi_select_title">選擇要操作的資料夾</string>
     <string name="folder_collection_title_suffix">（章節集合）</string>
 
     <!-- Library / Translation Options -->
@@ -416,7 +411,6 @@
     <string name="folder_reading_mode_webtoon_scroll">條漫滾動</string>
     <string name="folder_language_setting">語言設定：%1$s</string>
     <string name="folder_language_setting_title">選擇翻譯語言</string>
-    <string name="folder_language_to_zh">翻譯成中文</string>
     <string name="folder_language_to_target">翻譯成%1$s</string>
     <string name="translation_language_pair_format">%1$s → %2$s</string>
     <string name="translation_source_japanese">日文</string>
@@ -431,17 +425,9 @@
     <string name="translation_source_german">德文</string>
     <string name="translation_source_italian">義大利文</string>
     <string name="translation_source_russian">俄文</string>
-    <string name="folder_language_ja_to_zh">日文 → 中文</string>
-    <string name="folder_language_en_to_zh">英文 → 中文</string>
-    <string name="folder_language_ko_to_zh">韓文 → 中文</string>
-    <string name="folder_language_chn_eng_to_zh">中英混合 → 中文</string>
-    <string name="folder_language_fr_to_zh">法文 → 中文</string>
-    <string name="folder_language_es_to_zh">西班牙文 → 中文</string>
-    <string name="folder_language_pt_to_zh">葡萄牙文 → 中文</string>
-    <string name="folder_language_de_to_zh">德文 → 中文</string>
-    <string name="folder_language_it_to_zh">義大利文 → 中文</string>
-    <string name="folder_language_ru_to_zh">俄文 → 中文</string>
     <string name="folder_use_vl_direct_translate">使用 VL 模型翻譯整個氣泡</string>
+    <string name="folder_use_vl_direct_translate_info_title">VL 直翻說明</string>
+    <string name="folder_use_vl_direct_translate_info_desc">VL 直翻說明</string>
     <string name="folder_use_vl_direct_translate_note">開啟後會把檢測到的氣泡裁圖直接送給視覺模型翻譯，跳過 OCR 識別步驟。普通翻譯使用主設定中的 API 與模型，請確認所填模型支援影像輸入。</string>
     <string name="folder_use_vl_direct_translate_warning">已開啟資料夾 VL 直翻。普通翻譯會直接使用主設定中的模型處理氣泡圖片，請確認目前模型支援影像輸入。</string>
     <string name="folder_vl_model_required">目前普通翻譯直翻需要 VL 模型。請在主設定中改用支援影像輸入的模型，或關閉該開關。</string>
@@ -450,15 +436,26 @@
     <string name="folder_full_translate_info">開啟後會先識別全部圖片文字並提取譯名，再按整頁翻譯氣泡內容。開啟後第一張圖片的翻譯速度視圖片總數而定。關閉後大幅提升第一張圖片翻譯出來的速度</string>
     <string name="folder_full_translate_info_desc">全文速譯說明</string>
     <string name="folder_glossary_processing">譯名處理</string>
+    <string name="folder_glossary_processing_info_title">譯名處理說明</string>
+    <string name="folder_glossary_processing_info_desc">譯名處理說明</string>
     <string name="folder_glossary_processing_note">關閉譯名處理後可並發翻譯，速度更快。</string>
+    <string name="folder_bubble_detection_info_title">區域檢測模式說明</string>
+    <string name="folder_bubble_detection_info_desc">區域檢測模式說明</string>
+    <string name="folder_bubble_detection_info">僅氣泡只使用氣泡分割模型；僅文字只使用 Paddle OCR 檢測並合併全部文字塊，識別速度最快；氣泡和游離文字會同時檢測普通氣泡，並用 Paddle OCR 補充和合併氣泡外文字，識別速度最慢。</string>
+    <string name="folder_detection_mode_bubbles">僅氣泡</string>
+    <string name="folder_detection_mode_text">僅文字</string>
+    <string name="folder_detection_mode_bubbles_and_text">氣泡和游離文字</string>
 
     <!-- Library / Progress -->
     <string name="translation_preparing">預處理中</string>
     <string name="folder_preprocess_progress">%1$s（%2$d/%3$d）</string>
     <string name="folder_preprocess_stage_ocr">預處理 OCR</string>
     <string name="folder_preprocess_stage_glossary">預處理 譯名提取</string>
-    <string name="folder_translation_count">%1$d/%2$d</string>
+    <string name="folder_translation_preparing_pages">準備翻譯 · 共 %1$d 頁</string>
+    <string name="folder_translation_processed">已處理 %1$d/%2$d · 失敗 %3$d</string>
     <string name="folder_collection_translation_progress">子章節 %1$d/%2$d · 圖片 %3$d/%4$d</string>
+    <string name="folder_collection_translation_preparing">子章節 %1$d/%2$d · 準備翻譯 · 共 %3$d 頁</string>
+    <string name="folder_collection_translation_processed">子章節 %1$d/%2$d · 已處理 %3$d/%4$d · 失敗 %5$d</string>
     <string name="folder_collection_translation_target">%1$s · %2$s</string>
     <string name="translation_done">翻譯完成</string>
     <string name="translation_failed">翻譯失敗</string>
@@ -497,6 +494,7 @@
     <string name="import_no_images">所選資料夾沒有圖片</string>
     <string name="import_failed">匯入失敗，請重試</string>
     <string name="import_done">已匯入 %1$d 張圖片</string>
+    <string name="avif_conversion_progress">正在將 AVIF 圖片轉換為 PNG…</string>
 
     <!-- Import / CBZ -->
     <string name="cbz_import_failed">CBZ/ZIP 匯入失敗，請重試</string>
@@ -505,6 +503,7 @@
     <string name="pdf_import_failed">PDF 匯入失敗，請重試</string>
     <string name="pdf_import_no_images">PDF 中未找到可匯入頁面</string>
     <string name="pdf_import_done">PDF 匯入完成，已拆分 %1$d 頁圖片</string>
+    <string name="import_out_of_memory">匯入失敗：裝置可用記憶體不足。請關閉其他應用程式後重試。</string>
 
     <!-- Export -->
     <string name="exporting_progress">匯出中…(%1$d/%2$d)</string>
@@ -564,8 +563,6 @@
     <string name="reading_confirm_edit">完成編輯</string>
     <string name="reading_cancel_edit">取消編輯</string>
     <string name="reading_edit_bubble_title">編輯氣泡內容</string>
-    <string name="reading_bubble_width_hint">寬%%</string>
-    <string name="reading_bubble_height_hint">高%%</string>
     <string name="reading_add_bubble">新增氣泡</string>
     <string name="reading_clear_bubbles">清空所有氣泡</string>
     <string name="reading_clear_bubbles_done">已清空目前頁面上的所有氣泡</string>
@@ -573,7 +570,6 @@
     <string name="reading_empty_bubble_translating">正在翻譯氣泡…</string>
     <string name="reading_empty_bubble_translated">氣泡翻譯完成</string>
     <string name="reading_empty_bubble_failed">氣泡識別/翻譯失敗，已保留空白氣泡，可重試或手動編輯</string>
-    <string name="reading_bubble_resize_done">確認</string>
     <string name="reading_bubble_action_resize">調整氣泡大小</string>
     <string name="reading_bubble_action_delete">刪除氣泡</string>
     <string name="reading_exit_zoom_before_edit">請先雙擊退出放大</string>
@@ -621,6 +617,7 @@
     <string name="provider_name_default">供應商 %1$d</string>
     <string name="global_progress_export">匯出</string>
     <string name="global_progress_translate">翻譯</string>
+    <string name="global_progress_preparing_translation">準備翻譯中</string>
     <string name="global_progress_glossary">譯名</string>
     <string name="global_progress_failed">%1$s 失敗</string>
     <string name="global_progress_done">%1$s 完成</string>

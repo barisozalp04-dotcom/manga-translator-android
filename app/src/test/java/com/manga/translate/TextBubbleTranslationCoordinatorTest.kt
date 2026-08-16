@@ -5,7 +5,6 @@ import android.graphics.Bitmap
 import android.graphics.RectF
 import com.manga.translate.model.BubbleTranslation
 import com.manga.translate.model.TranslationLanguage
-import com.manga.translate.network.BaiduOcrWord
 import com.manga.translate.network.LlmBubbleTranslationItem
 import com.manga.translate.network.LlmBubbleTranslationRequestItem
 import com.manga.translate.network.LlmBubbleTranslationResult
@@ -174,11 +173,6 @@ private class FakeLlmGateway(
         apiSettings: ApiSettings?
     ): String? = null
 
-    override suspend fun recognizeFullPageWithBaidu(
-        image: Bitmap,
-        language: TranslationLanguage
-    ): List<BaiduOcrWord>? = null
-
     override fun resourceContext(): Context = RuntimeEnvironment.getApplication()
 }
 
@@ -225,11 +219,6 @@ private class CapturingLlmGateway(
         retryCount: Int,
         apiSettings: ApiSettings?
     ): String? = null
-
-    override suspend fun recognizeFullPageWithBaidu(
-        image: Bitmap,
-        language: TranslationLanguage
-    ): List<BaiduOcrWord>? = null
 
     override fun resourceContext(): Context = RuntimeEnvironment.getApplication()
 }

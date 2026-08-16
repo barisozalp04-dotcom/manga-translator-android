@@ -2,7 +2,9 @@ package com.manga.translate.ocr
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.Matrix
 import android.graphics.RectF
+import com.manga.translate.detection.OnnxRuntimeSupport
 import com.manga.translate.model.BubbleSource
 import com.manga.translate.model.OcrRecognitionResult
 import com.manga.translate.model.TranslationLanguage
@@ -12,39 +14,21 @@ import com.manga.translate.platform.BitmapCropSource
 import com.manga.translate.platform.PipelineBitmapDecoder
 import com.manga.translate.platform.cropBitmap
 import com.manga.translate.platform.recycleSafely
-import com.manga.translate.settings.JapaneseLocalOcrEngine
 import com.manga.translate.settings.SettingsStore
 import java.text.Normalizer
-import java.util.concurrent.atomic.AtomicInteger
-import kotlinx.coroutines.channels.Channel
 
 class OcrEngineRegistry(
     context: Context,
     private val settingsStore: SettingsStore = SettingsStore(context.applicationContext)
 ) {
     private val appContext = context.applicationContext
-    private var mangaOcrMobile: MangaOcrMobile? = null
-    private var mangaOcrMobileInitFailed = false
     private var ppOcrV6SmallRec: PPOcrV6SmallRec? = null
     private var koreanOcr: KoreanOcr? = null
     private var englishLineDetector: EnglishLineDetector? = null
 
-    @Volatile private var jaPoolClosed = false
-    private var jaPool: Channel<MangaOcrMobile>? = null
-    private val jaActiveBorrows = AtomicInteger(0)
-
-    @Synchronized
-    fun getMangaOcrMobile(logTag: String): MangaOcrMobile? {
-        if (mangaOcrMobile != null) return mangaOcrMobile
-        if (mangaOcrMobileInitFailed) return null
-        return try {
-            MangaOcrMobile(appContext, settingsStore = settingsStore).also {
-                mangaOcrMobile = it
-            }
-        } catch (e: Exception) {
-            mangaOcrMobileInitFailed = true
-            AppLogger.log(logTag, "Failed to init mobile OCR", e)
-            null
+    init {
+        LEGACY_JAPANESE_MODEL_ASSETS.forEach { assetName ->
+            OnnxRuntimeSupport.deleteCachedAsset(appContext.cacheDir, assetName)
         }
     }
 
@@ -83,98 +67,37 @@ class OcrEngineRegistry(
         }
     }
 
-    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
-    @Synchronized
-    fun ensureJaPool(logTag: String, concurrencyOverride: Int = 0): Channel<MangaOcrMobile>? {
-        if (jaPoolClosed) return null
-        jaPool?.let { return it }
-        val concurrency = LocalOcrConcurrency.resolve(concurrencyOverride)
-        if (concurrency <= 1) return null
-        val channel = Channel<MangaOcrMobile>(capacity = concurrency)
-        repeat(concurrency) {
-            try {
-                channel.trySend(MangaOcrMobile(appContext, settingsStore = settingsStore, numThreads = 1))
-            } catch (e: Exception) {
-                AppLogger.log(logTag, "Failed to create JA pool instance", e)
-            }
-        }
-        if (channel.isEmpty) return null
-        jaPool = channel
-        return channel
-    }
-
-    suspend fun borrowJa(logTag: String): MangaOcrMobile? {
-        val pool = synchronized(this) { if (!jaPoolClosed) jaPool else null } ?: return null
-        val engine = try {
-            pool.receive()
-        } catch (_: Exception) {
-            null
-        } ?: return null
-        if (jaPoolClosed) {
-            engine.close()
-            return null
-        }
-        jaActiveBorrows.incrementAndGet()
-        return engine
-    }
-
-    fun returnJa(engine: MangaOcrMobile) {
-        jaActiveBorrows.decrementAndGet()
-        val pool = synchronized(this) { jaPool }
-        if (jaPoolClosed || pool == null) {
-            engine.close()
-        } else {
-            val sent = pool.trySend(engine)
-            if (sent.isFailure) {
-                engine.close()
-            }
-        }
-    }
-
     @Synchronized
     fun releaseLoadedEngines() {
-        val hadLoadedEngines = mangaOcrMobile != null ||
-            ppOcrV6SmallRec != null ||
+        val hadLoadedEngines = ppOcrV6SmallRec != null ||
             koreanOcr != null ||
-            englishLineDetector != null ||
-            jaPool != null
-        mangaOcrMobile = null
+            englishLineDetector != null
         ppOcrV6SmallRec = null
         koreanOcr = null
         englishLineDetector = null
-        jaPoolClosed = true
-        val pool = jaPool
-        jaPool = null
-        if (pool != null) {
-            // drain idle instances; instances still borrowed will be closed on returnJa
-            var engine = pool.tryReceive().getOrNull()
-            while (engine != null) {
-                engine.close()
-                engine = pool.tryReceive().getOrNull()
-            }
-            pool.close()
-        }
         if (hadLoadedEngines) {
             AppLogger.log("OcrEngineRegistry", "Released loaded OCR engine references")
         }
+    }
+
+    private companion object {
+        val LEGACY_JAPANESE_MODEL_ASSETS = listOf(
+            "models/ocr/manga_ocr_mobile/encoder.tflite",
+            "models/ocr/manga_ocr_mobile/decoder.tflite"
+        )
     }
 }
 
 class BubbleTextRecognizer(
     private val llmClient: LlmGateway,
-    private val engineRegistry: OcrEngineRegistry,
-    private val settingsStore: SettingsStore
+    private val engineRegistry: OcrEngineRegistry
 ) {
     fun getLocalOcrEngine(
         language: TranslationLanguage,
         logTag: String
     ): OcrEngine? {
         return when (language) {
-            TranslationLanguage.JA_TO_ZH -> when (
-                settingsStore.loadOcrApiSettings().japaneseLocalOcrEngine
-            ) {
-                JapaneseLocalOcrEngine.MANGA_OCR_MOBILE -> engineRegistry.getMangaOcrMobile(logTag)
-            }
+            TranslationLanguage.JA_TO_ZH,
             TranslationLanguage.EN_TO_ZH,
             TranslationLanguage.ZH_HANS_TO_TARGET,
             TranslationLanguage.ZH_HANT_TO_TARGET,
@@ -260,7 +183,8 @@ class BubbleTextRecognizer(
         language: TranslationLanguage,
         useLocalOcr: Boolean,
         logTag: String,
-        bubbleSource: BubbleSource = BubbleSource.UNKNOWN
+        bubbleSource: BubbleSource = BubbleSource.UNKNOWN,
+        detectedLineRects: List<RectF>? = null
     ): OcrRecognitionResult {
         val resolvedUseLocalOcr = useLocalOcr && language.supportsLocalOcr()
         val rawText = if (!resolvedUseLocalOcr) {
@@ -272,14 +196,30 @@ class BubbleTextRecognizer(
             }
         } else when (language) {
             TranslationLanguage.JA_TO_ZH -> {
-                when (settingsStore.loadOcrApiSettings().japaneseLocalOcrEngine) {
-                    JapaneseLocalOcrEngine.MANGA_OCR_MOBILE -> {
-                        val engine = engineRegistry.getMangaOcrMobile(logTag)
-                            ?: return OcrRecognitionResult.Failure(
-                                IllegalStateException("Japanese OCR engine unavailable")
-                            )
-                        engine.recognize(crop).trim()
-                    }
+                val engine = engineRegistry.getPpOcrV6SmallRec(logTag)
+                    ?: return OcrRecognitionResult.Failure(
+                        IllegalStateException("PP-OCRv6_small_rec engine unavailable")
+                    )
+                val lineDetector = if (detectedLineRects == null) {
+                    engineRegistry.getEnglishLineDetector(logTag)
+                } else {
+                    null
+                }
+                val lineRects = detectedLineRects ?: lineDetector?.detectLines(crop).orEmpty()
+                if (shouldRejectFreeTextWithoutLines(
+                        bubbleSource,
+                        detectedLineRects != null || lineDetector != null,
+                        lineRects.size
+                    )
+                ) {
+                    AppLogger.log(logTag, "Rejected free-text region without detected OCR lines")
+                    return OcrRecognitionResult.Success("")
+                }
+                val lines = recognizeJapaneseLines(crop, lineRects, engine)
+                if (lines.isEmpty()) {
+                    engine.recognize(crop).trim()
+                } else {
+                    lines.joinToString("\n") { it.text }
                 }
             }
 
@@ -293,9 +233,18 @@ class BubbleTextRecognizer(
                     ?: return OcrRecognitionResult.Failure(
                         IllegalStateException("PP-OCRv6_small_rec engine unavailable")
                     )
-                val lineDetector = engineRegistry.getEnglishLineDetector(logTag)
-                val lineRects = lineDetector?.detectLines(crop).orEmpty()
-                if (shouldRejectFreeTextWithoutLines(bubbleSource, lineDetector != null, lineRects.size)) {
+                val lineDetector = if (detectedLineRects == null) {
+                    engineRegistry.getEnglishLineDetector(logTag)
+                } else {
+                    null
+                }
+                val lineRects = detectedLineRects ?: lineDetector?.detectLines(crop).orEmpty()
+                if (shouldRejectFreeTextWithoutLines(
+                        bubbleSource,
+                        detectedLineRects != null || lineDetector != null,
+                        lineRects.size
+                    )
+                ) {
                     AppLogger.log(logTag, "Rejected free-text region without detected OCR lines")
                     return OcrRecognitionResult.Success("")
                 }
@@ -314,7 +263,13 @@ class BubbleTextRecognizer(
                     ?: return OcrRecognitionResult.Failure(
                         IllegalStateException("PP-OCRv6_small_rec engine unavailable")
                     )
-                engine.recognize(crop).trim()
+                val lineRects = detectedLineRects
+                if (lineRects == null || lineRects.isEmpty()) {
+                    engine.recognize(crop).trim()
+                } else {
+                    recognizeJapaneseLines(crop, lineRects, engine)
+                        .joinToString("\n") { it.text }
+                }
             }
 
             TranslationLanguage.KO_TO_ZH -> {
@@ -322,9 +277,18 @@ class BubbleTextRecognizer(
                     ?: return OcrRecognitionResult.Failure(
                         IllegalStateException("Korean OCR engine unavailable")
                     )
-                val lineDetector = engineRegistry.getEnglishLineDetector(logTag)
-                val lineRects = lineDetector?.detectLines(crop).orEmpty()
-                if (shouldRejectFreeTextWithoutLines(bubbleSource, lineDetector != null, lineRects.size)) {
+                val lineDetector = if (detectedLineRects == null) {
+                    engineRegistry.getEnglishLineDetector(logTag)
+                } else {
+                    null
+                }
+                val lineRects = detectedLineRects ?: lineDetector?.detectLines(crop).orEmpty()
+                if (shouldRejectFreeTextWithoutLines(
+                        bubbleSource,
+                        detectedLineRects != null || lineDetector != null,
+                        lineRects.size
+                    )
+                ) {
                     AppLogger.log(logTag, "Rejected free-text region without detected OCR lines")
                     return OcrRecognitionResult.Success("")
                 }
@@ -346,15 +310,6 @@ class BubbleTextRecognizer(
         return OcrRecognitionResult.Success(OcrTextSanitizer.sanitize(rawText, language, logTag))
     }
 
-    internal suspend fun sanitizeJaCrop(
-        engine: MangaOcrMobile,
-        crop: Bitmap,
-        language: TranslationLanguage,
-        logTag: String
-    ): String {
-        val rawText = engine.recognize(crop).trim()
-        return OcrTextSanitizer.sanitize(rawText, language, logTag)
-    }
 }
 
 internal fun shouldRejectFreeTextWithoutLines(
@@ -489,6 +444,51 @@ fun recognizeEnglishLines(
     return results
 }
 
+fun recognizeJapaneseLines(
+    source: Bitmap,
+    lineRects: List<RectF>,
+    ocrEngine: OcrEngine,
+    minLineScore: Float = DEFAULT_EN_MIN_LINE_SCORE
+): List<EnglishLine> {
+    if (lineRects.isEmpty()) return emptyList()
+    val verticalCount = lineRects.count(::isVerticalTextLine)
+    val orderedRects = if (verticalCount * 2 > lineRects.size) {
+        lineRects.sortedWith(compareByDescending<RectF> { it.right }.thenBy { it.top })
+    } else {
+        lineRects
+    }
+    val results = ArrayList<EnglishLine>(orderedRects.size)
+    for (rect in orderedRects) {
+        val decoded = if (isVerticalTextLine(rect)) {
+            withBitmapCrop(source, rect) { crop ->
+                val rotated = Bitmap.createBitmap(
+                    crop,
+                    0,
+                    0,
+                    crop.width,
+                    crop.height,
+                    Matrix().apply { setRotate(-90f) },
+                    false
+                )
+                try {
+                    ocrEngine.recognizeWithScore(rotated)
+                } finally {
+                    if (rotated !== crop) {
+                        rotated.recycleSafely()
+                    }
+                }
+            } ?: continue
+        } else {
+            ocrEngine.recognizeWithScore(source, rect)
+        }
+        val text = decoded.text.trim()
+        if (decoded.score >= minLineScore && text.isNotBlank()) {
+            results.add(EnglishLine(rect, text))
+        }
+    }
+    return results
+}
+
 fun recognizeKoreanLines(
     source: Bitmap,
     lineRects: List<RectF>,
@@ -508,3 +508,8 @@ fun recognizeKoreanLines(
 }
 
 const val DEFAULT_KO_MIN_LINE_SCORE = 0.65f
+private const val VERTICAL_LINE_RATIO = 1.5f
+
+private fun isVerticalTextLine(rect: RectF): Boolean {
+    return rect.height() >= rect.width() * VERTICAL_LINE_RATIO
+}

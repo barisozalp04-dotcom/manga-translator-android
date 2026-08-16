@@ -7,6 +7,7 @@ import android.net.Uri
 import android.provider.DocumentsContract
 import androidx.core.content.edit
 import androidx.documentfile.provider.DocumentFile
+import com.manga.translate.detection.RegionDetectionSelection
 import com.manga.translate.model.FolderReadingMode
 import com.manga.translate.model.TranslationLanguage
 import com.manga.translate.platform.AppLogger
@@ -31,6 +32,15 @@ internal class LibraryPreferencesGateway(
         )
     }
 
+    fun getRegionDetectionSelection(folder: File): RegionDetectionSelection {
+        return RegionDetectionSelection.fromPref(
+            prefs.getString(
+                regionDetectionModeKeyPrefix + settingsFolder(folder).absolutePath,
+                RegionDetectionSelection.BUBBLES_AND_TEXT.prefValue
+            )
+        )
+    }
+
     fun setFullTranslateEnabled(folder: File, enabled: Boolean) {
         prefs.edit() {
             putBoolean(fullTranslateKeyPrefix + settingsFolder(folder).absolutePath, enabled)
@@ -40,6 +50,12 @@ internal class LibraryPreferencesGateway(
     fun setGlossaryProcessingEnabled(folder: File, enabled: Boolean) {
         prefs.edit() {
             putBoolean(glossaryProcessingKeyPrefix + settingsFolder(folder).absolutePath, enabled)
+        }
+    }
+
+    fun setRegionDetectionSelection(folder: File, selection: RegionDetectionSelection) {
+        prefs.edit() {
+            putString(regionDetectionModeKeyPrefix + settingsFolder(folder).absolutePath, selection.prefValue)
         }
     }
 
@@ -117,44 +133,48 @@ internal class LibraryPreferencesGateway(
     fun migrateFolderSettings(from: File, to: File) {
         val oldPath = settingsFolder(from).absolutePath
         val newPath = settingsFolder(to).absolutePath
-        if (oldPath == newPath) return
 
         prefs.edit {
-            settingsKeyPrefixes.forEach { prefix ->
-                val oldKey = prefix + oldPath
-                if (!prefs.contains(oldKey)) return@forEach
-                val newKey = prefix + newPath
-                when (val value = prefs.all[oldKey]) {
-                    is Boolean -> putBoolean(newKey, value)
-                    is String -> putString(newKey, value)
-                    is Int -> putInt(newKey, value)
-                    is Long -> putLong(newKey, value)
-                    is Float -> putFloat(newKey, value)
-                    is Set<*> -> {
-                        @Suppress("UNCHECKED_CAST")
-                        putStringSet(newKey, value as Set<String>)
+            if (oldPath != newPath) {
+                settingsKeyPrefixes.forEach { prefix ->
+                    val oldKey = prefix + oldPath
+                    if (!prefs.contains(oldKey)) return@forEach
+                    val newKey = prefix + newPath
+                    when (val value = prefs.all[oldKey]) {
+                        is Boolean -> putBoolean(newKey, value)
+                        is String -> putString(newKey, value)
+                        is Int -> putInt(newKey, value)
+                        is Long -> putLong(newKey, value)
+                        is Float -> putFloat(newKey, value)
+                        is Set<*> -> {
+                            @Suppress("UNCHECKED_CAST")
+                            putStringSet(newKey, value as Set<String>)
+                        }
                     }
+                    remove(oldKey)
                 }
-                remove(oldKey)
             }
-            val oldTagsKey = folderTagsKeyPrefix + from.absolutePath
-            val oldTags = prefs.getStringSet(oldTagsKey, null)
-            if (oldTags != null) {
-                putStringSet(folderTagsKeyPrefix + to.absolutePath, oldTags.toSet())
-                remove(oldTagsKey)
+            migrateFolderTags(from, to)
+        }
+    }
+
+    fun clearFolderTreeSettings(folder: File) {
+        val resolved = settingsFolder(folder)
+        val folderPath = folder.absolutePath
+        prefs.edit {
+            if (resolved.absolutePath == folderPath) {
+                settingsKeyPrefixes.forEach { prefix ->
+                    remove(prefix + resolved.absolutePath)
+                }
             }
+            prefs.all.keys
+                .filter { key -> isFolderTagKeyInTree(key, folderPath) }
+                .forEach(::remove)
         }
     }
 
     fun clearFolderSettings(folder: File) {
-        val resolved = settingsFolder(folder)
-        if (resolved.absolutePath != folder.absolutePath) return
-        prefs.edit {
-            settingsKeyPrefixes.forEach { prefix ->
-                remove(prefix + resolved.absolutePath)
-            }
-            remove(folderTagsKeyPrefix + folder.absolutePath)
-        }
+        clearFolderTreeSettings(folder)
     }
 
     fun getLibrarySortField(): LibrarySortField {
@@ -231,6 +251,26 @@ internal class LibraryPreferencesGateway(
 
     private fun settingsFolder(folder: File): File = repository.resolveSettingsFolder(folder)
 
+    private fun SharedPreferences.Editor.migrateFolderTags(from: File, to: File) {
+        val fromPath = from.absolutePath
+        val toPath = to.absolutePath
+        prefs.all
+            .filterKeys { key -> isFolderTagKeyInTree(key, fromPath) }
+            .forEach { (key, value) ->
+                val suffix = key.removePrefix(folderTagsKeyPrefix + fromPath)
+                if (value is Set<*>) {
+                    @Suppress("UNCHECKED_CAST")
+                    putStringSet(folderTagsKeyPrefix + toPath + suffix, value as Set<String>)
+                }
+                remove(key)
+            }
+    }
+
+    private fun isFolderTagKeyInTree(key: String, folderPath: String): Boolean {
+        val prefix = folderTagsKeyPrefix + folderPath
+        return key == prefix || key.startsWith("$prefix${File.separator}")
+    }
+
     private fun detectReadingMode(images: List<File>): FolderReadingMode {
         val sampledImages = images.asSequence()
             .filter { it.exists() && it.isFile }
@@ -265,6 +305,7 @@ internal class LibraryPreferencesGateway(
         private const val librarySortAscendingKey = "library_sort_ascending"
         private const val fullTranslateKeyPrefix = "full_translate_enabled_"
         private const val glossaryProcessingKeyPrefix = "glossary_processing_enabled_"
+        private const val regionDetectionModeKeyPrefix = "region_detection_mode_"
         private const val languageKeyPrefix = "translation_language_"
         private const val vlDirectTranslateKeyPrefix = "vl_direct_translate_enabled_"
         private const val readingModeKeyPrefix = "reading_mode_"
@@ -272,6 +313,7 @@ internal class LibraryPreferencesGateway(
         private val settingsKeyPrefixes = listOf(
             fullTranslateKeyPrefix,
             glossaryProcessingKeyPrefix,
+            regionDetectionModeKeyPrefix,
             languageKeyPrefix,
             vlDirectTranslateKeyPrefix,
             readingModeKeyPrefix

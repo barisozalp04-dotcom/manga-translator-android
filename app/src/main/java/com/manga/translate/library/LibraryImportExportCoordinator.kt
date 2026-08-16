@@ -17,18 +17,25 @@ import androidx.core.content.edit
 import androidx.documentfile.provider.DocumentFile
 import com.manga.translate.R
 import com.manga.translate.platform.AppLogger
+import com.manga.translate.platform.ImageFileSupport
+import com.manga.translate.platform.DeviceResourcePolicy
+import com.manga.translate.platform.ResourceAssessment
+import com.manga.translate.platform.PdfImageCodec
 import com.manga.translate.settings.SettingsStore
 import com.manga.translate.storage.TranslationStore
 import java.io.BufferedOutputStream
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -46,20 +53,38 @@ internal class LibraryImportExportCoordinator(
     prefs: SharedPreferences,
     private val preferencesGateway: LibraryPreferencesGateway,
     private val dialogs: LibraryDialogs,
-    private val ui: LibraryUiCallbacks
+    private val ui: LibraryUiCallbacks,
+    exportTaskHost: ExportTaskHost
 ) {
     private val appContext = context.applicationContext
+    private val pendingPdfPlans = ConcurrentHashMap<String, PdfImageCodec.PdfImportPlan>()
     private val prefsRef = prefs
     private val exporter = LibraryExporter(
         context, repository, translationStore, settingsStore,
-        prefs, preferencesGateway, dialogs, ui
+        prefs, preferencesGateway, ui, exportTaskHost
     )
 
     fun isPendingExportCollection(): Boolean = exporter.pendingExportIsCollection
 
-    fun getExportThreadCount(): Int = exporter.getExportThreads()
     fun getExportFormatDefault(): ExportFormat = exporter.getExportFormat()
     fun buildExportRootPathPreview(): String = exporter.buildExportRootPreview()
+    fun isExportActiveFor(folder: File): Boolean = exporter.isExportActiveFor(folder)
+
+    suspend fun assessExportResources(
+        images: List<File>,
+        requestedThreads: Int
+    ): ResourceAssessment = withContext(Dispatchers.IO) {
+        exporter.assessExportResources(images, requestedThreads)
+    }
+
+    suspend fun suggestExportThreadCount(images: List<File>): Int = withContext(Dispatchers.IO) {
+        exporter.suggestExportThreads(images)
+    }
+
+    suspend fun addImages(folder: File, uris: List<Uri>): List<File> =
+        withAvifConversionProgress { onConversionStarted ->
+            repository.addImages(folder, uris, onConversionStarted)
+        }
 
     fun requestImportDirectory(
         requestImportPermission: (Uri?) -> Unit
@@ -67,10 +92,35 @@ internal class LibraryImportExportCoordinator(
         requestImportPermission(preferencesGateway.buildImportInitialUri())
     }
 
+    suspend fun assessImportMemory(uiContext: Context, uri: Uri): ResourceAssessment {
+        val snapshot = DeviceResourcePolicy.readSnapshot(uiContext)
+        val displayName = runCatching {
+            uiContext.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                val index = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                if (index >= 0 && cursor.moveToFirst()) cursor.getString(index) else null
+            }
+        }.getOrNull().orEmpty()
+        val isPdf = displayName.substringAfterLast('.', "").lowercase() == "pdf"
+        val peakBytes = if (isPdf) {
+            pendingPdfPlans.clear()
+            PdfImageCodec.estimateImportPlan(
+                contentResolver = uiContext.contentResolver,
+                uri = uri
+            )?.also { plan ->
+                if (plan.reusable) pendingPdfPlans[uri.toString()] = plan
+            }?.peakBytes
+        } else {
+            null
+        }
+        return DeviceResourcePolicy.assessImport(snapshot, peakBytes)
+    }
+
     fun importFromArchiveOrPdf(
         uiContext: Context,
         uri: Uri,
         scope: CoroutineScope,
+        riskAlreadyAccepted: Boolean,
+        onConfirmMemoryRisk: suspend (ResourceAssessment) -> Boolean,
         onShowFolderList: () -> Unit
     ) {
         scope.launch(Dispatchers.IO) {
@@ -81,7 +131,22 @@ internal class LibraryImportExportCoordinator(
                 }
             }.getOrNull().orEmpty()
             val isPdf = displayName.substringAfterLast('.', "").lowercase() == "pdf"
-            val result = if (isPdf) repository.importPdf(uri) else repository.importCbz(uri)
+            val result = withAvifConversionProgress { onConversionStarted ->
+                if (isPdf) {
+                    repository.importPdf(uri, pendingPdfPlans.remove(uri.toString()))
+                } else {
+                    repository.importCbz(
+                        uri = uri,
+                        onAvifConversionStarted = onConversionStarted,
+                        riskAlreadyAccepted = riskAlreadyAccepted,
+                        confirmMemoryRisk = { assessment ->
+                            withContext(Dispatchers.Main.immediate) {
+                                onConfirmMemoryRisk(assessment)
+                            }
+                        }
+                    )
+                }
+            }
             result?.folder?.let { importedFolder ->
                 if (result.importedCount > 0) {
                     preferencesGateway.autoDetectAndSetReadingMode(
@@ -92,6 +157,7 @@ internal class LibraryImportExportCoordinator(
             }
             withContext(Dispatchers.Main) {
                 when {
+                    result?.outOfMemory == true -> ui.showToast(R.string.import_out_of_memory)
                     result == null -> ui.showToast(
                         if (isPdf) R.string.pdf_import_failed else R.string.cbz_import_failed
                     )
@@ -149,68 +215,73 @@ internal class LibraryImportExportCoordinator(
         scope: CoroutineScope,
         onShowFolderList: () -> Unit
     ) {
-        val root = DocumentFile.fromTreeUri(uiContext, treeUri)
-        if (root == null || !root.canRead()) {
-            ui.showToast(R.string.import_permission_required)
-            return
-        }
-        val files = root.listFiles()
-        val rootHasImages = files.any { it.isFile && isImageDocument(it) }
-        val folders = files.filter { file ->
-            file.isDirectory && file.listFiles().any { child -> child.isFile && isImageDocument(child) }
-        }
-        if (folders.isNotEmpty()) {
-            val defaultName = root.name ?: ""
-            dialogs.showEhViewerImportNameDialog(uiContext, defaultName) { importName ->
-                importEhViewerCollection(uiContext, folders, importName, scope, onShowFolderList)
+        scope.launch(Dispatchers.IO) {
+            val root = DocumentFile.fromTreeUri(uiContext, treeUri)
+            if (root == null || !root.canRead()) {
+                withContext(Dispatchers.Main) { ui.showToast(R.string.import_permission_required) }
+                return@launch
             }
-            return
-        }
-        if (rootHasImages) {
-            val defaultName = root.name ?: ""
-            dialogs.showEhViewerImportNameDialog(uiContext, defaultName) { importName ->
-                importEhViewerFolder(uiContext, root, importName, scope, onShowFolderList)
+            val files = root.listFiles()
+            val rootImages = files.filter { it.isFile && isImageDocument(it) }
+            val chapters = files.mapNotNull { file ->
+                if (!file.isDirectory) return@mapNotNull null
+                val images = file.listFiles().filter { child -> child.isFile && isImageDocument(child) }
+                images.takeIf { it.isNotEmpty() }?.let { ImportChapterSource(file.name.orEmpty(), file, it) }
             }
-            return
-        }
-        if (folders.isEmpty()) {
-            ui.showToast(R.string.import_no_folders)
-            return
-        }
-        dialogs.showEhViewerSubfolderPicker(uiContext, folders) { folder ->
-            val defaultName = folder.name ?: ""
-            dialogs.showEhViewerImportNameDialog(uiContext, defaultName) { importName ->
-                importEhViewerFolder(uiContext, folder, importName, scope, onShowFolderList)
+            withContext(Dispatchers.Main) {
+                when {
+                    chapters.isNotEmpty() -> dialogs.showEhViewerImportNameDialog(uiContext, root.name ?: "") { importName ->
+                        importEhViewerCollection(uiContext, chapters, rootImages, importName, scope, onShowFolderList)
+                    }
+                    rootImages.isNotEmpty() -> dialogs.showEhViewerImportNameDialog(uiContext, root.name ?: "") { importName ->
+                        importEhViewerFolder(uiContext, rootImages, importName, scope, onShowFolderList)
+                    }
+                    else -> ui.showToast(R.string.import_no_folders)
+                }
             }
         }
     }
 
     private fun importEhViewerFolder(
         uiContext: Context,
-        source: DocumentFile,
+        images: List<DocumentFile>,
         importName: String,
         scope: CoroutineScope,
         onShowFolderList: () -> Unit
     ) {
-        val folder = repository.createFolder(importName)
-        if (folder == null) {
-            ui.showToast(R.string.import_folder_exists)
-            return
-        }
-        val images = source.listFiles().filter { it.isFile && isImageDocument(it) }
         if (images.isEmpty()) {
-            folder.deleteRecursively()
             ui.showToast(R.string.import_no_images)
             return
         }
         scope.launch(Dispatchers.IO) {
-            val added = repository.addImages(folder, images.map { it.uri })
-            if (added.isNotEmpty()) {
-                preferencesGateway.autoDetectAndSetReadingMode(folder, added)
+            val stagedImport = repository.beginFolderImport(importName)
+            if (stagedImport == null) {
+                withContext(Dispatchers.Main) { ui.showToast(R.string.import_folder_exists) }
+                return@launch
+            }
+            var added = emptyList<File>()
+            var importedFolder: File? = null
+            try {
+                added = withAvifConversionProgress { onConversionStarted ->
+                    repository.addImages(stagedImport.folder, images.map { it.uri }, onConversionStarted)
+                }
+                if (added.isNotEmpty()) {
+                    importedFolder = stagedImport.commit()
+                }
+                importedFolder?.let { folder ->
+                    preferencesGateway.autoDetectAndSetReadingMode(folder, repository.listImages(folder))
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                AppLogger.log("Library", "Directory import failed", e)
+            } finally {
+                if (importedFolder == null) {
+                    stagedImport.discard()
+                }
             }
             withContext(Dispatchers.Main) {
-                if (added.isEmpty()) {
-                    folder.deleteRecursively()
+                if (importedFolder == null) {
                     ui.showToast(R.string.import_failed)
                 } else {
                     ui.showToastMessage(uiContext.getString(R.string.import_done, added.size))
@@ -223,60 +294,90 @@ internal class LibraryImportExportCoordinator(
 
     private fun importEhViewerCollection(
         uiContext: Context,
-        sources: List<DocumentFile>,
+        sources: List<ImportChapterSource>,
+        rootImages: List<DocumentFile>,
         importName: String,
         scope: CoroutineScope,
         onShowFolderList: () -> Unit
     ) {
-        val collection = repository.createCollection(importName)
-        if (collection == null) {
-            ui.showToast(R.string.import_folder_exists)
-            return
-        }
         scope.launch(Dispatchers.IO) {
+            val stagedImport = repository.beginFolderImport(importName, collection = true)
+            if (stagedImport == null) {
+                withContext(Dispatchers.Main) { ui.showToast(R.string.import_folder_exists) }
+                return@launch
+            }
             var importedChapters = 0
             var importedImages = 0
             var skippedChapters = 0
-            val detectionSamples = ArrayList<File>()
+            var collection: File? = null
 
-            for (source in sources) {
-                val sourceName = source.name?.trim().orEmpty()
-                if (sourceName.isEmpty()) {
-                    skippedChapters += 1
-                    continue
+            try {
+                withAvifConversionProgress { onConversionStarted ->
+                    val sourceNames = sources.mapNotNull { it.name.trim().takeIf(String::isNotEmpty) }
+                    val chapterSources = buildList {
+                        addAll(sources)
+                        if (rootImages.isNotEmpty()) {
+                            // A mixed directory is always imported as a collection. Its direct
+                            // images become a dedicated chapter instead of being silently ignored.
+                            add(ImportChapterSource(
+                                name = rootImageChapterName(importName, sourceNames),
+                                folder = null,
+                                images = rootImages
+                            ))
+                        }
+                    }
+                    for (source in chapterSources) {
+                        val sourceName = source.name
+                        if (sourceName.isEmpty()) {
+                            skippedChapters += 1
+                            continue
+                        }
+                        val chapterFolder = repository.createChildFolder(stagedImport.folder, sourceName)
+                        if (chapterFolder == null) {
+                            skippedChapters += 1
+                            continue
+                        }
+                        if (source.images.isEmpty()) {
+                            chapterFolder.deleteRecursively()
+                            skippedChapters += 1
+                            continue
+                        }
+                        val added = repository.addImages(
+                            chapterFolder,
+                            source.images.map { it.uri },
+                            onConversionStarted
+                        )
+                        if (added.isEmpty()) {
+                            chapterFolder.deleteRecursively()
+                            skippedChapters += 1
+                            continue
+                        }
+                        importedChapters += 1
+                        importedImages += added.size
+                    }
                 }
-                val chapterFolder = repository.createChildFolder(collection, sourceName)
-                if (chapterFolder == null) {
-                    skippedChapters += 1
-                    continue
+                if (importedChapters > 0) {
+                    collection = stagedImport.commit()
                 }
-                val images = source.listFiles().filter { it.isFile && isImageDocument(it) }
-                if (images.isEmpty()) {
-                    chapterFolder.deleteRecursively()
-                    skippedChapters += 1
-                    continue
+                collection?.let { importedCollection ->
+                    val samples = repository.listChildFolders(importedCollection)
+                        .flatMap(repository::listImages)
+                        .take(READING_MODE_SAMPLE_LIMIT)
+                    preferencesGateway.autoDetectAndSetReadingMode(importedCollection, samples)
                 }
-                val added = repository.addImages(chapterFolder, images.map { it.uri })
-                if (added.isEmpty()) {
-                    chapterFolder.deleteRecursively()
-                    skippedChapters += 1
-                    continue
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                AppLogger.log("Library", "Collection import failed", e)
+            } finally {
+                if (collection == null) {
+                    stagedImport.discard()
                 }
-                appendDetectionSamples(detectionSamples, added)
-                importedChapters += 1
-                importedImages += added.size
-            }
-
-            if (importedChapters > 0) {
-                preferencesGateway.autoDetectAndSetReadingMode(collection, detectionSamples)
             }
 
             withContext(Dispatchers.Main) {
                 when {
-                    importedChapters <= 0 -> {
-                        collection.deleteRecursively()
-                        ui.showToast(R.string.import_failed)
-                    }
+                    collection == null -> ui.showToast(R.string.import_failed)
                     skippedChapters > 0 -> ui.showToastMessage(
                         uiContext.getString(
                             R.string.chapter_import_done_with_skipped,
@@ -305,40 +406,51 @@ internal class LibraryImportExportCoordinator(
         treeUri: Uri,
         scope: CoroutineScope
     ) {
-        val root = DocumentFile.fromTreeUri(uiContext, treeUri)
-        if (root == null || !root.canRead()) {
-            ui.showToast(R.string.import_permission_required)
-            return
-        }
-        val folders = root.listFiles().filter { folder ->
-            folder.isDirectory && folder.listFiles().any { child -> child.isFile && isImageDocument(child) }
-        }
-        if (folders.isNotEmpty()) {
-            dialogs.showDocumentFolderMultiPicker(
-                context = uiContext,
-                titleRes = R.string.chapter_import_select_folders,
-                folders = folders
-            ) { selected ->
-                if (selected.isEmpty()) {
-                    ui.showToast(R.string.chapter_import_no_folders)
-                    return@showDocumentFolderMultiPicker
-                }
-                importChildChapters(uiContext, parentFolder, selected, scope)
+        scope.launch(Dispatchers.IO) {
+            val root = DocumentFile.fromTreeUri(uiContext, treeUri)
+            if (root == null || !root.canRead()) {
+                withContext(Dispatchers.Main) { ui.showToast(R.string.import_permission_required) }
+                return@launch
             }
-            return
+            val files = root.listFiles()
+            val chapters = files.mapNotNull { folder ->
+                if (!folder.isDirectory) return@mapNotNull null
+                val images = folder.listFiles().filter { child -> child.isFile && isImageDocument(child) }
+                images.takeIf { it.isNotEmpty() }?.let { ImportChapterSource(folder.name.orEmpty(), folder, it) }
+            }
+            withContext(Dispatchers.Main) {
+                if (chapters.isNotEmpty()) {
+                    val folders = chapters.mapNotNull { it.folder }
+                    dialogs.showDocumentFolderMultiPicker(uiContext, R.string.chapter_import_select_folders, folders) { selected ->
+                        if (selected.isEmpty()) ui.showToast(R.string.chapter_import_no_folders)
+                        else {
+                            val selectedUris = selected.mapTo(HashSet()) { it.uri }
+                            importChildChapters(
+                                uiContext,
+                                parentFolder,
+                                chapters.filter { it.folder?.uri in selectedUris },
+                                scope
+                            )
+                        }
+                    }
+                } else if (files.any { it.isFile && isImageDocument(it) }) {
+                    importChildChapters(
+                        uiContext,
+                        parentFolder,
+                        listOf(ImportChapterSource(root.name.orEmpty(), root, files.filter { it.isFile && isImageDocument(it) })),
+                        scope
+                    )
+                } else {
+                    ui.showToast(R.string.chapter_import_no_folders)
+                }
+            }
         }
-        val rootImages = root.listFiles().filter { it.isFile && isImageDocument(it) }
-        if (rootImages.isEmpty()) {
-            ui.showToast(R.string.chapter_import_no_folders)
-            return
-        }
-        importChildChapters(uiContext, parentFolder, listOf(root), scope)
     }
 
     private fun importChildChapters(
         uiContext: Context,
         parentFolder: File,
-        sources: List<DocumentFile>,
+        sources: List<ImportChapterSource>,
         scope: CoroutineScope
     ) {
         scope.launch(Dispatchers.IO) {
@@ -346,43 +458,68 @@ internal class LibraryImportExportCoordinator(
             var importedChapters = 0
             var importedImages = 0
             var skippedChapters = 0
-            val detectionSamples = ArrayList<File>()
-
-            for (source in sources) {
-                val sourceName = source.name?.trim().orEmpty()
-                if (sourceName.isEmpty()) {
-                    skippedChapters += 1
-                    continue
-                }
-                val chapterFolder = repository.createChildFolder(parentFolder, sourceName)
-                if (chapterFolder == null) {
-                    skippedChapters += 1
-                    continue
-                }
-                val images = source.listFiles().filter { it.isFile && isImageDocument(it) }
-                if (images.isEmpty()) {
-                    chapterFolder.deleteRecursively()
-                    skippedChapters += 1
-                    continue
-                }
-                val added = repository.addImages(chapterFolder, images.map { it.uri })
-                if (added.isEmpty()) {
-                    chapterFolder.deleteRecursively()
-                    skippedChapters += 1
-                    continue
-                }
-                appendDetectionSamples(detectionSamples, added)
-                importedChapters += 1
-                importedImages += added.size
+            val stagedImport = repository.beginChildChapterImport(parentFolder)
+            if (stagedImport == null) {
+                withContext(Dispatchers.Main) { ui.showToast(R.string.import_failed) }
+                return@launch
             }
+            var committedChapters: List<File>? = null
 
-            if (collectionWasEmpty && importedChapters > 0) {
-                preferencesGateway.autoDetectAndSetReadingMode(parentFolder, detectionSamples)
+            try {
+                withAvifConversionProgress { onConversionStarted ->
+                    for (source in sources) {
+                        val sourceName = source.name.trim()
+                        if (sourceName.isEmpty() || !repository.canCreateChildFolder(parentFolder, sourceName)) {
+                            skippedChapters += 1
+                            continue
+                        }
+                        val chapterFolder = repository.createChildFolder(stagedImport.folder, sourceName)
+                        if (chapterFolder == null) {
+                            skippedChapters += 1
+                            continue
+                        }
+                        val images = source.images
+                        if (images.isEmpty()) {
+                            chapterFolder.deleteRecursively()
+                            skippedChapters += 1
+                            continue
+                        }
+                        val added = repository.addImages(
+                            chapterFolder,
+                            images.map { it.uri },
+                            onConversionStarted
+                        )
+                        if (added.isEmpty()) {
+                            chapterFolder.deleteRecursively()
+                            skippedChapters += 1
+                            continue
+                        }
+                        importedChapters += 1
+                        importedImages += added.size
+                    }
+                }
+                if (importedChapters > 0) {
+                    committedChapters = stagedImport.commit()
+                }
+                if (collectionWasEmpty && !committedChapters.isNullOrEmpty()) {
+                    val committedSamples = committedChapters.orEmpty()
+                        .flatMap(repository::listImages)
+                        .take(READING_MODE_SAMPLE_LIMIT)
+                    preferencesGateway.autoDetectAndSetReadingMode(parentFolder, committedSamples)
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                AppLogger.log("Library", "Chapter import failed", e)
+            } finally {
+                if (committedChapters == null) {
+                    stagedImport.discard()
+                }
             }
 
             withContext(Dispatchers.Main) {
                 when {
-                    importedChapters <= 0 -> ui.showToast(R.string.import_failed)
+                    committedChapters.isNullOrEmpty() -> ui.showToast(R.string.import_failed)
                     skippedChapters > 0 -> ui.showToastMessage(
                         uiContext.getString(
                             R.string.chapter_import_done_with_skipped,
@@ -411,12 +548,13 @@ internal class LibraryImportExportCoordinator(
         }
     }
 
-    private fun appendDetectionSamples(target: MutableList<File>, added: List<File>) {
-        if (target.size >= READING_MODE_SAMPLE_LIMIT) return
-        val remaining = READING_MODE_SAMPLE_LIMIT - target.size
-        target.addAll(added.take(remaining))
+    private fun rootImageChapterName(importName: String, sourceNames: List<String>): String {
+        val occupied = sourceNames.toHashSet()
+        val base = "$importName - root"
+        return generateSequence(1) { it + 1 }
+            .map { index -> if (index == 1) base else "$base $index" }
+            .first { it !in occupied }
     }
-
 
     fun handleStoragePermissionResult(granted: Boolean, onGranted: () -> Unit) =
         exporter.handleStoragePermissionResult(granted, onGranted)
@@ -476,11 +614,36 @@ internal class LibraryImportExportCoordinator(
         PDF
     }
 
+    private data class ImportChapterSource(
+        val name: String,
+        val folder: DocumentFile?,
+        val images: List<DocumentFile>
+    )
+
     private fun isImageDocument(file: DocumentFile): Boolean {
         val name = file.name ?: return false
-        val lowerName = name.lowercase()
-        return lowerName.endsWith(".png") || lowerName.endsWith(".jpg") ||
-            lowerName.endsWith(".jpeg") || lowerName.endsWith(".webp") ||
-            lowerName.endsWith(".bmp") || lowerName.endsWith(".gif")
+        return ImageFileSupport.isSupportedImportImageFileName(name)
+    }
+
+    private suspend fun <T> withAvifConversionProgress(
+        block: suspend (onConversionStarted: suspend () -> Unit) -> T
+    ): T {
+        var progressShown = false
+        return try {
+            block {
+                if (!progressShown) {
+                    progressShown = true
+                    withContext(Dispatchers.Main.immediate) {
+                        ui.showImageConversionProgress()
+                    }
+                }
+            }
+        } finally {
+            if (progressShown) {
+                withContext(NonCancellable + Dispatchers.Main.immediate) {
+                    ui.hideImageConversionProgress()
+                }
+            }
+        }
     }
 }

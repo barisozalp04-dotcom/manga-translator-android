@@ -7,6 +7,7 @@ import android.graphics.Paint
 import android.graphics.PixelFormat
 import android.graphics.RectF
 import android.graphics.drawable.Drawable
+import androidx.core.graphics.withTranslation
 
 data class ReadingBitmapTile(
     val bitmap: Bitmap,
@@ -25,24 +26,23 @@ class ReadingTiledBitmapDrawable(
         if (imageWidth <= 0 || imageHeight <= 0 || tiles.isEmpty()) return
         val bounds = bounds
         if (bounds.width() <= 0 || bounds.height() <= 0) return
-        val save = canvas.save()
-        canvas.translate(bounds.left.toFloat(), bounds.top.toFloat())
-        canvas.scale(
-            bounds.width() / imageWidth.toFloat(),
-            bounds.height() / imageHeight.toFloat()
-        )
-        for (tile in tiles) {
-            val bitmap = tile.bitmap
-            if (bitmap.isRecycled) continue
-            destRect.set(
-                0f,
-                tile.top.toFloat(),
-                bitmap.width.toFloat(),
-                (tile.top + bitmap.height).toFloat()
+        canvas.withTranslation(bounds.left.toFloat(), bounds.top.toFloat()) {
+            scale(
+                bounds.width() / imageWidth.toFloat(),
+                bounds.height() / imageHeight.toFloat()
             )
-            canvas.drawBitmap(bitmap, null, destRect, paint)
+            for (tile in tiles) {
+                val bitmap = tile.bitmap
+                if (bitmap.isRecycled) continue
+                destRect.set(
+                    0f,
+                    tile.top.toFloat(),
+                    bitmap.width.toFloat(),
+                    (tile.top + bitmap.height).toFloat()
+                )
+                drawBitmap(bitmap, null, destRect, paint)
+            }
         }
-        canvas.restoreToCount(save)
     }
 
     override fun getIntrinsicWidth(): Int = imageWidth

@@ -19,7 +19,9 @@ import android.widget.FrameLayout
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.core.content.ContextCompat
+import androidx.core.graphics.createBitmap
 import androidx.core.view.doOnLayout
+import androidx.core.view.isGone
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.activityViewModels
 import androidx.interpolator.view.animation.FastOutSlowInInterpolator
@@ -41,10 +43,7 @@ import com.manga.translate.model.TranslationResult
 import com.manga.translate.network.LlmRequestException
 import com.manga.translate.network.LlmResponseException
 import com.manga.translate.platform.AppLogger
-import com.manga.translate.platform.AvifBitmapDecoder
-import com.manga.translate.platform.ImageFileSupport
 import com.manga.translate.platform.LockedWebtoonLinearLayoutManager
-import com.manga.translate.platform.recycleSafely
 import com.manga.translate.platform.showModelErrorDialog
 import com.manga.translate.rendering.BubbleShapePaths
 import kotlinx.coroutines.Dispatchers
@@ -98,6 +97,7 @@ class ReadingFragment : Fragment() {
     private var webtoonTranslationWarmJob: Job? = null
     private var currentDecodedImage: DecodedReadingBitmap? = null
     private var currentBitmap: Bitmap? = null
+    private var currentBitmapLease: ReadingBitmapCache.Lease? = null
     private var currentImageWidth: Int = 0
     private var currentImageHeight: Int = 0
     private lateinit var imageTransformController: ReadingImageTransformController
@@ -117,6 +117,7 @@ class ReadingFragment : Fragment() {
     private var webtoonPreparingEdit = false
     private var activeWebtoonZoomHolder: WebtoonReadingAdapter.WebtoonPageViewHolder? = null
     private var webtoonTouchHolder: WebtoonReadingAdapter.WebtoonPageViewHolder? = null
+    private lateinit var readingBitmapCache: ReadingBitmapCache
     private var pendingWebtoonScrollAnchor: WebtoonScrollAnchor? = null
     private var displayedPageIndex: Int? = null
     private var displayedImagePath: String? = null
@@ -141,11 +142,13 @@ class ReadingFragment : Fragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
         emptyBubbleCoordinator = appContainer.createReadingEmptyBubbleCoordinator()
+        readingBitmapCache = ReadingBitmapCache()
         webtoonLayoutManager = LockedWebtoonLinearLayoutManager(requireContext())
         webtoonLayoutManager.initialPrefetchItemCount = 6
         webtoonAdapter = WebtoonReadingAdapter(
             scope = viewLifecycleOwner.lifecycleScope,
-            loadTranslation = ::loadValidTranslationForCurrentFolder
+            loadTranslation = ::loadValidTranslationForCurrentFolder,
+            bitmapCache = readingBitmapCache
         )
         webtoonAdapter.onDisplayStructureChanging = {
             pendingWebtoonScrollAnchor = captureWebtoonScrollAnchor()
@@ -358,13 +361,24 @@ class ReadingFragment : Fragment() {
         if (::webtoonAdapter.isInitialized) {
             webtoonAdapter.clearRuntimeCaches()
         }
-        binding.readingImage.setImageDrawable(null)
-        binding.readingImage.setRegionSource(null)
-        currentBitmap?.recycleSafely()
-        currentDecodedImage = null
-        currentBitmap = null
+        releaseCurrentStandardBitmap()
+        if (::readingBitmapCache.isInitialized) {
+            readingBitmapCache.clear()
+        }
         binding.readingWebtoonList.adapter = null
         _binding = null
+    }
+
+    private fun releaseCurrentStandardBitmap() {
+        binding.translationOverlay.setSourceBitmap(null)
+        binding.translationOverlay.setSourceImageFile(null)
+        binding.readingImage.setRegionSource(null)
+        binding.readingImage.setImageDrawable(null)
+        imageTransformController.setCurrentBitmap(null)
+        currentBitmapLease?.close()
+        currentBitmapLease = null
+        currentDecodedImage = null
+        currentBitmap = null
     }
 
     private fun reloadReadingContent() {
@@ -380,26 +394,20 @@ class ReadingFragment : Fragment() {
         val images = readingSessionViewModel.images.value.orEmpty()
         val folder = readingSessionViewModel.currentFolder.value
         folderReadingMode = readingSessionViewModel.readingMode.value ?: FolderReadingMode.STANDARD
+        readingBitmapCache.retainPaths(images.mapTo(hashSetOf()) { it.absolutePath })
         if (images.isEmpty() || folder == null) {
             binding.readingEmptyHint.visibility = View.VISIBLE
             binding.readingPageInfo.visibility = View.GONE
             binding.translationOverlay.visibility = View.GONE
-            binding.translationOverlay.setSourceBitmap(null)
-            binding.translationOverlay.setSourceImageFile(null)
             binding.readingEditControls.visibility = View.GONE
             exitBubbleResizeMode()
-            binding.readingImage.setRegionSource(null)
-            binding.readingImage.setImageDrawable(null)
             displayedImagePath = null
             displayedPageIndex = null
-            currentBitmap?.recycleSafely()
-            currentDecodedImage = null
-            currentBitmap = null
+            releaseCurrentStandardBitmap()
             currentImageWidth = 0
             currentImageHeight = 0
             isCurrentImageLong = false
             hasCurrentPageVerticalOverflow = false
-            imageTransformController.setCurrentBitmap(null)
             imageTransformController.setVerticalPanEnabled(true)
             updateReadingInteractionState()
             finishPageTransitionImmediately()
@@ -432,7 +440,8 @@ class ReadingFragment : Fragment() {
             val translationDeferred = async(Dispatchers.IO) {
                 loadValidTranslationForCurrentFolder(imageFile)
             }
-            val decoded = decodedDeferred.await()
+            val decodedLease = decodedDeferred.await()
+            val decoded = decodedLease?.decoded
             val bitmap = decoded?.bitmap
             val translation = translationDeferred.await()
             val currentImages = readingSessionViewModel.images.value.orEmpty()
@@ -441,6 +450,7 @@ class ReadingFragment : Fragment() {
                 currentIndex != targetIndex ||
                 currentImages.getOrNull(currentIndex)?.absolutePath != targetPath
             ) {
+                decodedLease?.close()
                 return@launch
             }
             val isTargetLongImage = decoded != null && isLongImage(decoded.sourceWidth, decoded.sourceHeight)
@@ -456,10 +466,17 @@ class ReadingFragment : Fragment() {
             val direction = if ((previousDisplayedIndex ?: targetIndex) < targetIndex) -1 else 1
             binding.readingImage.translationX = 0f
             if (decoded != null) {
+                val previousBitmapLease = currentBitmapLease
                 binding.readingImage.setRegionSource(decoded.regionSource)
                 binding.readingImage.setImageDrawable(decoded.drawable)
                 currentDecodedImage = decoded
+                currentBitmapLease = decodedLease
                 currentBitmap = bitmap
+                if (previousBitmapLease !== decodedLease) {
+                    binding.translationOverlay.setSourceBitmap(null)
+                    binding.translationOverlay.setSourceImageFile(null)
+                    previousBitmapLease?.close()
+                }
                 currentImageWidth = decoded.sourceWidth
                 currentImageHeight = decoded.sourceHeight
                 isCurrentImageLong = isTargetLongImage
@@ -470,11 +487,7 @@ class ReadingFragment : Fragment() {
                 displayedImagePath = targetPath
                 displayedPageIndex = targetIndex
             } else {
-                binding.readingImage.setRegionSource(null)
-                binding.readingImage.setImageDrawable(null)
-                currentBitmap?.recycleSafely()
-                currentDecodedImage = null
-                currentBitmap = null
+                releaseCurrentStandardBitmap()
                 currentImageWidth = 0
                 currentImageHeight = 0
                 isCurrentImageLong = false
@@ -531,16 +544,12 @@ class ReadingFragment : Fragment() {
         exitBubbleResizeMode()
         currentImageFile = null
         currentTranslation = null
-        currentBitmap?.recycleSafely()
-        currentDecodedImage = null
-        currentBitmap = null
+        releaseCurrentStandardBitmap()
         currentImageWidth = 0
         currentImageHeight = 0
         hasCurrentPageVerticalOverflow = false
         displayedPageIndex = null
         displayedImagePath = null
-        binding.readingImage.setRegionSource(null)
-        imageTransformController.setCurrentBitmap(null)
         finishPageTransitionImmediately()
         if (images.isEmpty() || folder == null) {
             binding.readingEmptyHint.visibility = View.VISIBLE
@@ -691,10 +700,6 @@ class ReadingFragment : Fragment() {
     }
 
     private fun readImageBounds(imageFile: java.io.File): Pair<Int, Int> {
-        if (ImageFileSupport.isAvifFile(imageFile.name)) {
-            val size = AvifBitmapDecoder.getSize(imageFile)
-            return (size?.width ?: 0) to (size?.height ?: 0)
-        }
         val options = BitmapFactory.Options().apply {
             inJustDecodeBounds = true
         }
@@ -830,7 +835,7 @@ class ReadingFragment : Fragment() {
         binding.readingTransitionImage.setLayerType(View.LAYER_TYPE_NONE, null)
         binding.readingTransitionImage.post {
             if (_binding == null) return@post
-            if (binding.readingTransitionImage.visibility == View.GONE) {
+            if (binding.readingTransitionImage.isGone) {
                 binding.readingTransitionImage.setImageDrawable(null)
             }
         }
@@ -856,7 +861,7 @@ class ReadingFragment : Fragment() {
         val height = binding.readingContentContainer.height
         if (width <= 0 || height <= 0) return null
         return try {
-            Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).also { bitmap ->
+            createBitmap(width, height, Bitmap.Config.ARGB_8888).also { bitmap ->
                 val canvas = Canvas(bitmap)
                 binding.readingImage.draw(canvas)
             }
@@ -884,7 +889,7 @@ class ReadingFragment : Fragment() {
         updateOverlay(currentTranslation, currentBitmap)
     }
 
-    private suspend fun loadBitmap(imageFile: java.io.File): DecodedReadingBitmap? = withContext(Dispatchers.IO) {
+    private suspend fun loadBitmap(imageFile: java.io.File): ReadingBitmapCache.Lease? = withContext(Dispatchers.IO) {
         val width = binding.readingImage.width
             .takeIf { it > 0 }
             ?: binding.readingRoot.width.takeIf { it > 0 }
@@ -893,7 +898,17 @@ class ReadingFragment : Fragment() {
             .takeIf { it > 0 }
             ?: binding.readingRoot.height.takeIf { it > 0 }
             ?: resources.displayMetrics.heightPixels
-        ReadingBitmapDecoder.decode(imageFile, width, height)
+        var lease: ReadingBitmapCache.Lease? = null
+        try {
+            lease = readingBitmapCache.acquire(imageFile) {
+                ReadingBitmapDecoder.decode(imageFile, width, height)
+            }
+            lease
+        } finally {
+            if (!isActive) {
+                lease?.close()
+            }
+        }
     }
 
     private fun handleTap(x: Float) {
@@ -1220,10 +1235,17 @@ class ReadingFragment : Fragment() {
                 binding.readingScrollContainer.scrollTo(0, 0)
             }
         } else {
-            contentParams.height = ViewGroup.LayoutParams.MATCH_PARENT
-            imageParams.height = ViewGroup.LayoutParams.MATCH_PARENT
-            transitionImageParams.height = ViewGroup.LayoutParams.MATCH_PARENT
-            overlayParams.height = ViewGroup.LayoutParams.MATCH_PARENT
+            // Keep the image view inside the actual visible viewport. On devices
+            // where system-window insets are represented by parent padding,
+            // MATCH_PARENT can include the inset area and make FIT_WIDTH center
+            // the page below the visible bottom edge.
+            val viewportHeight = binding.readingScrollContainer.contentViewportHeight()
+            val pageHeight = viewportHeight.takeIf { it > 0 }
+                ?: ViewGroup.LayoutParams.MATCH_PARENT
+            contentParams.height = pageHeight
+            imageParams.height = pageHeight
+            transitionImageParams.height = pageHeight
+            overlayParams.height = pageHeight
             binding.readingImage.scaleType = android.widget.ImageView.ScaleType.MATRIX
             binding.readingTransitionImage.scaleType = android.widget.ImageView.ScaleType.MATRIX
             binding.readingImage.adjustViewBounds = false

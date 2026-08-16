@@ -21,7 +21,7 @@ import java.nio.FloatBuffer
 import kotlin.math.max
 import kotlin.math.min
 
-class EnglishLineDetector(
+class PaddleTextLineDetector(
     private val context: Context,
     private val modelAssetName: String = "models/detection/PP-OCRv6_det_mobile_infer.onnx",
     private val threadProfile: OnnxThreadProfile = OnnxThreadProfile.LIGHT,
@@ -50,6 +50,15 @@ class EnglishLineDetector(
 
     @Synchronized
     fun detectLines(bitmap: Bitmap): List<RectF> {
+        return detectLines(bitmap, throwOnFailure = false)
+    }
+
+    @Synchronized
+    fun detectLinesOrThrow(bitmap: Bitmap): List<RectF> {
+        return detectLines(bitmap, throwOnFailure = true)
+    }
+
+    private fun detectLines(bitmap: Bitmap, throwOnFailure: Boolean): List<RectF> {
         if (bitmap.width < MIN_CROP_SIZE || bitmap.height < MIN_CROP_SIZE) {
             return emptyList()
         }
@@ -65,13 +74,14 @@ class EnglishLineDetector(
                     val sorted = sortBoxesReadingOrder(rects)
                     if (settingsStore.loadModelIoLogging()) {
                         AppLogger.log(
-                            "EnglishLineDetector",
+                            "PaddleTextLineDetector",
                             "Input ${bitmap.width}x${bitmap.height}, lines ${sorted.size}: ${describeRects(sorted)}"
                         )
                     }
                     return sorted
                 }
             } catch (e: OrtException) {
+                if (throwOnFailure) throw e
                 return emptyList()
             }
         }
@@ -286,3 +296,5 @@ class EnglishLineDetector(
         private const val MIN_CROP_SIZE = 32
     }
 }
+
+typealias EnglishLineDetector = PaddleTextLineDetector

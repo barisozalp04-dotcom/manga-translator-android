@@ -113,7 +113,6 @@ data class CustomThemeColors(
 
 data class OcrApiSettings(
     val useLocalOcr: Boolean,
-    val japaneseLocalOcrEngine: JapaneseLocalOcrEngine,
     val apiUrl: String,
     val apiKey: String,
     val modelName: String,
@@ -121,33 +120,10 @@ data class OcrApiSettings(
     val apiOcrConcurrencyLimit: Int = 1,
     // 0 = auto (determined by device performance); positive = manual override
     val localOcrConcurrencyLimit: Int = 0,
-    val ocrApiFormat: OcrApiFormat = OcrApiFormat.OPENAI_COMPATIBLE,
-    val secretKey: String = ""
+    val ocrApiFormat: OcrApiFormat = OcrApiFormat.OPENAI_COMPATIBLE
 ) {
     fun isValid(): Boolean {
-        if (!useLocalOcr) {
-            when (ocrApiFormat) {
-                OcrApiFormat.OPENAI_COMPATIBLE -> {
-                    if (apiUrl.isBlank() || apiKey.isBlank() || modelName.isBlank()) return false
-                }
-                OcrApiFormat.BAIDU_AI -> {
-                    if (apiKey.isBlank() || secretKey.isBlank()) return false
-                }
-            }
-        }
-        return true
-    }
-}
-
-enum class JapaneseLocalOcrEngine(
-    val prefValue: String
-) {
-    MANGA_OCR_MOBILE("manga_ocr_mobile");
-
-    companion object {
-        fun fromPref(value: String?): JapaneseLocalOcrEngine {
-            return entries.firstOrNull { it.prefValue == value } ?: MANGA_OCR_MOBILE
-        }
+        return useLocalOcr || (apiUrl.isNotBlank() && apiKey.isNotBlank() && modelName.isNotBlank())
     }
 }
 
@@ -222,6 +198,8 @@ data class AiProviderProfile(
     val name: String,
     val mainSettings: ApiSettings,
     val apiTimeoutSeconds: Int,
+    val apiRetryCount: Int,
+    val maxConcurrency: Int,
     val ocrSettings: OcrApiSettings,
     val floatingTranslateSettings: FloatingTranslateApiSettings,
     val llmParameters: LlmParameterSettings,
@@ -460,6 +438,10 @@ class SettingsStore(context: Context) {
         return providerProfileStore.applyAiProviderProfile(name)
     }
 
+    fun canApplyAiProviderProfile(name: String): Boolean {
+        return providerProfileStore.canApplyAiProviderProfile(name)
+    }
+
     fun deleteAiProviderProfile(name: String): Boolean {
         return providerProfileStore.deleteAiProviderProfile(name)
     }
@@ -476,7 +458,6 @@ class SettingsStore(context: Context) {
         internal const val KEY_MODEL_NAME = "model_name"
         internal const val KEY_API_FORMAT = "api_format"
         internal const val KEY_OCR_USE_LOCAL = "ocr_use_local"
-        internal const val KEY_JAPANESE_LOCAL_OCR_ENGINE = "japanese_local_ocr_engine"
         internal const val KEY_OCR_API_URL = "ocr_api_url"
         internal const val KEY_OCR_API_KEY = "ocr_api_key"
         internal const val KEY_OCR_MODEL_NAME = "ocr_model_name"
@@ -508,7 +489,6 @@ class SettingsStore(context: Context) {
         internal const val KEY_OCR_API_CONCURRENCY = "ocr_api_concurrency"
         internal const val KEY_LOCAL_OCR_CONCURRENCY = "local_ocr_concurrency"
         internal const val KEY_OCR_API_FORMAT = "ocr_api_format"
-        internal const val KEY_OCR_SECRET_KEY = "ocr_secret_key"
         internal const val KEY_HORIZONTAL_TEXT = "horizontal_text_layout"
         internal const val KEY_NORMAL_BUBBLE_SHRINK_PERCENT = "normal_bubble_shrink_percent"
         internal const val KEY_NORMAL_BUBBLE_MIN_AREA_PER_CHAR_SP =
@@ -519,14 +499,6 @@ class SettingsStore(context: Context) {
             "normal_free_bubble_opacity_percent"
         internal const val KEY_NORMAL_FREE_BUBBLE_AUTO_ADAPT_COLOR =
             "normal_free_bubble_auto_adapt_color"
-        internal const val KEY_NORMAL_BUBBLE_FONT = "normal_bubble_font"
-        internal const val KEY_NORMAL_BUBBLE_CUSTOM_FONT_URL = "normal_bubble_custom_font_url"
-        internal const val KEY_NORMAL_BUBBLE_CUSTOM_FONT_FILE = "normal_bubble_custom_font_file"
-        internal const val KEY_NORMAL_BUBBLE_FONT_BOLD = "normal_bubble_font_bold"
-        internal const val KEY_FLOATING_BUBBLE_FONT = "floating_bubble_font"
-        internal const val KEY_FLOATING_BUBBLE_CUSTOM_FONT_URL = "floating_bubble_custom_font_url"
-        internal const val KEY_FLOATING_BUBBLE_CUSTOM_FONT_FILE = "floating_bubble_custom_font_file"
-        internal const val KEY_FLOATING_BUBBLE_FONT_BOLD = "floating_bubble_font_bold"
         internal const val KEY_BUBBLE_FONT = "bubble_font"
         internal const val KEY_BUBBLE_CUSTOM_FONT_FILE = "bubble_custom_font_file"
         internal const val KEY_BUBBLE_FONT_BOLD = "bubble_font_bold"
@@ -607,6 +579,7 @@ class SettingsStore(context: Context) {
         const val MIN_FLOATING_API_TIMEOUT_SECONDS = 30
         const val MAX_FLOATING_API_TIMEOUT_SECONDS = 1200
         internal const val DEFAULT_FLOATING_BUBBLE_SIZE_ADJUST_PERCENT = 0
+        internal const val DEFAULT_FLOATING_BUBBLE_OPACITY_PERCENT = 100
         internal const val MIN_FLOATING_BUBBLE_SIZE_ADJUST_PERCENT = -30
         internal const val MAX_FLOATING_BUBBLE_SIZE_ADJUST_PERCENT = 30
         internal const val DEFAULT_FLOATING_MIN_AREA_PER_CHAR_SP = 48f

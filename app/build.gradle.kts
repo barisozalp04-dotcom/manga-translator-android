@@ -21,8 +21,8 @@ android {
         applicationId = "com.manga.translate.v3"
         minSdk = 24
         targetSdk = 36
-        versionCode = 79
-        versionName = "3.3.8"
+        versionCode = 85
+        versionName = "3.4.0"
         ndk {
             abiFilters += listOf("arm64-v8a")
         }
@@ -57,6 +57,11 @@ android {
         }
     }
 
+    lint {
+        // The app intentionally ships arm64-only native model dependencies.
+        disable += "ChromeOsAbiSupport"
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -74,7 +79,6 @@ android {
     packaging {
         jniLibs {
             keepDebugSymbols += setOf(
-                "**/libtensorflowlite_jni.so",
                 "**/libonnxruntime.so",
                 "**/libonnxruntime4j_jni.so",
                 // avif-coder ships these native libs pre-stripped, so we package them as-is
@@ -99,25 +103,26 @@ kotlin {
 }
 
 dependencies {
-    implementation("androidx.core:core-ktx:1.13.1")
-    implementation("androidx.appcompat:appcompat:1.7.0")
-    implementation("com.google.android.material:material:1.12.0")
-    implementation("androidx.constraintlayout:constraintlayout:2.1.4")
-    implementation("androidx.activity:activity-ktx:1.9.2")
-    implementation("androidx.fragment:fragment-ktx:1.7.1")
-    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
-    implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.8.7")
-    implementation("androidx.recyclerview:recyclerview:1.3.2")
+    implementation("androidx.core:core-ktx:1.18.0")
+    implementation("androidx.appcompat:appcompat:1.7.1")
+    implementation("com.google.android.material:material:1.14.0")
+    implementation("androidx.constraintlayout:constraintlayout:2.2.2")
+    implementation("androidx.activity:activity-ktx:1.13.0")
+    implementation("androidx.fragment:fragment-ktx:1.8.9")
+    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.11.0")
+    implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.11.0")
+    implementation("androidx.recyclerview:recyclerview:1.4.0")
+    implementation("androidx.documentfile:documentfile:1.1.0")
     implementation("androidx.viewpager2:viewpager2:1.1.0")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
-    implementation("com.squareup.okhttp3:okhttp:4.12.0")
-    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.19.2")
-    implementation("org.tensorflow:tensorflow-lite:2.17.0")
-    implementation("net.lingala.zip4j:zip4j:2.11.5")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
+    implementation("com.squareup.okhttp3:okhttp:5.4.0")
+    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.28.0")
+    implementation("net.lingala.zip4j:zip4j:2.11.6")
     implementation("io.github.awxkee:avif-coder:2.2.1")
+    implementation("com.tom-roush:pdfbox-android:2.0.27.0")
 
     testImplementation("junit:junit:4.13.2")
-    testImplementation("androidx.test:core:1.6.1")
-    testImplementation("org.robolectric:robolectric:4.14.1")
-    testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
+    testImplementation("androidx.test:core:1.7.0")
+    testImplementation("org.robolectric:robolectric:4.16.1")
+    testImplementation("com.squareup.okhttp3:mockwebserver:5.4.0")
 }

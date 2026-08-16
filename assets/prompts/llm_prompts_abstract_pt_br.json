@@ -1,0 +1,5 @@
+{
+  "system_prompt": "Você extrai termos de mangá que precisam de uma tradução consistente em português brasileiro. Retorne somente JSON válido. Não adicione explicações, comentários ou markdown.",
+  "user_prompt_prefix": "Analise os textos a seguir. Retorne exatamente um objeto JSON com o campo glossary_used. Em glossary_used, inclua somente nomes próprios, lugares, organizações, títulos, técnicas e outros termos recorrentes que ainda não estejam no glossário; use português brasileiro natural. Se não houver termos novos relevantes, retorne {\"glossary_used\": {}}. Responda somente com JSON válido:\n\n",
+  "example_messages": []
+}

@@ -27,6 +27,7 @@ import com.manga.translate.rendering.BubbleTextColorResolver
 import com.manga.translate.rendering.BubbleTextScaling
 import com.manga.translate.rendering.VerticalTextLayout
 import com.manga.translate.rendering.VerticalTextLayoutCalculator
+import com.manga.translate.rendering.VerticalTextRenderer
 import com.manga.translate.rendering.VerticalTextSymbolConverter
 import com.manga.translate.settings.FloatingBubbleRenderSettings
 import com.manga.translate.settings.FloatingBubbleShape
@@ -479,11 +480,10 @@ class FloatingDetectionOverlayView @JvmOverloads constructor(
                     paint = TextPaint(textPaint).apply { this.textSize = textSize },
                     availableWidth = textRect.width().toInt().coerceAtLeast(1)
                 )
-                canvas.save()
-                canvas.translate(textRect.centerX(), textRect.centerY())
-                canvas.translate(-textLayout.width / 2f, -textLayout.height / 2f)
-                textLayout.draw(canvas)
-                canvas.restore()
+                canvas.withTranslation(textRect.centerX(), textRect.centerY()) {
+                    translate(-textLayout.width / 2f, -textLayout.height / 2f)
+                    textLayout.draw(this)
+                }
             } else {
                 drawVerticalTextInRect(canvas, VerticalTextSymbolConverter.convert(text), textRect)
             }
@@ -659,28 +659,7 @@ class FloatingDetectionOverlayView @JvmOverloads constructor(
         val textSize = defaultTextSize.coerceAtLeast(minTextSizePx)
         val layout = buildVerticalLayout(text, maxWidth, maxHeight, textSize)
         textPaint.textSize = textSize
-        val dx = rect.right - ((rect.width() - layout.totalWidth) / 2f) - layout.columnWidth
-        val dy = rect.top + ((rect.height() - layout.totalHeight) / 2f) - layout.fontMetrics.ascent
-        var col = 0
-        var row = 0
-        for (ch in text) {
-            if (ch == '\n') {
-                col += 1
-                row = 0
-                continue
-            }
-            if (row >= layout.maxRows) {
-                col += 1
-                row = 0
-            }
-            if (col >= layout.columns) break
-            val glyph = ch.toString()
-            val charWidth = textPaint.measureText(glyph)
-            val x = dx - col * layout.columnWidth + (layout.columnWidth - charWidth) / 2f
-            val y = dy + row * layout.lineHeight
-            canvas.drawText(glyph, x, y, textPaint)
-            row += 1
-        }
+        VerticalTextRenderer.draw(canvas, text, rect, textPaint, layout)
     }
 
     private fun findDefaultVerticalTextSize(

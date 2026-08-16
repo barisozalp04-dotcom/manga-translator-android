@@ -1,7 +1,9 @@
-<resources>
+<resources xmlns:tools="http://schemas.android.com/tools" tools:ignore="PluralsCandidate">
+    <string name="exclamation_mark" translatable="false">!</string>
     <string name="app_name">MT Reader</string>
     <string name="preview_image">Detection Preview</string>
-    <string name="detecting_bubbles">Bubble detection...</string>
+    <string name="detecting_bubbles">Detecting text regions…</string>
+    <string name="recognizing_bubbles">OCR recognition (%1$d areas)…</string>
     <string name="translating_bubbles">Translating…</string>
     <string name="close_action">Close</string>
     <string name="tab_library">Library</string>
@@ -35,6 +37,7 @@
     <string name="missing_api_settings">Please fill in the API address and Key in the settings first</string>
     <string name="missing_translate_api_settings">Please fill in the API address, Key and model name in the settings first</string>
     <string name="text_layout_horizontal">Comics use horizontal layout</string>
+    <string name="bubble_vertical_text">Use vertical layout for bubbles</string>
     <string name="model_io_logging">Print AI model input and output</string>
     <string name="theme_setting_button">Theme Settings</string>
     <string name="theme_setting_title">Theme Settings</string>
@@ -95,7 +98,7 @@
     <string name="ai_provider_profiles_section_label">Profile List</string>
     <string name="ai_provider_profiles_current">Current configuration: %1$s</string>
     <string name="ai_provider_profiles_current_none">Current profile: None</string>
-    <string name="ai_provider_profiles_note">Profiles save the current primary model, OCR settings, floating translation overrides, AI parameters, multi-provider scheduling, and custom request parameters. Applying a profile switches all of them together.</string>
+    <string name="ai_provider_profiles_note">Profiles save the current primary model, retry and concurrency settings, OCR settings, floating translation overrides, AI parameters, multi-provider scheduling, and custom request parameters. Applying a profile switches all of them together.</string>
     <string name="ai_provider_profiles_empty">There are no saved configurations yet.</string>
     <string name="ai_provider_profiles_apply">Switch to Selected Profile</string>
     <string name="ai_provider_profiles_save_new">Create new and save current configuration</string>
@@ -112,8 +115,10 @@
     <string name="ai_provider_profiles_delete_confirm">Are you sure you want to delete the configuration "%1$s"?</string>
     <string name="ai_provider_profiles_deleted">Profile deleted</string>
     <string name="ai_provider_profiles_select_required">Please select a profile first</string>
+    <string name="ai_provider_profiles_apply_invalid">The selected profile has fewer concurrent requests than enabled providers and cannot be applied.</string>
+    <string name="ai_provider_profiles_write_failed">Could not write the profile. Existing profiles were not changed.</string>
     <string name="fetch_models_title">Model List</string>
-    <string name="fetch_models_loading">Getting model list...</string>
+    <string name="fetch_models_loading">Getting model list…</string>
     <string name="fetch_models_failed_title">Failed to Fetch Model List</string>
     <string name="fetch_models_failed_message">Failed to get:
 %1$s</string>
@@ -139,7 +144,6 @@ For example: if the primary provider is 10, provider A is 5, and provider B is 5
     <string name="custom_request_params_title">Custom Request Parameters</string>
     <string name="custom_request_params_note">These fields are appended to the top level of the AI request body. They target the primary provider by default, and can also be assigned to the OCR API or specific additional providers. Multiple key-value pairs are supported, with automatic detection for booleans, numbers, null, and valid JSON objects or arrays. Built-in fields cannot be overridden, and duplicate keys within the same target are blocked.</string>
     <string name="custom_request_params_add">Add Parameter</string>
-    <string name="custom_request_params_delete">Delete This Parameter</string>
     <string name="custom_request_params_enabled">Enabled</string>
     <string name="custom_request_param_key_hint">Parameter Key</string>
     <string name="custom_request_param_target_provider_hint">Apply to Provider</string>
@@ -151,7 +155,6 @@ For example: if the primary provider is 10, provider A is 5, and provider B is 5
     <string name="custom_request_params_provider_ocr">OCR API</string>
     <string name="custom_request_params_duplicate_error_scoped">Duplicate custom parameter key for provider "%1$s": %2$s</string>
     <string name="custom_request_params_empty_row_error">Parameter key cannot be empty</string>
-    <string name="custom_request_params_duplicate_error">Duplicate custom parameter key exists: %1$s</string>
     <string name="custom_request_params_conflict_error">Custom parameters cannot override built-in fields: %1$s</string>
     <string name="custom_request_params_saved">Custom request parameters saved</string>
     <string name="ocr_settings_button">OCR Settings</string>
@@ -173,17 +176,13 @@ For example: if the primary provider is 10, provider A is 5, and provider B is 5
     <string name="normal_bubble_free_opacity_percent_hint">Free bubble opacity (0–100)</string>
     <string name="normal_bubble_free_auto_adapt_color">Free bubble adaptive background color</string>
     <string name="normal_bubble_min_area_per_char_label">Lower limit of text density (the larger the value, the larger the text, which may expand the bubbles)</string>
-    <string name="normal_bubble_min_area_value">Current: %d sp² / word</string>
-    <string name="normal_bubble_layout_horizontal">Horizontal Layout</string>
-    <string name="normal_bubble_layout_vertical">Vertical Layout</string>
+    <string name="normal_bubble_min_area_value">Current: %d sp² / character</string>
     <string name="bubble_font_settings_button">Font Settings</string>
     <string name="bubble_font_settings_button_uploaded">Font settings (uploaded)</string>
     <string name="bubble_font_settings_title">Font Settings</string>
     <string name="bubble_font_settings_note">Normal and floating bubble boxes share this font setting. Choose the system default or switch among uploaded fonts; uploaded fonts stay in the list so you do not need to re-upload them. Most system fonts fall back to the same Chinese glyphs and look almost the same.</string>
-    <string name="bubble_font_use_uploaded">Use Uploaded Font File</string>
     <string name="bubble_font_upload_button">Upload Font File</string>
     <string name="bubble_font_uploaded_file_empty">No font files are currently uploaded</string>
-    <string name="bubble_font_uploaded_file_value">Current font file: %1$s</string>
     <string name="bubble_font_upload_missing">Please upload a font file first, or choose system default</string>
     <string name="bubble_font_upload_success">Font file uploaded: %1$s</string>
     <string name="bubble_font_upload_failed">Failed to upload font file, please confirm that the file is valid</string>
@@ -194,15 +193,7 @@ For example: if the primary provider is 10, provider A is 5, and provider B is 5
     <string name="bubble_font_delete_confirm_message">Delete font “%1$s”? This cannot be undone.</string>
     <string name="bubble_font_label">Font</string>
     <string name="bubble_font_system_default">System default</string>
-    <string name="bubble_font_system_sans_serif">System sans serif</string>
-    <string name="bubble_font_system_serif">System serif</string>
-    <string name="bubble_font_system_monospace">System width</string>
-    <string name="bubble_font_google_noto_sans_sc">Google Noto Sans SC</string>
-    <string name="bubble_font_google_noto_serif_sc">Google Noto Serif SC</string>
-    <string name="bubble_font_custom_url">Custom web font</string>
     <string name="bubble_font_custom_file">custom font file</string>
-    <string name="bubble_font_custom_url_hint">Public font URL (such as https://example.com/font.ttf)</string>
-    <string name="bubble_font_custom_file_hint">Font file name (assets/ or private directory)</string>
     <string name="bubble_font_bold">Bold</string>
     <string name="floating_bubble_render_settings_button">Floating Bubble Settings</string>
     <string name="floating_bubble_render_settings_title">Floating Bubble Settings</string>
@@ -215,7 +206,7 @@ For example: if the primary provider is 10, provider A is 5, and provider B is 5
     <string name="floating_bubble_shape_inscribed_ellipse">Inscribed Ellipse</string>
     <string name="floating_bubble_horizontal_text">Use horizontal layout for floating windows</string>
     <string name="floating_bubble_min_area_per_char_label">Lower limit of text density (the larger the value, the larger the text, which may expand the bubbles)</string>
-    <string name="floating_bubble_min_area_value">Current: %d sp² / word</string>
+    <string name="floating_bubble_min_area_value">Current: %d sp² / character</string>
     <string name="floating_api_url_hint">Floating window translation API address</string>
     <string name="floating_api_key_hint">Floating window translation API Key</string>
     <string name="floating_model_name_hint">Floating window translation model name</string>
@@ -242,9 +233,7 @@ For example: if the primary provider is 10, provider A is 5, and provider B is 5
     <string name="floating_translate_settings_note">Leave an item blank to use the corresponding configuration in the main settings.</string>
     <string name="ocr_use_local">Use local OCR</string>
     <string name="ocr_api_format_openai_compatible">OpenAI compatible</string>
-    <string name="ocr_api_format_baidu_ai">Baidu AI</string>
     <string name="ocr_api_format_hint">OCR API format</string>
-    <string name="ocr_secret_key_hint">Secret Key (Baidu AI)</string>
     <string name="ocr_api_url_hint">OCR API Address</string>
     <string name="ocr_api_key_hint">OCR API Key</string>
     <string name="ocr_model_name_hint">OCR model name</string>
@@ -286,6 +275,15 @@ For example: if the primary provider is 10, provider A is 5, and provider B is 5
     <string name="logs_empty">No logs yet</string>
     <string name="library_quick_actions">Quick Actions</string>
     <string name="library_quick_actions_title">Import &amp; Tools</string>
+    <string name="import_anyway">Import anyway</string>
+    <string name="import_cancel">Cancel import</string>
+    <string name="memory_warning_title">Device resources may be low</string>
+    <string name="memory_warning_message">Currently available memory is %1$s and estimated peak usage is %2$s. Continuing may make the app unresponsive, fail, or be terminated by Android.</string>
+    <string name="memory_warning_message_unavailable">Currently available memory could not be determined. Continuing may make the app unresponsive, fail, or be terminated by Android.</string>
+    <string name="resource_concurrency_warning_message">Currently available memory is %1$s, estimated peak usage is %2$s, and the device has %3$d CPU cores. You selected %4$d threads; after accounting for available memory and reserving CPU capacity for Android, no more than %5$d is recommended. Continuing may cause slowdown or failure.</string>
+    <string name="memory_size_unknown">unknown</string>
+    <string name="resource_continue_anyway">Continue anyway</string>
+    <string name="resource_cancel">Cancel</string>
     <string name="library_collection_label">Collection</string>
     <string name="library_collection_title">Manga Project</string>
     <string name="library_sort_by_name">Name</string>
@@ -294,6 +292,7 @@ For example: if the primary provider is 10, provider A is 5, and provider B is 5
     <string name="library_sort_order_desc">Descending</string>
     <string name="library_action_panel_label">Operation panel</string>
     <string name="library_translation_settings_hint">Configure the translation language and full-text quick translation strategy separately for the current folder.</string>
+    <string name="library_translation_settings_info_desc">About translation settings</string>
     <string name="library_pages_label">Page list</string>
     <string name="tutorial_button">Tutorial</string>
     <string name="tutorial_open_title">Open Tutorial</string>
@@ -323,14 +322,14 @@ For example: if the primary provider is 10, provider A is 5, and provider B is 5
     <string name="screen_capture_permission_failed">Screen capture permission is not obtained and hover recognition cannot be performed.</string>
     <string name="common_on">On</string>
     <string name="common_off">Off</string>
-    <string name="floating_progress_capturing">Floating translation in progress: Capturing the screen...</string>
-    <string name="floating_progress_detecting">Floating Translation: Detecting text area...</string>
+    <string name="floating_progress_capturing">Floating translation in progress: Capturing the screen…</string>
+    <string name="floating_progress_detecting">Floating Translation: Detecting text area…</string>
     <string name="floating_progress_recognizing">Floating translation in progress: Recognizing text (%1$d areas)…</string>
     <string name="floating_progress_vl_translating">Suspension translation in progress: Using VL model translation bubbles (%1$d areas)…</string>
-    <string name="floating_progress_translating">Floating translation in progress: Translating text...</string>
+    <string name="floating_progress_translating">Floating translation in progress: Translating text…</string>
     <string name="floating_progress_done">Floating translation completed: %1$d text areas in total</string>
     <string name="floating_detected_count">%1$d text areas identified</string>
-    <string name="overlay_empty_bubble_translating">Adding translation bubbles...</string>
+    <string name="overlay_empty_bubble_translating">Adding translation bubbles…</string>
     <string name="overlay_empty_bubble_translated">New bubble translation completed</string>
     <string name="floating_capture_not_ready">Screen capture is not ready, please restart floating window translation.</string>
     <string name="floating_detect_failed">Recognition failed, please try again.</string>
@@ -339,10 +338,6 @@ For example: if the primary provider is 10, provider A is 5, and provider B is 5
     <string name="floating_service_channel">Floating window recognition</string>
     <string name="floating_service_title">Floating window recognition is running</string>
     <string name="floating_service_message">Operate the floating ball according to the gestures you set</string>
-    <string name="floating_usage_tip_line">%1$s Suspension ball: %2$s</string>
-    <string name="floating_usage_tip">Click the floating ball: identify and translate the current screen text area
-Double-click the floating ball: clear the current recognition/translation bubble
-Long press the floating ball: pop up menu</string>
     <string name="floating_bubble_placeholder">text area</string>
     <string name="tutorial_option_gitee_recommended">Mirror</string>
     <string name="tutorial_option_github">GitHub</string>
@@ -385,7 +380,6 @@ Long press the floating ball: pop up menu</string>
     <string name="folder_delete_failed">Deletion failed, please try again later</string>
     <string name="folder_delete_empty">Please select the folder you want to delete first</string>
     <string name="folder_rename_failed">Rename failed, please check the name</string>
-    <string name="folder_multi_select_title">Select the folder to operate on</string>
     <string name="folder_collection_title_suffix">(Chapter Collection)</string>
     <string name="folder_translation_settings">Translation Settings</string>
     <string name="folder_reading_settings">Reading Settings</string>
@@ -397,7 +391,6 @@ Long press the floating ball: pop up menu</string>
     <string name="folder_reading_mode_webtoon_scroll">Webtoon Scroll</string>
     <string name="folder_language_setting">Language setting: %1$s</string>
     <string name="folder_language_setting_title">Choose Translation Language</string>
-    <string name="folder_language_to_zh">Translate to Chinese</string>
     <string name="folder_language_to_target">Translate to %1$s</string>
     <string name="translation_language_pair_format">%1$s → %2$s</string>
     <string name="translation_source_japanese">Japanese</string>
@@ -412,17 +405,9 @@ Long press the floating ball: pop up menu</string>
     <string name="translation_source_german">German</string>
     <string name="translation_source_italian">Italian</string>
     <string name="translation_source_russian">Russian</string>
-    <string name="folder_language_ja_to_zh">Japanese → Chinese</string>
-    <string name="folder_language_en_to_zh">English → Chinese</string>
-    <string name="folder_language_ko_to_zh">Korean → Chinese</string>
-    <string name="folder_language_chn_eng_to_zh">Mixed Chinese and English → Chinese</string>
-    <string name="folder_language_fr_to_zh">French → Chinese</string>
-    <string name="folder_language_es_to_zh">Spanish → Chinese</string>
-    <string name="folder_language_pt_to_zh">Portuguese → Chinese</string>
-    <string name="folder_language_de_to_zh">German → Chinese</string>
-    <string name="folder_language_it_to_zh">Italian → Chinese</string>
-    <string name="folder_language_ru_to_zh">Russian → Chinese</string>
     <string name="folder_use_vl_direct_translate">Translate the entire bubble using the VL model</string>
+    <string name="folder_use_vl_direct_translate_info_title">About VL Direct Translation</string>
+    <string name="folder_use_vl_direct_translate_info_desc">About VL direct translation</string>
     <string name="folder_use_vl_direct_translate_note">When turned on, the detected bubbles will be sent directly to the visual model for translation, skipping the text recognition step. Please make sure the model you fill in supports image input.</string>
     <string name="folder_use_vl_direct_translate_warning">Folder VL has been opened for direct browsing. Please confirm that the current model supports image input.</string>
     <string name="folder_vl_model_required">Currently direct translation requires the VL model. Please switch to a model that supports image input in the main settings, or turn off the switch.</string>
@@ -431,13 +416,24 @@ Long press the floating ball: pop up menu</string>
     <string name="folder_full_translate_info">After turning it on, it will first recognize all the image text and extract the translation, and then translate the bubble content on the entire page. The translation speed of the first picture after it is turned on depends on the total number of pictures. After turning it off, the speed of translating the first image is greatly improved.</string>
     <string name="folder_full_translate_info_desc">About Full Translation</string>
     <string name="folder_glossary_processing">Glossary Processing</string>
+    <string name="folder_glossary_processing_info_title">About Glossary Processing</string>
+    <string name="folder_glossary_processing_info_desc">About glossary processing</string>
     <string name="folder_glossary_processing_note">After turning off translation processing, concurrent translation can be performed faster.</string>
+    <string name="folder_bubble_detection_info_title">About Region Detection Modes</string>
+    <string name="folder_bubble_detection_info_desc">About region detection modes</string>
+    <string name="folder_bubble_detection_info">Bubbles only uses the bubble segmentation model. Text only uses Paddle OCR to detect and group every text block, and is the fastest mode. Bubbles + free text detects regular bubbles and uses Paddle OCR to supplement and group text outside them, and is the slowest mode.</string>
+    <string name="folder_detection_mode_bubbles">Bubbles only</string>
+    <string name="folder_detection_mode_text">Text only</string>
+    <string name="folder_detection_mode_bubbles_and_text">Bubbles + free text</string>
     <string name="translation_preparing">Preparing</string>
     <string name="folder_preprocess_progress">%1$s（%2$d/%3$d）</string>
     <string name="folder_preprocess_stage_ocr">OCR Preprocessing</string>
     <string name="folder_preprocess_stage_glossary">Glossary Extraction</string>
-    <string name="folder_translation_count">%1$d/%2$d</string>
+    <string name="folder_translation_preparing_pages">Preparing translation · %1$d pages</string>
+    <string name="folder_translation_processed">Processed %1$d/%2$d · Failed %3$d</string>
     <string name="folder_collection_translation_progress">Subchapter %1$d/%2$d · Picture %3$d/%4$d</string>
+    <string name="folder_collection_translation_preparing">Subchapter %1$d/%2$d · Preparing translation · %3$d pages</string>
+    <string name="folder_collection_translation_processed">Subchapter %1$d/%2$d · Processed %3$d/%4$d · Failed %5$d</string>
     <string name="folder_collection_translation_target">%1$s · %2$s</string>
     <string name="translation_done">Translation Complete</string>
     <string name="translation_failed">Translation Failed</string>
@@ -472,13 +468,15 @@ Long press the floating ball: pop up menu</string>
     <string name="import_no_images">The selected folder has no pictures</string>
     <string name="import_failed">Import failed, please try again</string>
     <string name="import_done">Imported %1$d pictures</string>
+    <string name="avif_conversion_progress">Converting AVIF images to PNG…</string>
     <string name="cbz_import_failed">CBZ/ZIP Import failed, please try again</string>
     <string name="cbz_import_no_images">Importable image not found in compressed package</string>
     <string name="cbz_import_done">CBZ/ZIP Import completed, %1$d pictures have been imported</string>
     <string name="pdf_import_failed">PDF Import failed, please try again</string>
     <string name="pdf_import_no_images">Importable page not found in PDF</string>
     <string name="pdf_import_done">PDF Import completed, %1$d page pictures have been split</string>
-    <string name="exporting_progress">Exporting...(%1$d/%2$d)</string>
+    <string name="import_out_of_memory">Import failed: the device ran out of available memory. Close other apps and try again.</string>
+    <string name="exporting_progress">Exporting…(%1$d/%2$d)</string>
     <string name="export_done">Export completed</string>
     <string name="export_failed">Export failed</string>
     <string name="export_permission_denied">Storage permission not granted, cannot export</string>
@@ -529,8 +527,6 @@ Long press the floating ball: pop up menu</string>
     <string name="reading_confirm_edit">Done Editing</string>
     <string name="reading_cancel_edit">Cancel Editing</string>
     <string name="reading_edit_bubble_title">Edit Bubble Text</string>
-    <string name="reading_bubble_width_hint">Width%%</string>
-    <string name="reading_bubble_height_hint">High%%</string>
     <string name="reading_add_bubble">Add Bubble</string>
     <string name="reading_clear_bubbles">Clear All Bubbles</string>
     <string name="reading_clear_bubbles_done">All bubbles on the current page have been cleared</string>
@@ -538,7 +534,6 @@ Long press the floating ball: pop up menu</string>
     <string name="reading_empty_bubble_translating">Translating Bubbles…</string>
     <string name="reading_empty_bubble_translated">Bubble Translation Complete</string>
     <string name="reading_empty_bubble_failed">Bubble recognition/translation failed. Empty bubbles were kept for retry or manual edit.</string>
-    <string name="reading_bubble_resize_done">Confirm</string>
     <string name="reading_bubble_action_resize">Resize Bubble</string>
     <string name="reading_bubble_action_delete">Delete Bubble</string>
     <string name="reading_exit_zoom_before_edit">Please double-click to exit the zoom first</string>
@@ -582,6 +577,7 @@ Communication and feedback group: %2$s</string>
     <string name="provider_name_default">Provider %1$d</string>
     <string name="global_progress_export">Export</string>
     <string name="global_progress_translate">Translation</string>
+    <string name="global_progress_preparing_translation">Preparing translation</string>
     <string name="global_progress_glossary">Glossary</string>
     <string name="global_progress_failed">%1$s failed</string>
     <string name="global_progress_done">%1$s Complete</string>
@@ -589,4 +585,5 @@ Communication and feedback group: %2$s</string>
     <string name="global_progress_count">%1$s %2$d/%3$d</string>
     <string name="language_english">English</string>
     <string name="language_russian">Russian</string>
+    <string name="language_portuguese_brazil">Brazilian Portuguese</string>
 </resources>

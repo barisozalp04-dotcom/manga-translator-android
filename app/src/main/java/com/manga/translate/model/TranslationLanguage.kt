@@ -7,21 +7,20 @@ import com.manga.translate.platform.PromptAssetResolver
 
 enum class TranslationLanguage(
     val prefValue: String,
-    @param:StringRes val sourceNameResId: Int,
-    val baiduLanguageType: String
+    @param:StringRes val sourceNameResId: Int
 ) {
-    JA_TO_ZH("ja_to_zh", R.string.translation_source_japanese, "JAP"),
-    EN_TO_ZH("en_to_zh", R.string.translation_source_english, "ENG"),
-    KO_TO_ZH("ko_to_zh", R.string.translation_source_korean, "KOR"),
-    ZH_HANS_TO_TARGET("zh_hans_to_target", R.string.translation_source_simplified_chinese, "CHN_ENG"),
-    ZH_HANT_TO_TARGET("zh_hant_to_target", R.string.translation_source_traditional_chinese, "CHN_ENG"),
-    CHN_ENG_TO_ZH("chn_eng_to_zh", R.string.translation_source_mixed_chinese_english, "CHN_ENG"),
-    FR_TO_ZH("fr_to_zh", R.string.translation_source_french, "FRE"),
-    ES_TO_ZH("es_to_zh", R.string.translation_source_spanish, "SPA"),
-    PT_TO_ZH("pt_to_zh", R.string.translation_source_portuguese, "POR"),
-    DE_TO_ZH("de_to_zh", R.string.translation_source_german, "GER"),
-    IT_TO_ZH("it_to_zh", R.string.translation_source_italian, "ITA"),
-    RU_TO_ZH("ru_to_zh", R.string.translation_source_russian, "RUS");
+    JA_TO_ZH("ja_to_zh", R.string.translation_source_japanese),
+    EN_TO_ZH("en_to_zh", R.string.translation_source_english),
+    KO_TO_ZH("ko_to_zh", R.string.translation_source_korean),
+    ZH_HANS_TO_TARGET("zh_hans_to_target", R.string.translation_source_simplified_chinese),
+    ZH_HANT_TO_TARGET("zh_hant_to_target", R.string.translation_source_traditional_chinese),
+    CHN_ENG_TO_ZH("chn_eng_to_zh", R.string.translation_source_mixed_chinese_english),
+    FR_TO_ZH("fr_to_zh", R.string.translation_source_french),
+    ES_TO_ZH("es_to_zh", R.string.translation_source_spanish),
+    PT_TO_ZH("pt_to_zh", R.string.translation_source_portuguese),
+    DE_TO_ZH("de_to_zh", R.string.translation_source_german),
+    IT_TO_ZH("it_to_zh", R.string.translation_source_italian),
+    RU_TO_ZH("ru_to_zh", R.string.translation_source_russian);
 
     fun displayName(context: Context): String {
         return context.getString(

@@ -96,6 +96,8 @@ internal object CrossPageBubbleMerger {
             val match = findBestCrossPageMatch(
                 currentBubble = currentBubble,
                 currentHeight = current.height,
+                currentWidth = current.width,
+                nextWidth = next.width,
                 nextCandidates = nextCandidates,
                 alreadyMergedNextIds = mergedNextIds
             )
@@ -104,6 +106,8 @@ internal object CrossPageBubbleMerger {
                     currentBubble = currentBubble,
                     nextBubble = match.nextBubble,
                     currentHeight = current.height,
+                    currentWidth = current.width,
+                    nextWidth = next.width,
                     nextId = -1 // 后续统一重新编号
                 )
                 mergedNextIds.add(match.nextBubble.id)
@@ -139,6 +143,8 @@ internal object CrossPageBubbleMerger {
     private fun findBestCrossPageMatch(
         currentBubble: OcrBubble,
         currentHeight: Int,
+        currentWidth: Int,
+        nextWidth: Int,
         nextCandidates: List<OcrBubble>,
         alreadyMergedNextIds: Set<Int>
     ): CrossPageMatch? {
@@ -147,7 +153,9 @@ internal object CrossPageBubbleMerger {
         val currentRect = currentBubble.rect
         for (nextBubble in nextCandidates) {
             if (nextBubble.id in alreadyMergedNextIds) continue
-            val nextRectInCurrentCoords = nextBubble.rect.offsetBy(0f, currentHeight.toFloat())
+            val nextRectInCurrentCoords = nextBubble.rect
+                .scaleFromPage(nextWidth, currentWidth)
+                .offsetBy(0f, currentHeight.toFloat())
             if (!shouldTreatRectsAsSameBubbleForDedup(currentRect, nextRectInCurrentCoords)) {
                 continue
             }
@@ -164,12 +172,15 @@ internal object CrossPageBubbleMerger {
         currentBubble: OcrBubble,
         nextBubble: OcrBubble,
         currentHeight: Int,
+        currentWidth: Int,
+        nextWidth: Int,
         nextId: Int
     ): OcrBubble {
-        val top = min(currentBubble.rect.top, currentHeight + nextBubble.rect.top)
-        val bottom = currentHeight + nextBubble.rect.bottom
-        val left = min(currentBubble.rect.left, nextBubble.rect.left)
-        val right = max(currentBubble.rect.right, nextBubble.rect.right)
+        val nextRect = nextBubble.rect.scaleFromPage(nextWidth, currentWidth)
+        val top = min(currentBubble.rect.top, currentHeight + nextRect.top)
+        val bottom = currentHeight + nextRect.bottom
+        val left = min(currentBubble.rect.left, nextRect.left)
+        val right = max(currentBubble.rect.right, nextRect.right)
         val mergedRect = RectF(
             left.coerceAtLeast(0f),
             top.coerceAtLeast(0f),
@@ -237,6 +248,11 @@ internal object CrossPageBubbleMerger {
             right + offsetX,
             bottom + offsetY
         )
+    }
+
+    private fun RectF.scaleFromPage(sourceWidth: Int, targetWidth: Int): RectF {
+        val scale = targetWidth.toFloat() / sourceWidth.coerceAtLeast(1)
+        return RectF(left * scale, top * scale, right * scale, bottom * scale)
     }
 
     private fun rectIou(a: RectF, b: RectF): Float {

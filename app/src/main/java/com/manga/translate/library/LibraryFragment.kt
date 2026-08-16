@@ -21,6 +21,7 @@ import androidx.core.view.doOnLayout
 import androidx.core.view.isVisible
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.activityViewModels
+import androidx.interpolator.view.animation.FastOutSlowInInterpolator
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
@@ -32,6 +33,7 @@ import com.manga.translate.app.MainPagerAdapter
 import com.manga.translate.background.TranslationKeepAliveService
 import com.manga.translate.databinding.FragmentLibraryBinding
 import com.manga.translate.di.appContainer
+import com.manga.translate.detection.RegionDetectionSelection
 import com.manga.translate.floating.FloatingBallOverlayService
 import com.manga.translate.model.FolderItem
 import com.manga.translate.model.FolderStatus
@@ -39,12 +41,18 @@ import com.manga.translate.model.ImageItem
 import com.manga.translate.model.PageTranslationStatus
 import com.manga.translate.model.TranslationLanguage
 import com.manga.translate.platform.AppLogger
+import com.manga.translate.platform.ResourceAssessment
+import com.manga.translate.platform.ResourceWarningDialogs
 import com.manga.translate.platform.showWithScrollableMessage
 import com.manga.translate.reader.ReadingSessionViewModel
 import com.manga.translate.storage.TranslationTaskPersistence
 import com.manga.translate.translation.FolderTranslationTask
 import java.io.File
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
+import kotlin.coroutines.resume
 
 class LibraryFragment : Fragment() {
 
@@ -67,6 +75,7 @@ class LibraryFragment : Fragment() {
     private lateinit var preferencesGateway: LibraryPreferencesGateway
     private lateinit var importExportCoordinator: LibraryImportExportCoordinator
     private lateinit var selectionController: LibrarySelectionController
+    private var imageConversionDialog: AlertDialog? = null
 
     private var currentFolder: File? = null
     private var currentParentFolder: File? = null
@@ -80,14 +89,32 @@ class LibraryFragment : Fragment() {
     private var isLibrarySelectionMode: Boolean = false
     private var activeFolderFilter: FolderFilter? = null
     private var pendingFloatingTranslateLanguage: TranslationLanguage? = null
+    private var isRegionDetectionIndicatorPositioned: Boolean = false
+    private var suppressRegionDetectionIndicatorAnimation: Boolean = false
     private val modelErrorController by lazy(LazyThreadSafetyMode.NONE) {
         ModelErrorDialogController(this, dialogs)
     }
 
-    private val tutorialUrlGithub =
-        "https://github.com/jedzqer/manga-translator/blob/main/Tutorial/简中教程.md"
-    private val tutorialUrlGitee =
-        "https://gitee.com/jedzqer/manga-translator/blob/main/Tutorial/简中教程.md"
+    private fun getTutorialUrls(): Pair<String, String> {
+        val locale = resources.configuration.locales[0]
+        val language = locale.language.lowercase()
+
+        // Determine tutorial language based on UI language
+        val tutorialFile = when {
+            language == "zh" -> "简中教程.md"
+            else -> "English Tutorial.md" // Default to English for all non-Chinese languages
+        }
+
+        return Pair(
+            "https://github.com/jedzqer/manga-translator/blob/main/Tutorial/$tutorialFile",
+            "https://gitee.com/jedzqer/manga-translator/blob/main/Tutorial/$tutorialFile"
+        )
+    }
+
+    private fun isChineseLanguage(): Boolean {
+        val locale = resources.configuration.locales[0]
+        return locale.language.lowercase() == "zh"
+    }
 
     private val folderAdapter = LibraryFolderAdapter(
         onClick = { openFolder(it.folder) },
@@ -133,6 +160,12 @@ class LibraryFragment : Fragment() {
             applyTranslationActionsEnabled(enabled)
         }
 
+        override fun setFolderExportEnabled(folder: File, enabled: Boolean) {
+            if (currentFolder?.absolutePath != folder.absolutePath) return
+            _binding?.folderExport?.isEnabled = enabled
+            _binding?.folderExportCollection?.isEnabled = enabled
+        }
+
         override fun showToast(resId: Int) {
             if (!isAdded) return
             Toast.makeText(requireContext(), resId, Toast.LENGTH_SHORT).show()
@@ -141,6 +174,20 @@ class LibraryFragment : Fragment() {
         override fun showToastMessage(message: String) {
             if (!isAdded) return
             Toast.makeText(requireContext(), message, Toast.LENGTH_SHORT).show()
+        }
+
+        override fun showImageConversionProgress() {
+            if (!isAdded || imageConversionDialog?.isShowing == true) return
+            imageConversionDialog = AlertDialog.Builder(requireContext())
+                .setMessage(R.string.avif_conversion_progress)
+                .setCancelable(false)
+                .create()
+                .also { it.show() }
+        }
+
+        override fun hideImageConversionProgress() {
+            imageConversionDialog?.dismiss()
+            imageConversionDialog = null
         }
 
         override fun showApiError(code: String, detail: String?) {
@@ -165,6 +212,11 @@ class LibraryFragment : Fragment() {
         override fun refreshImages(folder: File) {
             if (!isAdded || _binding == null) return
             loadImages(folder)
+        }
+
+        override fun showExportSuccess(path: String) {
+            if (!isAdded || _binding == null) return
+            dialogs.showExportSuccessDialog(requireContext(), path)
         }
 
         override fun isUiAttached(): Boolean {
@@ -326,6 +378,7 @@ class LibraryFragment : Fragment() {
         container: ViewGroup?,
         savedInstanceState: Bundle?
     ): View {
+        isRegionDetectionIndicatorPositioned = false
         _binding = FragmentLibraryBinding.inflate(inflater, container, false)
         return binding.root
     }
@@ -342,7 +395,8 @@ class LibraryFragment : Fragment() {
             prefs = prefs,
             preferencesGateway = preferencesGateway,
             dialogs = dialogs,
-            ui = uiCallbacks
+            ui = uiCallbacks,
+            exportTaskHost = appContainer.exportTaskHost
         )
         selectionController = LibrarySelectionController(
             imageAdapter = imageAdapter,
@@ -418,7 +472,19 @@ class LibraryFragment : Fragment() {
             val folder = currentFolder
             selectionController.retranslateSelectedImages(folder)
         }
+        binding.folderTranslationSettingsInfo.setOnClickListener {
+            dialogs.showTranslationSettingsInfo(requireContext())
+        }
         binding.folderFullTranslateInfo.setOnClickListener { showFullTranslateInfo() }
+        binding.folderBubbleDetectionInfo.setOnClickListener {
+            dialogs.showBubbleDetectionInfo(requireContext())
+        }
+        binding.folderGlossaryProcessingInfo.setOnClickListener {
+            dialogs.showGlossaryProcessingInfo(requireContext())
+        }
+        binding.folderVlDirectTranslateInfo.setOnClickListener {
+            dialogs.showVlDirectTranslateInfo(requireContext())
+        }
         binding.folderLanguageSetting.setOnClickListener { showLanguageSettingDialog() }
         binding.folderReadingModeButton.setOnClickListener { showFolderReadingModeDialog() }
         binding.folderFullTranslateSwitch.setOnCheckedChangeListener { _, isChecked ->
@@ -432,6 +498,19 @@ class LibraryFragment : Fragment() {
         }
         binding.folderGlossaryProcessingSwitch.setOnCheckedChangeListener { _, isChecked ->
             currentFolder?.let { preferencesGateway.setGlossaryProcessingEnabled(it, isChecked) }
+        }
+        binding.folderBubbleDetectionModeGroup.setOnCheckedChangeListener { _, checkedId ->
+            updateRegionDetectionModeIndicator(
+                checkedId = checkedId,
+                animate = !suppressRegionDetectionIndicatorAnimation
+            )
+            val selection = when (checkedId) {
+                R.id.folder_detection_mode_bubbles -> RegionDetectionSelection.BUBBLES_ONLY
+                R.id.folder_detection_mode_text -> RegionDetectionSelection.TEXT_ONLY
+                R.id.folder_detection_mode_bubbles_and_text -> RegionDetectionSelection.BUBBLES_AND_TEXT
+                else -> return@setOnCheckedChangeListener
+            }
+            currentFolder?.let { preferencesGateway.setRegionDetectionSelection(it, selection) }
         }
         binding.folderVlDirectTranslateSwitch.setOnCheckedChangeListener { _, isChecked ->
             currentFolder?.let { folder ->
@@ -577,6 +656,8 @@ class LibraryFragment : Fragment() {
     }
 
     override fun onDestroyView() {
+        imageConversionDialog?.dismiss()
+        imageConversionDialog = null
         LibraryUiBridge.unregister(uiCallbacks)
         modelErrorController.onDestroy()
         super.onDestroyView()
@@ -586,6 +667,7 @@ class LibraryFragment : Fragment() {
     override fun onResume() {
         super.onResume()
         modelErrorController.onResume()
+        currentFolder?.let(::syncExportActionState)
     }
 
     private fun showFolderList() {
@@ -613,6 +695,19 @@ class LibraryFragment : Fragment() {
         binding.folderFullTranslateSwitch.isChecked = preferencesGateway.isFullTranslateEnabled(folder)
         binding.folderGlossaryProcessingSwitch.isChecked =
             preferencesGateway.isGlossaryProcessingEnabled(folder)
+        suppressRegionDetectionIndicatorAnimation = true
+        try {
+            when (preferencesGateway.getRegionDetectionSelection(folder)) {
+                RegionDetectionSelection.BUBBLES_ONLY ->
+                    binding.folderBubbleDetectionModeGroup.check(R.id.folder_detection_mode_bubbles)
+                RegionDetectionSelection.TEXT_ONLY ->
+                    binding.folderBubbleDetectionModeGroup.check(R.id.folder_detection_mode_text)
+                RegionDetectionSelection.BUBBLES_AND_TEXT ->
+                    binding.folderBubbleDetectionModeGroup.check(R.id.folder_detection_mode_bubbles_and_text)
+            }
+        } finally {
+            suppressRegionDetectionIndicatorAnimation = false
+        }
         binding.folderVlDirectTranslateSwitch.isChecked =
             preferencesGateway.isVlDirectTranslateEnabled(folder)
         updateFolderTranslationSwitchStates(folder)
@@ -629,6 +724,33 @@ class LibraryFragment : Fragment() {
         }
         animateFolderTransition(showDetail = true)
         AppLogger.log("Library", "Opened folder ${folder.name}")
+    }
+
+    private fun updateRegionDetectionModeIndicator(checkedId: Int, animate: Boolean) {
+        val target = binding.folderBubbleDetectionModeGroup.findViewById<View>(checkedId) ?: return
+        binding.folderBubbleDetectionModeGroup.doOnLayout {
+            val currentBinding = _binding ?: return@doOnLayout
+            val indicator = currentBinding.folderBubbleDetectionModeIndicator
+            val targetWidth = target.width
+            if (targetWidth <= 0) return@doOnLayout
+
+            if (indicator.layoutParams.width != targetWidth) {
+                indicator.layoutParams = indicator.layoutParams.apply { width = targetWidth }
+            }
+
+            val targetX = target.left.toFloat()
+            indicator.animate().cancel()
+            if (animate && isRegionDetectionIndicatorPositioned) {
+                indicator.animate()
+                    .translationX(targetX)
+                    .setDuration(REGION_DETECTION_INDICATOR_ANIMATION_MS)
+                    .setInterpolator(FastOutSlowInInterpolator())
+                    .start()
+            } else {
+                indicator.translationX = targetX
+            }
+            isRegionDetectionIndicatorPositioned = true
+        }
     }
 
     private fun animateFolderTransition(showDetail: Boolean) {
@@ -871,6 +993,7 @@ class LibraryFragment : Fragment() {
     }
 
     private fun loadImages(folder: File) {
+        syncExportActionState(folder)
         if (repository.isCollectionFolder(folder)) {
             val chapters = repository.listChildFolders(folder)
             chapterAdapter.submit(chapters.map(::buildFolderItem))
@@ -902,6 +1025,12 @@ class LibraryFragment : Fragment() {
         }
     }
 
+    private fun syncExportActionState(folder: File) {
+        val exportEnabled = !importExportCoordinator.isExportActiveFor(folder)
+        binding.folderExport.isEnabled = exportEnabled
+        binding.folderExportCollection.isEnabled = exportEnabled
+    }
+
     private fun openFolder(folder: File) {
         folderAdapter.clearActionSelection()
         showFolderDetail(folder)
@@ -915,14 +1044,23 @@ class LibraryFragment : Fragment() {
     }
 
     private fun openTutorial() {
+        val (githubUrl, giteeUrl) = getTutorialUrls()
+
+        // For non-Chinese languages, open GitHub directly without asking
+        if (!isChineseLanguage()) {
+            openUrlOrToast(githubUrl)
+            return
+        }
+
+        // For Chinese users, ask which mirror to use
         AlertDialog.Builder(requireContext())
             .setTitle(R.string.tutorial_open_title)
             .setMessage(R.string.tutorial_open_message)
             .setPositiveButton(R.string.tutorial_open_mirror) { _, _ ->
-                openUrlOrToast(tutorialUrlGitee)
+                openUrlOrToast(giteeUrl)
             }
             .setNegativeButton(R.string.tutorial_open_github) { _, _ ->
-                openUrlOrToast(tutorialUrlGithub)
+                openUrlOrToast(githubUrl)
             }
             .setNeutralButton(android.R.string.cancel, null)
             .showWithScrollableMessage()
@@ -989,14 +1127,20 @@ class LibraryFragment : Fragment() {
     private fun addImagesToFolder(uris: List<Uri>) {
         val folder = currentFolder ?: return
         val wasEmpty = repository.listImages(folder).isEmpty()
-        val added = repository.addImages(folder, uris)
-        if (wasEmpty && added.isNotEmpty()) {
-            preferencesGateway.autoDetectAndSetReadingMode(folder, added)
-            updateReadingModeButton(folder)
+        viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
+            val added = importExportCoordinator.addImages(folder, uris)
+            if (wasEmpty && added.isNotEmpty()) {
+                preferencesGateway.autoDetectAndSetReadingMode(folder, added)
+            }
+            withContext(Dispatchers.Main) {
+                if (wasEmpty && added.isNotEmpty()) {
+                    updateReadingModeButton(folder)
+                }
+                AppLogger.log("Library", "Added ${added.size} images to ${folder.name}")
+                loadImages(folder)
+                loadFolders()
+            }
         }
-        AppLogger.log("Library", "Added ${added.size} images to ${folder.name}")
-        loadImages(folder)
-        loadFolders()
     }
 
     private fun handleAddContentClick() {
@@ -1033,12 +1177,56 @@ class LibraryFragment : Fragment() {
     }
 
     private fun importFromArchiveOrPdf(uri: Uri) {
+        viewLifecycleOwner.lifecycleScope.launch(Dispatchers.Main) {
+            val assessment = withContext(Dispatchers.IO) {
+                importExportCoordinator.assessImportMemory(requireContext(), uri)
+            }
+            if (!assessment.shouldWarn) {
+                startArchiveOrPdfImport(uri, riskAlreadyAccepted = false)
+                return@launch
+            }
+            showImportMemoryWarning(assessment) {
+                startArchiveOrPdfImport(uri, riskAlreadyAccepted = true)
+            }
+        }
+    }
+
+    private fun startArchiveOrPdfImport(uri: Uri, riskAlreadyAccepted: Boolean) {
         importExportCoordinator.importFromArchiveOrPdf(
             uiContext = requireContext(),
             uri = uri,
             scope = viewLifecycleOwner.lifecycleScope,
+            riskAlreadyAccepted = riskAlreadyAccepted,
+            onConfirmMemoryRisk = ::awaitImportMemoryWarning,
             onShowFolderList = { showFolderList() }
         )
+    }
+
+    private fun showImportMemoryWarning(
+        assessment: ResourceAssessment,
+        onImportAnyway: () -> Unit
+    ) {
+        ResourceWarningDialogs.createBuilder(requireContext(), assessment)
+            .setNegativeButton(R.string.import_anyway) { _, _ -> onImportAnyway() }
+            .setPositiveButton(R.string.import_cancel, null)
+            .showWithScrollableMessage()
+    }
+
+    private suspend fun awaitImportMemoryWarning(assessment: ResourceAssessment): Boolean {
+        return suspendCancellableCoroutine { continuation ->
+            val dialog = ResourceWarningDialogs.createBuilder(requireContext(), assessment)
+                .setNegativeButton(R.string.import_anyway) { _, _ ->
+                    if (continuation.isActive) continuation.resume(true)
+                }
+                .setPositiveButton(R.string.import_cancel) { _, _ ->
+                    if (continuation.isActive) continuation.resume(false)
+                }
+                .setOnCancelListener {
+                    if (continuation.isActive) continuation.resume(false)
+                }
+                .showWithScrollableMessage()
+            continuation.invokeOnCancellation { dialog.dismiss() }
+        }
     }
 
     private fun confirmDeleteFolder(folder: File) {
@@ -1048,8 +1236,8 @@ class LibraryFragment : Fragment() {
                 AppLogger.log("Library", "Delete folder failed: ${folder.name}")
                 Toast.makeText(requireContext(), R.string.folder_delete_failed, Toast.LENGTH_SHORT).show()
             } else {
-                preferencesGateway.clearFolderSettings(folder)
-                readingProgressStore.remove(folder)
+                preferencesGateway.clearFolderTreeSettings(folder)
+                readingProgressStore.removeTree(folder)
                 AppLogger.log("Library", "Deleted folder ${folder.name}")
             }
             refreshFolderViewsAfterMutation(folder)
@@ -1064,8 +1252,7 @@ class LibraryFragment : Fragment() {
                 Toast.makeText(requireContext(), R.string.folder_rename_failed, Toast.LENGTH_SHORT).show()
             } else {
                 preferencesGateway.migrateFolderSettings(folder, renamed)
-                readingProgressStore.save(renamed, readingProgressStore.load(folder))
-                readingProgressStore.remove(folder)
+                readingProgressStore.migrateTree(folder, renamed)
                 AppLogger.log("Library", "Renamed folder ${folder.name} -> ${renamed.name}")
                 refreshFolderViewsAfterMutation(folder, renamed)
             }
@@ -1260,7 +1447,7 @@ class LibraryFragment : Fragment() {
     private fun updateGlossaryProcessingSwitchState(folder: File) {
         val enabled = !preferencesGateway.isFullTranslateEnabled(folder)
         binding.folderGlossaryProcessingSwitch.isEnabled = enabled
-        binding.folderGlossaryProcessingNote.alpha = if (enabled) 1f else 0.5f
+        binding.folderGlossaryProcessingInfo.alpha = if (enabled) 1f else 0.5f
     }
 
     private fun updateVlDirectTranslateSwitchState(folder: File) {
@@ -1272,7 +1459,7 @@ class LibraryFragment : Fragment() {
             }
         }
         binding.folderVlDirectTranslateSwitch.isEnabled = enabled
-        binding.folderVlDirectTranslateNote.alpha = if (enabled) 1f else 0.5f
+        binding.folderVlDirectTranslateInfo.alpha = if (enabled) 1f else 0.5f
     }
 
     private fun updateFolderTranslationSwitchStates(folder: File) {
@@ -1283,26 +1470,48 @@ class LibraryFragment : Fragment() {
     private fun exportFolder() {
         val folder = currentFolder ?: return
         val images = repository.listImages(folder)
+        viewLifecycleOwner.lifecycleScope.launch {
+            val suggestedThreads = importExportCoordinator.suggestExportThreadCount(images)
+            showFolderExportOptions(folder, images, suggestedThreads)
+        }
+    }
+
+    private fun showFolderExportOptions(
+        folder: File,
+        images: List<File>,
+        suggestedThreads: Int
+    ) {
         dialogs.showExportOptionsDialog(
             context = requireContext(),
-            defaultThreads = importExportCoordinator.getExportThreadCount(),
+            defaultThreads = suggestedThreads,
             defaultExportFormat = importExportCoordinator.getExportFormatDefault(),
             exportRootPathHint = importExportCoordinator.buildExportRootPathPreview()
         ) { exportThreads, exportFormat ->
-            importExportCoordinator.exportFolder(
-                uiContext = requireContext(),
-                folder = folder,
-                images = images,
-                exportThreads = exportThreads,
-                exportFormat = exportFormat,
-                requestExportDirectoryPermission = { initialUri -> pickExportTree.launch(initialUri) },
-                requestLegacyPermission = {
-                    requestStoragePermission.launch(android.Manifest.permission.WRITE_EXTERNAL_STORAGE)
-                },
-                onExitSelectionMode = { selectionController.exitSelectionMode() },
-                onSetExportEnabled = { enabled -> _binding?.folderExport?.isEnabled = enabled }
-            )
+            confirmExportResources(images, exportThreads) {
+                startFolderExport(folder, images, exportThreads, exportFormat)
+            }
         }
+    }
+
+    private fun startFolderExport(
+        folder: File,
+        images: List<File>,
+        exportThreads: Int,
+        exportFormat: LibraryImportExportCoordinator.ExportFormat
+    ) {
+        importExportCoordinator.exportFolder(
+            uiContext = requireContext(),
+            folder = folder,
+            images = images,
+            exportThreads = exportThreads,
+            exportFormat = exportFormat,
+            requestExportDirectoryPermission = { initialUri -> pickExportTree.launch(initialUri) },
+            requestLegacyPermission = {
+                requestStoragePermission.launch(android.Manifest.permission.WRITE_EXTERNAL_STORAGE)
+            },
+            onExitSelectionMode = { selectionController.exitSelectionMode() },
+            onSetExportEnabled = { enabled -> _binding?.folderExport?.isEnabled = enabled }
+        )
     }
 
     private fun exportCollection() {
@@ -1312,26 +1521,75 @@ class LibraryFragment : Fragment() {
             uiCallbacks.setFolderStatus(getString(R.string.folder_chapters_empty))
             return
         }
+        val allImages = chapterImages.flatMap { it.second }
+        viewLifecycleOwner.lifecycleScope.launch {
+            val suggestedThreads = importExportCoordinator.suggestExportThreadCount(allImages)
+            showCollectionExportOptions(folder, chapterImages, allImages, suggestedThreads)
+        }
+    }
+
+    private fun showCollectionExportOptions(
+        folder: File,
+        chapterImages: List<Pair<File, List<File>>>,
+        allImages: List<File>,
+        suggestedThreads: Int
+    ) {
         dialogs.showExportOptionsDialog(
             context = requireContext(),
-            defaultThreads = importExportCoordinator.getExportThreadCount(),
+            defaultThreads = suggestedThreads,
             defaultExportFormat = importExportCoordinator.getExportFormatDefault(),
             exportRootPathHint = importExportCoordinator.buildExportRootPathPreview()
         ) { exportThreads, exportFormat ->
-            importExportCoordinator.exportCollection(
-                uiContext = requireContext(),
-                collectionFolder = folder,
-                chapterImages = chapterImages,
-                exportThreads = exportThreads,
-                exportFormat = exportFormat,
-                requestExportDirectoryPermission = { initialUri -> pickExportTree.launch(initialUri) },
-                requestLegacyPermission = {
-                    requestStoragePermission.launch(android.Manifest.permission.WRITE_EXTERNAL_STORAGE)
-                },
-                onExitSelectionMode = { selectionController.exitSelectionMode() },
-                onSetExportEnabled = { enabled -> _binding?.folderExportCollection?.isEnabled = enabled }
-            )
+            confirmExportResources(allImages, exportThreads) {
+                startCollectionExport(folder, chapterImages, exportThreads, exportFormat)
+            }
         }
+    }
+
+    private fun startCollectionExport(
+        folder: File,
+        chapterImages: List<Pair<File, List<File>>>,
+        exportThreads: Int,
+        exportFormat: LibraryImportExportCoordinator.ExportFormat
+    ) {
+        importExportCoordinator.exportCollection(
+            uiContext = requireContext(),
+            collectionFolder = folder,
+            chapterImages = chapterImages,
+            exportThreads = exportThreads,
+            exportFormat = exportFormat,
+            requestExportDirectoryPermission = { initialUri -> pickExportTree.launch(initialUri) },
+            requestLegacyPermission = {
+                requestStoragePermission.launch(android.Manifest.permission.WRITE_EXTERNAL_STORAGE)
+            },
+            onExitSelectionMode = { selectionController.exitSelectionMode() },
+            onSetExportEnabled = { enabled -> _binding?.folderExportCollection?.isEnabled = enabled }
+        )
+    }
+
+    private fun confirmExportResources(
+        images: List<File>,
+        requestedThreads: Int,
+        onConfirmed: () -> Unit
+    ) {
+        viewLifecycleOwner.lifecycleScope.launch {
+            val assessment = importExportCoordinator.assessExportResources(images, requestedThreads)
+            if (!assessment.shouldWarn) {
+                onConfirmed()
+                return@launch
+            }
+            showResourceWarning(assessment, onConfirmed)
+        }
+    }
+
+    private fun showResourceWarning(
+        assessment: ResourceAssessment,
+        onContinue: () -> Unit
+    ) {
+        ResourceWarningDialogs.createBuilder(requireContext(), assessment)
+            .setNegativeButton(R.string.resource_continue_anyway) { _, _ -> onContinue() }
+            .setPositiveButton(R.string.resource_cancel, null)
+            .showWithScrollableMessage()
     }
 
     private fun buildChapterImagesForCollection(collectionFolder: File): List<Pair<File, List<File>>> {
@@ -1538,6 +1796,13 @@ class LibraryFragment : Fragment() {
         binding.folderExportCollection.isEnabled = enabled
         binding.folderTranslateCollection.isEnabled = enabled
         binding.folderCollectionAddChapter.isEnabled = enabled
+        // RadioGroup#isEnabled does not reliably propagate to its children,
+        // so update each mode option explicitly. Otherwise the three-state
+        // selector can remain locked after the service reports completion.
+        binding.folderBubbleDetectionModeGroup.isEnabled = enabled
+        binding.folderDetectionModeBubbles.isEnabled = enabled
+        binding.folderDetectionModeText.isEnabled = enabled
+        binding.folderDetectionModeBubblesAndText.isEnabled = enabled
         if (isLibrarySelectionMode) {
             binding.librarySelectAll.isEnabled = enabled
             binding.libraryTranslateSelected.isEnabled = enabled
@@ -1584,8 +1849,8 @@ class LibraryFragment : Fragment() {
                 if (!repository.deleteFolder(folder)) {
                     failed = true
                 } else {
-                    preferencesGateway.clearFolderSettings(folder)
-                    readingProgressStore.remove(folder)
+                    preferencesGateway.clearFolderTreeSettings(folder)
+                    readingProgressStore.removeTree(folder)
                 }
             }
             if (failed) {
@@ -1658,7 +1923,8 @@ class LibraryFragment : Fragment() {
                 if (!repository.deleteFolder(child)) {
                     failed = true
                 } else {
-                    readingProgressStore.remove(child)
+                    preferencesGateway.clearFolderTreeSettings(child)
+                    readingProgressStore.removeTree(child)
                 }
             }
             if (failed) {
@@ -1683,6 +1949,10 @@ class LibraryFragment : Fragment() {
     private sealed interface FolderFilter {
         data class Status(val status: FolderStatus) : FolderFilter
         data class CustomTag(val tag: String) : FolderFilter
+    }
+
+    private companion object {
+        const val REGION_DETECTION_INDICATOR_ANIMATION_MS = 200L
     }
 
 }

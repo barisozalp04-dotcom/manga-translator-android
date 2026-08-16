@@ -18,6 +18,8 @@ import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
+import androidx.core.graphics.withScale
+import androidx.core.graphics.withTranslation
 import com.manga.translate.model.BubbleSource
 import com.manga.translate.model.BubbleTranslation
 import com.manga.translate.model.TranslationResult
@@ -28,6 +30,7 @@ import com.manga.translate.rendering.BubbleTextColorResolver
 import com.manga.translate.rendering.BubbleTextScaling
 import com.manga.translate.rendering.VerticalTextLayout
 import com.manga.translate.rendering.VerticalTextLayoutCalculator
+import com.manga.translate.rendering.VerticalTextRenderer
 import com.manga.translate.rendering.VerticalTextSymbolConverter
 import com.manga.translate.settings.NormalBubbleRenderSettings
 import com.manga.translate.settings.SettingsStore
@@ -39,6 +42,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 
 class FloatingTranslationView @JvmOverloads constructor(
@@ -123,8 +128,8 @@ class FloatingTranslationView @JvmOverloads constructor(
     private val resizeRect = RectF()
     private val localVisibleRect = Rect()
     private val cullRect = RectF()
-    private val offsets = mutableMapOf<Int, Pair<Float, Float>>()
-    private val pathCache = mutableMapOf<Int, CachedBubblePath>()
+    private val offsets = mutableMapOf<BubbleIdentity, Pair<Float, Float>>()
+    private val pathCache = mutableMapOf<BubbleIdentity, CachedBubblePath>()
     private var scaleX = 1f
     private var scaleY = 1f
     private var drawInvalidateScheduled = false
@@ -141,7 +146,7 @@ class FloatingTranslationView @JvmOverloads constructor(
     private var lastX = 0f
     private var lastY = 0f
     private var dragging = false
-    private var activeId: Int? = null
+    private var activeId: BubbleIdentity? = null
     private var verticalLayoutEnabled = true
     private var contentZoomScale = 1f
     private var swipeTriggered = false
@@ -153,14 +158,14 @@ class FloatingTranslationView @JvmOverloads constructor(
     private var createDownImageY = 0f
     private val createDrawingRect = RectF()
     private val createPreviewRect = RectF()
-    private var resizeDragId: Int? = null
+    private var resizeDragId: BubbleIdentity? = null
     private var resizeDragActive = false
     private var resizeDragBaseRect: RectF? = null
     private val resizeDragWorkingRect = RectF()
-    private var resizeModeId: Int? = null
+    private var resizeModeId: BubbleIdentity? = null
     private var resizeModeAlpha = 0f
     private var resizeModeAnimator: android.animation.ValueAnimator? = null
-    private var pendingResizeEntry: Int? = null
+    private var pendingResizeEntry: BubbleIdentity? = null
     private var touchPassthroughEnabled = false
     private var editScrollThroughEnabled = false
     private var editOverflowTop = 0f
@@ -168,9 +173,12 @@ class FloatingTranslationView @JvmOverloads constructor(
     private var bubbleRenderSettings = SettingsStore(context.applicationContext).loadNormalBubbleRenderSettings()
     private var sourceBitmap: Bitmap? = null
     private var sourceImageFile: java.io.File? = null
-    private val bubbleColorCache = mutableMapOf<Int, Int>()
-    private val viewJob = SupervisorJob()
-    private val viewScope = CoroutineScope(Dispatchers.Main + viewJob)
+    private val bubbleColorCache = mutableMapOf<BubbleIdentity, Int>()
+    private val bubbleColorJobs = mutableMapOf<BubbleIdentity, Job>()
+    private val bubbleColorSemaphore = Semaphore(2)
+    private var bubbleColorGeneration = 0
+    private var viewJob = SupervisorJob()
+    private var viewScope = CoroutineScope(Dispatchers.Main + viewJob)
     private var typefaceLoadJob: Job? = null
     private var cachedTypeface: Typeface? = null
     private var cachedTypefaceSignature: String? = null
@@ -178,11 +186,11 @@ class FloatingTranslationView @JvmOverloads constructor(
     private val doubleTapTimeout = ViewConfiguration.getDoubleTapTimeout().toLong()
     private val doubleTapSlop = ViewConfiguration.get(context).scaledDoubleTapSlop.toFloat()
     private val longPressRunnable = Runnable {
-        val id = activeId ?: return@Runnable
+        val identity = activeId ?: return@Runnable
         if (!editMode || dragging) return@Runnable
         longPressTriggered = true
         performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
-        onBubbleLongPress?.invoke(id)
+        onBubbleLongPress?.invoke(identity.bubbleId)
     }
     private var lastTapTime = 0L
     private var lastTapX = 0f
@@ -196,6 +204,9 @@ class FloatingTranslationView @JvmOverloads constructor(
         val path: Path,
         val bounds: RectF
     )
+
+    /** A page-local numeric id is not unique while a prior page spills into this overlay. */
+    private data class BubbleIdentity(val ownerImageName: String, val bubbleId: Int)
 
     init {
         isClickable = true
@@ -225,6 +236,17 @@ class FloatingTranslationView @JvmOverloads constructor(
         removeCallbacks(drawInvalidateRunnable)
         drawInvalidateScheduled = false
         pathCache.clear()
+        cancelBubbleColorJobs()
+    }
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        if (viewJob.isCancelled) {
+            viewJob = SupervisorJob()
+            viewScope = CoroutineScope(Dispatchers.Main + viewJob)
+            loadTypefaceAsync()
+            requestFullRedraw()
+        }
     }
 
     fun setGestureInteracting(active: Boolean) {
@@ -234,24 +256,50 @@ class FloatingTranslationView @JvmOverloads constructor(
     }
 
     fun setTranslations(result: TranslationResult?) {
+        val previousBubbles = bubbles.associateBy(::bubbleIdentity)
+        val samePageGeometry = imageWidth == (result?.width ?: 0) &&
+            imageHeight == (result?.height ?: 0) &&
+            currentImageName == result?.imageName
         bubbles = result?.bubbles.orEmpty()
         imageWidth = result?.width ?: 0
         imageHeight = result?.height ?: 0
         currentImageName = result?.imageName
-        bubbleColorCache.clear()
-        pathCache.clear()
+        if (samePageGeometry) {
+            val currentBubbles = bubbles.associateBy(::bubbleIdentity)
+            val validIdentities = currentBubbles.keys
+            pathCache.keys.retainAll(validIdentities)
+            val reusableColorIdentities = validIdentities.filterTo(hashSetOf()) { identity ->
+                val previous = previousBubbles[identity]
+                val current = currentBubbles[identity]
+                previous != null && current != null &&
+                    previous.source == current.source && previous.rect == current.rect
+            }
+            bubbleColorCache.keys.removeAll { identity ->
+                identity !in reusableColorIdentities
+            }
+            cancelBubbleColorJobsExcept(reusableColorIdentities)
+        } else {
+            bubbleColorCache.clear()
+            pathCache.clear()
+            cancelBubbleColorJobs()
+        }
         updateScale()
         requestFullRedraw()
     }
 
     fun setCurrentImageName(imageName: String?) {
+        if (currentImageName == imageName) return
         currentImageName = imageName
+        bubbleColorCache.clear()
+        pathCache.clear()
+        cancelBubbleColorJobs()
     }
 
     fun setSourceBitmap(bitmap: Bitmap?) {
         if (sourceBitmap === bitmap) return
         sourceBitmap = bitmap
         bubbleColorCache.clear()
+        cancelBubbleColorJobs()
         requestFullRedraw()
     }
 
@@ -259,10 +307,12 @@ class FloatingTranslationView @JvmOverloads constructor(
         if (sourceImageFile?.absolutePath == imageFile?.absolutePath) return
         sourceImageFile = imageFile
         bubbleColorCache.clear()
+        cancelBubbleColorJobs()
         requestFullRedraw()
     }
 
     fun setDisplayRect(rect: RectF) {
+        if (displayRect == rect) return
         displayRect.set(rect)
         pathCache.clear()
         updateScale()
@@ -270,8 +320,15 @@ class FloatingTranslationView @JvmOverloads constructor(
     }
 
     fun setOffsets(values: Map<Int, Pair<Float, Float>>) {
+        val nextOffsets = mutableMapOf<BubbleIdentity, Pair<Float, Float>>()
+        values.forEach { (bubbleId, offset) ->
+            ownedBubbleIdentity(bubbleId)?.let { identity ->
+                nextOffsets[identity] = offset
+            }
+        }
+        if (offsets == nextOffsets) return
         offsets.clear()
-        offsets.putAll(values)
+        offsets.putAll(nextOffsets)
         pathCache.clear()
         requestFullRedraw()
     }
@@ -322,11 +379,11 @@ class FloatingTranslationView @JvmOverloads constructor(
 
     fun isInCreateBubbleMode(): Boolean = createBubbleMode
 
-    fun getResizeModeBubbleId(): Int? = resizeModeId
+    fun getResizeModeBubbleId(): Int? = resizeModeId?.bubbleId
 
     fun getSelectedBubbleId(): Int? {
         if (!editMode) return null
-        return resizeModeId ?: activeId
+        return resizeModeId?.bubbleId ?: activeId?.bubbleId
     }
 
     fun setNormalBubbleRenderSettings(settings: NormalBubbleRenderSettings) {
@@ -373,7 +430,10 @@ class FloatingTranslationView @JvmOverloads constructor(
     }
 
     fun getOffsets(): Map<Int, Pair<Float, Float>> {
-        return offsets.toMap()
+        val ownerImageName = currentImageName.orEmpty()
+        return offsets.mapNotNull { (identity, offset) ->
+            identity.takeIf { it.ownerImageName == ownerImageName }?.bubbleId?.let { it to offset }
+        }.toMap()
     }
 
     fun hasBubbleAt(x: Float, y: Float): Boolean {
@@ -388,7 +448,8 @@ class FloatingTranslationView @JvmOverloads constructor(
         // A hardware-accelerated View can reuse this display list when an ancestor scrolls.
         // Normal draws must therefore record the whole page; otherwise bubbles outside a
         // transient visible rect stay missing until another interaction invalidates the View.
-        val cullForInteraction = interactionActive
+        val lightweightDraw = interactionActive || resizeModeAnimator?.isRunning == true
+        val cullForInteraction = lightweightDraw
         if (cullForInteraction) {
             updateCullRect(canvas)
         }
@@ -398,17 +459,20 @@ class FloatingTranslationView @JvmOverloads constructor(
             if (!bubble.hasDisplayText() && !editMode && bubble.source != BubbleSource.MANUAL) continue
             updateBubbleRect(bubbleRect, bubble)
             if (cullForInteraction && !RectF.intersects(bubbleRect, cullRect)) continue
-            drawBubble(canvas, bubble)
+            drawBubble(canvas, bubble, lightweightDraw)
             if (editMode && bubble.isOwnedBy(currentImageName)) {
                 drawDeleteIcon(canvas, bubbleRect)
-                if (bubble.supportsResizeEditing() && bubble.id != resizeDragId && bubble.id != resizeModeId) {
+                if (bubble.supportsResizeEditing() &&
+                    bubbleIdentity(bubble) != resizeDragId &&
+                    bubbleIdentity(bubble) != resizeModeId
+                ) {
                     drawResizeIcon(canvas, bubbleRect)
                 }
             }
         }
         if (editMode && resizeModeId != null) {
             val targetBubble = bubbles.firstOrNull {
-                it.id == resizeModeId && it.isOwnedBy(currentImageName)
+                bubbleIdentity(it) == resizeModeId
             }
             if (targetBubble != null) {
                 updateBubbleRect(bubbleRect, targetBubble)
@@ -472,7 +536,9 @@ class FloatingTranslationView @JvmOverloads constructor(
                             pendingResizeEntry = null
                             resizeDragId = handleTarget
                             resizeDragActive = false
-                            resizeDragBaseRect = bubbles.firstOrNull { it.id == handleTarget }?.let { RectF(it.rect) }
+                            resizeDragBaseRect = bubbles.firstOrNull {
+                                bubbleIdentity(it) == handleTarget
+                            }?.let { RectF(it.rect) }
                             resizeDragWorkingRect.setEmpty()
                             parent?.requestDisallowInterceptTouchEvent(true)
                             return true
@@ -555,7 +621,7 @@ class FloatingTranslationView @JvmOverloads constructor(
                 val rid = resizeDragId
                 if (rid != null) {
                     if (resizeDragActive && !resizeDragWorkingRect.isEmpty) {
-                        onBubbleResized?.invoke(rid, RectF(resizeDragWorkingRect))
+                        onBubbleResized?.invoke(rid.bubbleId, RectF(resizeDragWorkingRect))
                     }
                     resizeDragId = null
                     resizeDragActive = false
@@ -589,7 +655,7 @@ class FloatingTranslationView @JvmOverloads constructor(
                 if (!dragging && !swipeTriggered) {
                     if (editMode) {
                         if (pendingResizeEntry != null) {
-                            enterResizeMode(pendingResizeEntry!!)
+                            enterResizeMode(pendingResizeEntry!!.bubbleId)
                             pendingResizeEntry = null
                             activeId = null
                             return true
@@ -597,19 +663,19 @@ class FloatingTranslationView @JvmOverloads constructor(
                         pendingResizeEntry = null
                         val removeId = findRemoveTarget(event.x, event.y)
                         if (removeId != null) {
-                            onBubbleRemove?.invoke(removeId)
+                            onBubbleRemove?.invoke(removeId.bubbleId)
                             activeId = null
                             return true
                         }
                         val resizeId = findResizeTarget(event.x, event.y)
                         if (resizeId != null) {
-                            onBubbleResizeTap?.invoke(resizeId)
+                            onBubbleResizeTap?.invoke(resizeId.bubbleId)
                             activeId = null
                             return true
                         }
                         val bubbleId = findBubbleAt(event.x, event.y)
                         if (bubbleId != null) {
-                            onBubbleTap?.invoke(bubbleId)
+                            onBubbleTap?.invoke(bubbleId.bubbleId)
                             activeId = null
                             return true
                         }
@@ -672,10 +738,10 @@ class FloatingTranslationView @JvmOverloads constructor(
 
     private fun updateOffset(dx: Float, dy: Float) {
         if (!editMode) return
-        val id = activeId ?: return
+        val identity = activeId ?: return
         if (imageWidth <= 0 || imageHeight <= 0) return
-        val bubble = bubbles.firstOrNull { it.id == id } ?: return
-        val current = offsets[id] ?: 0f to 0f
+        val bubble = bubbles.firstOrNull { bubbleIdentity(it) == identity } ?: return
+        val current = offsets[identity] ?: 0f to 0f
         val deltaX = dx / scaleX
         val deltaY = dy / scaleY
         var newX = current.first + deltaX
@@ -689,9 +755,9 @@ class FloatingTranslationView @JvmOverloads constructor(
         val maxY = imageHeight - bubble.rect.bottom + max(bubbleH * overflowFraction, editOverflowBottom)
         newX = min(max(newX, minX), maxX)
         newY = min(max(newY, minY), maxY)
-        offsets[id] = newX to newY
-        pathCache.remove(id)
-        onOffsetChanged?.invoke(id, newX, newY)
+        offsets[identity] = newX to newY
+        pathCache.remove(identity)
+        onOffsetChanged?.invoke(identity.bubbleId, newX, newY)
         requestInteractionRedraw()
     }
 
@@ -771,9 +837,9 @@ class FloatingTranslationView @JvmOverloads constructor(
         return true
     }
 
-    private fun applyResizeDrag(id: Int, screenX: Float, screenY: Float) {
+    private fun applyResizeDrag(identity: BubbleIdentity, screenX: Float, screenY: Float) {
         val base = resizeDragBaseRect ?: return
-        val offset = offsets[id] ?: 0f to 0f
+        val offset = offsets[identity] ?: 0f to 0f
         var newRight = (screenX - displayRect.left) / scaleX - offset.first
         var newBottom = (screenY - displayRect.top) / scaleY - offset.second
         val minImageSize = 20f / scaleX.coerceAtLeast(1f)
@@ -787,15 +853,16 @@ class FloatingTranslationView @JvmOverloads constructor(
 
     fun enterResizeMode(bubbleId: Int) {
         if (!editMode) return
-        if (resizeModeId == bubbleId) return
+        val identity = ownedBubbleIdentity(bubbleId) ?: return
+        if (resizeModeId == identity) return
         exitResizeMode(animate = false)
-        resizeModeId = bubbleId
+        resizeModeId = identity
         pendingResizeEntry = null
         resizeDragId = null
         resizeDragActive = false
         resizeDragBaseRect = null
         resizeDragWorkingRect.setEmpty()
-        onResizeModeChanged?.invoke(resizeModeId)
+        onResizeModeChanged?.invoke(identity.bubbleId)
         animateResizeModeEnter()
     }
 
@@ -832,6 +899,11 @@ class FloatingTranslationView @JvmOverloads constructor(
                 resizeModeAlpha = it.animatedValue as Float
                 requestInteractionRedraw()
             }
+            addListener(object : android.animation.AnimatorListenerAdapter() {
+                override fun onAnimationEnd(animation: android.animation.Animator) {
+                    requestFullRedraw()
+                }
+            })
             start()
         }
     }
@@ -877,18 +949,17 @@ class FloatingTranslationView @JvmOverloads constructor(
         val cx = cornerX - handleSize * 0.3f
         val cy = cornerY - handleSize * 0.3f
         val scale = 0.6f + 0.4f * resizeModeAlpha
-        canvas.save()
-        canvas.scale(scale, scale, cornerX, cornerY)
-        val path = android.graphics.Path()
-        path.moveTo(cx - handleSize, cy)
-        path.lineTo(cx, cy)
-        path.lineTo(cx, cy - handleSize)
-        path.close()
-        resizeHandleFillPaint.alpha = (resizeModeAlpha * 255).toInt()
-        resizeHandleStrokePaint.alpha = (resizeModeAlpha * 255).toInt()
-        canvas.drawPath(path, resizeHandleFillPaint)
-        canvas.drawPath(path, resizeHandleStrokePaint)
-        canvas.restore()
+        canvas.withScale(scale, scale, cornerX, cornerY) {
+            val path = android.graphics.Path()
+            path.moveTo(cx - handleSize, cy)
+            path.lineTo(cx, cy)
+            path.lineTo(cx, cy - handleSize)
+            path.close()
+            resizeHandleFillPaint.alpha = (resizeModeAlpha * 255).toInt()
+            resizeHandleStrokePaint.alpha = (resizeModeAlpha * 255).toInt()
+            drawPath(path, resizeHandleFillPaint)
+            drawPath(path, resizeHandleStrokePaint)
+        }
     }
 
     private fun updateScale() {
@@ -901,22 +972,37 @@ class FloatingTranslationView @JvmOverloads constructor(
         scaleY = displayRect.height() / imageHeight
     }
 
-    private fun findBubbleAt(x: Float, y: Float): Int? {
+    private fun bubbleIdentity(bubble: BubbleTranslation): BubbleIdentity {
+        return BubbleIdentity(
+            ownerImageName = bubble.resolvedOwnerImageName(currentImageName.orEmpty()),
+            bubbleId = bubble.id
+        )
+    }
+
+    private fun ownedBubbleIdentity(bubbleId: Int): BubbleIdentity? {
+        return bubbles.firstOrNull {
+            it.id == bubbleId && it.isOwnedBy(currentImageName)
+        }?.let(::bubbleIdentity)
+    }
+
+    private fun findBubbleAt(x: Float, y: Float): BubbleIdentity? {
         if (!editMode || bubbles.isEmpty() || imageWidth <= 0 || imageHeight <= 0) return null
         for (i in bubbles.indices.reversed()) {
             val bubble = bubbles[i]
             if (!bubble.isOwnedBy(currentImageName)) continue
             updateBubbleRect(hitRect, bubble)
             if (x in hitRect.left..hitRect.right && y in hitRect.top..hitRect.bottom) {
-                return bubble.id
+                return bubbleIdentity(bubble)
             }
         }
         return null
     }
 
     private fun updateBubbleRect(outRect: RectF, bubble: BubbleTranslation) {
-        val offset = offsets[bubble.id] ?: 0f to 0f
-        val rect = if (bubble.id == resizeDragId && resizeDragActive && !resizeDragWorkingRect.isEmpty) {
+        val offset = offsets[bubbleIdentity(bubble)] ?: 0f to 0f
+        val rect = if (bubbleIdentity(bubble) == resizeDragId &&
+            resizeDragActive && !resizeDragWorkingRect.isEmpty
+        ) {
             resizeDragWorkingRect
         } else {
             bubble.rect
@@ -929,7 +1015,7 @@ class FloatingTranslationView @JvmOverloads constructor(
         )
     }
 
-    private fun findRemoveTarget(x: Float, y: Float): Int? {
+    private fun findRemoveTarget(x: Float, y: Float): BubbleIdentity? {
         if (!editMode || bubbles.isEmpty() || imageWidth <= 0 || imageHeight <= 0) return null
         for (i in bubbles.indices.reversed()) {
             val bubble = bubbles[i]
@@ -938,13 +1024,13 @@ class FloatingTranslationView @JvmOverloads constructor(
             if (!hitRect.contains(x, y)) continue
             computeDeleteRect(hitRect, deleteRect)
             if (deleteRect.contains(x, y)) {
-                return bubble.id
+                return bubbleIdentity(bubble)
             }
         }
         return null
     }
 
-    private fun findResizeTarget(x: Float, y: Float): Int? {
+    private fun findResizeTarget(x: Float, y: Float): BubbleIdentity? {
         if (!editMode || bubbles.isEmpty() || imageWidth <= 0 || imageHeight <= 0) return null
         for (i in bubbles.indices.reversed()) {
             val bubble = bubbles[i]
@@ -954,14 +1040,18 @@ class FloatingTranslationView @JvmOverloads constructor(
             if (!hitRect.contains(x, y)) continue
             computeResizeRect(hitRect, resizeRect)
             if (resizeRect.contains(x, y)) {
-                return bubble.id
+                return bubbleIdentity(bubble)
             }
         }
         return null
     }
 
-    private fun drawBubble(canvas: Canvas, bubble: BubbleTranslation) {
-        val offset = offsets[bubble.id] ?: 0f to 0f
+    private fun drawBubble(
+        canvas: Canvas,
+        bubble: BubbleTranslation,
+        lightweightDraw: Boolean
+    ) {
+        val offset = offsets[bubbleIdentity(bubble)] ?: 0f to 0f
         val shrinkPercent = resolveBubbleShrinkPercent(bubble)
         val opacityAlpha = resolveBubbleOpacityAlpha(bubble)
         resolveBubbleFillColor(bubble, offset, opacityAlpha)
@@ -969,13 +1059,13 @@ class FloatingTranslationView @JvmOverloads constructor(
         if (bubbleBounds.width() <= 0f || bubbleBounds.height() <= 0f) return
         // Empty bubbles still need a filled frame in edit mode; text layout can exit early.
         val hasText = bubble.hasDisplayText()
-        if (interactionActive || !hasText) {
+        if (lightweightDraw || !hasText) {
             canvas.drawPath(drawPath, fillPaint)
             return
         }
         val effectiveMinArea = bubbleRenderSettings.minAreaPerCharSp * contentZoomScale * contentZoomScale
         val textRect = BubbleTextScaling.resolveAreaAdjustedTextRect(
-            bubble.text, drawPath, effectiveMinArea, resources.displayMetrics.density
+            bubble.text, Path(drawPath), effectiveMinArea, resources.displayMetrics.density
         )
         canvas.drawPath(drawPath, fillPaint)
         if (textRect.width() <= 0f || textRect.height() <= 0f) return
@@ -990,7 +1080,8 @@ class FloatingTranslationView @JvmOverloads constructor(
         // Resize drag only updates highlight/handle via working rect; fill path stays on
         // the committed bubble geometry until onBubbleResized commits a new rect.
         val signature = pathCacheSignature(bubble, offset, shrinkPercent)
-        val cached = pathCache[bubble.id]
+        val identity = bubbleIdentity(bubble)
+        val cached = pathCache[identity]
         if (cached != null && cached.signature == signature) {
             bubbleBounds.set(cached.bounds)
             return cached.path
@@ -1011,10 +1102,10 @@ class FloatingTranslationView @JvmOverloads constructor(
         )
         path.computeBounds(bubbleBounds, true)
         if (bubbleBounds.width() <= 0f || bubbleBounds.height() <= 0f) {
-            pathCache.remove(bubble.id)
+            pathCache.remove(identity)
             return null
         }
-        pathCache[bubble.id] = CachedBubblePath(
+        pathCache[identity] = CachedBubblePath(
             signature = signature,
             path = path,
             bounds = RectF(bubbleBounds)
@@ -1039,6 +1130,9 @@ class FloatingTranslationView @JvmOverloads constructor(
         hash = hash * 31 + floatBits(offset.first)
         hash = hash * 31 + floatBits(offset.second)
         hash = hash * 31 + shrinkPercent
+        hash = hash * 31 + floatBits(contentZoomScale)
+        hash = hash * 31 + bubble.text.hashCode()
+        hash = hash * 31 + floatBits(bubbleRenderSettings.minAreaPerCharSp)
         hash = hash * 31 + floatBits(bubble.rect.left)
         hash = hash * 31 + floatBits(bubble.rect.top)
         hash = hash * 31 + floatBits(bubble.rect.right)
@@ -1115,25 +1209,38 @@ class FloatingTranslationView @JvmOverloads constructor(
         val useAutoAdaptColor = bubble.source.isFreeBubble &&
             bubbleRenderSettings.autoAdaptFreeBubbleColor
         val bubbleFillColor = if (useAutoAdaptColor) {
-            bubbleColorCache[bubble.id] ?: run {
+            val identity = bubbleIdentity(bubble)
+            bubbleColorCache[identity] ?: run {
                 val sampleLeft = bubble.rect.left + offset.first
                 val sampleTop = bubble.rect.top + offset.second
                 val sampleRight = bubble.rect.right + offset.first
                 val sampleBottom = bubble.rect.bottom + offset.second
-                val sampled = BubbleColorSampler.sampleBackgroundColor(
-                    bitmap = sourceBitmap,
-                    imageFile = sourceImageFile,
-                    sourceWidth = imageWidth,
-                    sourceHeight = imageHeight,
-                    left = sampleLeft,
-                    top = sampleTop,
-                    right = sampleRight,
-                    bottom = sampleBottom
-                )
+                // Tiled long pages have no full bitmap; region decoding must stay off onDraw.
+                val sampled = if (sourceBitmap == null && sourceImageFile != null) {
+                    scheduleBubbleColorSample(
+                        identity = identity,
+                        left = sampleLeft,
+                        top = sampleTop,
+                        right = sampleRight,
+                        bottom = sampleBottom
+                    )
+                    null
+                } else {
+                    BubbleColorSampler.sampleBackgroundColor(
+                        bitmap = sourceBitmap,
+                        imageFile = sourceImageFile,
+                        sourceWidth = imageWidth,
+                        sourceHeight = imageHeight,
+                        left = sampleLeft,
+                        top = sampleTop,
+                        right = sampleRight,
+                        bottom = sampleBottom
+                    )
+                }
                 val color = sampled ?: Color.WHITE
                 // Cache even fallback white once a source was available, to avoid per-frame resamples.
                 if (sampled != null || sourceBitmap != null || sourceImageFile != null) {
-                    bubbleColorCache[bubble.id] = color
+                    bubbleColorCache[identity] = color
                 }
                 color
             }
@@ -1150,6 +1257,59 @@ class FloatingTranslationView @JvmOverloads constructor(
             DEFAULT_TEXT_COLOR
         }
         fillPaint.alpha = opacityAlpha
+    }
+
+    private fun scheduleBubbleColorSample(
+        identity: BubbleIdentity,
+        left: Float,
+        top: Float,
+        right: Float,
+        bottom: Float
+    ) {
+        if (bubbleColorJobs.containsKey(identity)) return
+        val imageFile = sourceImageFile ?: return
+        val sourceWidth = imageWidth
+        val sourceHeight = imageHeight
+        val generation = bubbleColorGeneration
+        bubbleColorJobs[identity] = viewScope.launch {
+            val sampled = bubbleColorSemaphore.withPermit {
+                withContext(Dispatchers.IO) {
+                    runCatching {
+                        BubbleColorSampler.sampleBackgroundColorFromFile(
+                            imageFile = imageFile,
+                            sourceWidth = sourceWidth,
+                            sourceHeight = sourceHeight,
+                            left = left,
+                            top = top,
+                            right = right,
+                            bottom = bottom
+                        )
+                    }.getOrNull()
+                }
+            }
+            bubbleColorJobs.remove(identity)
+            if (generation != bubbleColorGeneration ||
+                bubbles.none { bubbleIdentity(it) == identity }
+            ) {
+                return@launch
+            }
+            bubbleColorCache[identity] = sampled ?: Color.WHITE
+            if (bubbleColorJobs.isEmpty()) {
+                requestFullRedraw()
+            }
+        }
+    }
+
+    private fun cancelBubbleColorJobsExcept(validIdentities: Set<BubbleIdentity>) {
+        val obsolete = bubbleColorJobs.keys.filterNot { it in validIdentities }
+        if (obsolete.isEmpty()) return
+        obsolete.forEach { identity -> bubbleColorJobs.remove(identity)?.cancel() }
+    }
+
+    private fun cancelBubbleColorJobs() {
+        bubbleColorGeneration += 1
+        bubbleColorJobs.values.forEach { it.cancel() }
+        bubbleColorJobs.clear()
     }
 
     private fun drawDeleteIcon(canvas: Canvas, rect: RectF) {
@@ -1197,11 +1357,10 @@ class FloatingTranslationView @JvmOverloads constructor(
         } else {
             val textSize = resolveHorizontalTextSize(rect, text)
             val layout = buildLayout(text, rect.width().toInt().coerceAtLeast(1), textSize)
-            canvas.save()
-            canvas.translate(rect.centerX(), rect.centerY())
-            canvas.translate(-layout.width / 2f, -layout.height / 2f)
-            layout.draw(canvas)
-            canvas.restore()
+            canvas.withTranslation(rect.centerX(), rect.centerY()) {
+                translate(-layout.width / 2f, -layout.height / 2f)
+                layout.draw(this)
+            }
         }
     }
 
@@ -1269,28 +1428,7 @@ class FloatingTranslationView @JvmOverloads constructor(
         val maxHeight = rect.height().toInt().coerceAtLeast(1)
         val textSize = findDefaultVerticalTextSize(text, maxWidth, maxHeight, rect.width() / 2.2f)
         val layout = buildVerticalLayout(text, maxWidth, maxHeight, textSize)
-        val dx = rect.right - ((rect.width() - layout.totalWidth) / 2f) - layout.columnWidth
-        val dy = rect.top + ((rect.height() - layout.totalHeight) / 2f) - layout.fontMetrics.ascent
-        var col = 0
-        var row = 0
-        for (ch in text) {
-            if (ch == '\n') {
-                col += 1
-                row = 0
-                continue
-            }
-            if (row >= layout.maxRows) {
-                col += 1
-                row = 0
-            }
-            if (col >= layout.columns) break
-            val glyph = ch.toString()
-            val charWidth = textPaint.measureText(glyph)
-            val x = dx - col * layout.columnWidth + (layout.columnWidth - charWidth) / 2f
-            val y = dy + row * layout.lineHeight
-            canvas.drawText(glyph, x, y, textPaint)
-            row += 1
-        }
+        VerticalTextRenderer.draw(canvas, text, rect, textPaint, layout)
     }
 
     private fun findDefaultVerticalTextSize(

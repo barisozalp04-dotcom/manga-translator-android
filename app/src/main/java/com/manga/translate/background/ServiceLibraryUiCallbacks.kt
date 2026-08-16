@@ -17,6 +17,10 @@ internal object ServiceLibraryUiCallbacks : LibraryUiCallbacks {
         LibraryUiBridge.setTranslationActionsEnabled(enabled)
     }
 
+    override fun setFolderExportEnabled(folder: File, enabled: Boolean) {
+        LibraryUiBridge.setFolderExportEnabled(folder, enabled)
+    }
+
     override fun showToast(resId: Int) {
         LibraryUiBridge.showToast(resId)
     }
@@ -44,6 +48,10 @@ internal object ServiceLibraryUiCallbacks : LibraryUiCallbacks {
 
     override fun refreshImages(folder: File) {
         LibraryUiBridge.refreshImages(folder)
+    }
+
+    override fun showExportSuccess(path: String) {
+        LibraryUiBridge.showExportSuccess(path)
     }
 
     override fun isUiAttached(): Boolean = LibraryUiBridge.hasAttachedUi()

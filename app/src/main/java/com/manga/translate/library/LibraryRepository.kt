@@ -4,13 +4,23 @@ import android.content.Context
 import android.net.Uri
 import android.provider.OpenableColumns
 import com.manga.translate.platform.AppLogger
+import com.manga.translate.platform.AvifBitmapDecoder
+import com.manga.translate.platform.DeviceResourcePolicy
+import com.manga.translate.platform.DeviceResourceSnapshot
 import com.manga.translate.platform.ImageFileSupport
 import com.manga.translate.platform.PdfImageCodec
+import com.manga.translate.platform.ResourceAssessment
+import com.manga.translate.platform.StorageSpaceChecker
 import java.io.File
 import java.io.FileOutputStream
+import java.io.InputStream
 import java.util.Locale
+import java.util.UUID
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import net.lingala.zip4j.ZipFile
 import net.lingala.zip4j.model.FileHeader
+import kotlinx.coroutines.CancellationException
 
 class LibraryRepository(private val context: Context) {
     private val rootDir: File = File(
@@ -22,13 +32,18 @@ class LibraryRepository(private val context: Context) {
         if (!rootDir.exists()) {
             rootDir.mkdirs()
         }
+        rootDir.listFiles { file ->
+            file.isDirectory && file.name.startsWith(STAGING_DIRECTORY_PREFIX)
+        }?.forEach(File::deleteRecursively)
     }
 
     fun listFolders(
         sortField: LibrarySortField = LibrarySortField.TIME,
         ascending: Boolean = false
     ): List<File> {
-        val folders = rootDir.listFiles { file -> file.isDirectory }?.toList().orEmpty()
+        val folders = rootDir.listFiles { file ->
+            file.isDirectory && !file.name.startsWith(STAGING_DIRECTORY_PREFIX)
+        }?.toList().orEmpty()
         return sortFolders(folders, sortField, ascending)
     }
 
@@ -77,11 +92,46 @@ class LibraryRepository(private val context: Context) {
     }
 
     fun createChildFolder(parent: File, name: String): File? {
-        if (!parent.exists() || !parent.isDirectory) return null
+        val parentFolder = canonicalTopLevelCollection(parent) ?: return null
         val trimmed = sanitizeFolderName(name) ?: return null
-        val folder = File(parent, trimmed)
+        val folder = canonicalDirectChild(File(parentFolder, trimmed), parentFolder) ?: return null
         if (folder.exists()) return null
         return if (folder.mkdirs()) folder else null
+    }
+
+    fun beginFolderImport(
+        name: String,
+        collection: Boolean = false,
+        uniqueTarget: Boolean = false
+    ): StagedImport? {
+        val targetName = sanitizeFolderName(name) ?: return null
+        val target = if (uniqueTarget) {
+            resolveUniqueFolder(rootDir, targetName)
+        } else {
+            File(rootDir, targetName).takeUnless(File::exists)
+        } ?: return null
+        val staging = createStagingDirectory(rootDir) ?: return null
+        if (collection && runCatching { collectionMarkerFile(staging).writeText("1") }.isFailure) {
+            staging.deleteRecursively()
+            return null
+        }
+        return StagedImport(staging, target)
+    }
+
+    fun beginChildChapterImport(parent: File): StagedChildChapterImport? {
+        val destinationCollection = canonicalTopLevelCollection(parent) ?: return null
+        val staging = createStagingDirectory(rootDir) ?: return null
+        if (runCatching { collectionMarkerFile(staging).writeText("1") }.isFailure) {
+            staging.deleteRecursively()
+            return null
+        }
+        return StagedChildChapterImport(staging, destinationCollection)
+    }
+
+    fun canCreateChildFolder(parent: File, name: String): Boolean {
+        val collection = canonicalTopLevelCollection(parent) ?: return false
+        val trimmed = sanitizeFolderName(name) ?: return false
+        return !File(collection, trimmed).exists()
     }
 
     fun listImages(folder: File): List<File> {
@@ -93,48 +143,82 @@ class LibraryRepository(private val context: Context) {
         }
     }
 
-    fun addImages(folder: File, uris: List<Uri>): List<File> {
-        if (isCollectionFolder(folder)) {
+    suspend fun addImages(
+        folder: File,
+        uris: List<Uri>,
+        onAvifConversionStarted: suspend () -> Unit = {}
+    ): List<File> {
+        val destinationFolder = canonicalLibraryFolder(folder) ?: return emptyList()
+        if (isCollectionFolder(destinationFolder)) {
             AppLogger.log("LibraryRepo", "Reject adding images into collection ${folder.name}")
             return emptyList()
         }
         val added = ArrayList<File>()
         for (uri in uris) {
-            val fileName = queryDisplayName(uri) ?: "image_${System.currentTimeMillis()}.jpg"
-            val dest = resolveUniqueFile(folder, fileName)
+            currentCoroutineContext().ensureActive()
+            val displayName = queryDisplayName(uri)
+            val fileName = when {
+                displayName == null -> "image_${System.currentTimeMillis()}.jpg"
+                else -> sanitizeImportedImageFileName(displayName)
+            }
+            if (fileName == null) {
+                AppLogger.log("LibraryRepo", "Reject unsafe imported image name: $displayName")
+                continue
+            }
             try {
-                context.contentResolver.openInputStream(uri)?.use { input ->
-                    FileOutputStream(dest).use { output ->
-                        input.copyTo(output)
-                    }
-                }
-                added.add(dest)
+                val isAvif = ImageFileSupport.isAvifFile(fileName) ||
+                    ImageFileSupport.isAvifMimeType(context.contentResolver.getType(uri))
+                val imported = importImage(
+                    destinationFolder = destinationFolder,
+                    sourceName = fileName,
+                    isAvif = isAvif,
+                    openInput = { context.contentResolver.openInputStream(uri) },
+                    onAvifConversionStarted = onAvifConversionStarted
+                )
+                if (imported != null) added.add(imported)
             } catch (e: Exception) {
+                if (e is CancellationException) throw e
                 AppLogger.log("LibraryRepo", "Failed to copy $fileName", e)
             }
         }
         return added
     }
 
-    fun importCbz(uri: Uri): CbzImportResult? {
+    internal suspend fun importCbz(
+        uri: Uri,
+        onAvifConversionStarted: suspend () -> Unit = {},
+        riskAlreadyAccepted: Boolean = false,
+        confirmMemoryRisk: suspend (ResourceAssessment) -> Boolean = { false }
+    ): CbzImportResult? {
         val archiveName = queryDisplayName(uri) ?: "cbz_import_${System.currentTimeMillis()}.cbz"
         val folderName = archiveName.substringBeforeLast('.', archiveName).trim().ifEmpty { "cbz_import" }
-        val folder = createUniqueFolder(folderName) ?: return null
+        val stagedImport = beginFolderImport(folderName, uniqueTarget = true) ?: return null
+        val folder = stagedImport.folder
 
         val archiveExt = archiveName.substringAfterLast('.', "").lowercase(Locale.US)
         val tempSuffix = if (archiveExt == "zip") ".zip" else ".cbz"
         val tempFile = File(context.cacheDir, "temp_cbz_${System.currentTimeMillis()}$tempSuffix")
         var importedCount = 0
-        
+        var committed = false
+        val riskGate = ImportRiskGate(
+            accepted = riskAlreadyAccepted,
+            snapshot = DeviceResourcePolicy.readSnapshot(context),
+            confirm = confirmMemoryRisk
+        )
+
         try {
             AppLogger.log("LibraryRepo", "Archive import started: $archiveName")
             context.contentResolver.openInputStream(uri)?.use { input ->
                 FileOutputStream(tempFile).use { output ->
-                    input.copyTo(output)
+                    copyInput(
+                        input = input,
+                        output = output,
+                        maxBytes = Long.MAX_VALUE,
+                        spaceDirectory = context.cacheDir
+                    )
                 }
             } ?: run {
                 AppLogger.log("LibraryRepo", "Archive import failed: cannot open input stream")
-                folder.deleteRecursively()
                 return null
             }
             
@@ -143,101 +227,124 @@ class LibraryRepository(private val context: Context) {
             ZipFile(tempFile).use { zipFile ->
                 val headers = zipFile.fileHeaders.orEmpty()
                 AppLogger.log("LibraryRepo", "Archive total entries: ${headers.size}")
+                val archiveStats = validateArchive(headers)
+                if (!riskGate.allow(archiveStats.totalUncompressedBytes)) {
+                    throw ImportCancelledByUserException()
+                }
 
                 for (header in headers) {
+                    currentCoroutineContext().ensureActive()
                     if (header.isDirectory) continue
 
                     val entryName = extractImportImageName(header.fileName)
-                    AppLogger.log(
-                        "LibraryRepo",
-                        "Archive entry: ${header.fileName} -> ${entryName ?: "(skipped)"}"
-                    )
-
                     if (entryName == null) continue
 
                     try {
-                        val dest = resolveUniqueFile(folder, entryName)
-                        zipFile.getInputStream(header).use { input ->
-                            FileOutputStream(dest).use { output ->
-                                input.copyTo(output)
-                            }
-                        }
+                        importImage(
+                            destinationFolder = folder,
+                            sourceName = entryName,
+                            isAvif = ImageFileSupport.isAvifFile(entryName),
+                            openInput = { zipFile.getInputStream(header) },
+                            maxInputBytes = header.uncompressedSize,
+                            onAvifConversionStarted = onAvifConversionStarted,
+                            riskGate = riskGate
+                        ) ?: continue
                         importedCount += 1
-                        AppLogger.log(
-                            "LibraryRepo",
-                            "Archive imported: $entryName (${dest.length()} bytes)"
-                        )
                     } catch (e: Exception) {
+                        if (e is CancellationException) throw e
+                        if (e is ImportLimitExceededException) throw e
                         logArchiveEntryImportFailure(header, e)
                     }
                 }
             }
+            AppLogger.log("LibraryRepo", "Archive import completed: $importedCount images")
+            if (importedCount == 0) {
+                return CbzImportResult(folder = null, importedCount = 0)
+            }
+            val committedFolder = stagedImport.commit() ?: return null
+            committed = true
+            return CbzImportResult(folder = committedFolder, importedCount = importedCount)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: OutOfMemoryError) {
+            AppLogger.log("LibraryRepo", "Archive import ran out of memory: $archiveName", e)
+            return CbzImportResult(folder = null, importedCount = 0, outOfMemory = true)
         } catch (e: Exception) {
             AppLogger.log("LibraryRepo", "Archive import failed: $archiveName", e)
-            folder.deleteRecursively()
             return null
         } finally {
             if (tempFile.exists()) {
                 tempFile.delete()
             }
+            if (!committed) {
+                stagedImport.discard()
+            }
         }
-
-        AppLogger.log("LibraryRepo", "Archive import completed: $importedCount images")
-        if (importedCount == 0) {
-            folder.deleteRecursively()
-            return CbzImportResult(folder = null, importedCount = 0)
-        }
-        return CbzImportResult(folder = folder, importedCount = importedCount)
     }
 
-    fun importPdf(uri: Uri): CbzImportResult? {
+    internal suspend fun importPdf(
+        uri: Uri,
+        importPlan: PdfImageCodec.PdfImportPlan? = null
+    ): CbzImportResult? {
         val pdfName = queryDisplayName(uri) ?: "pdf_import_${System.currentTimeMillis()}.pdf"
         val folderName = pdfName.substringBeforeLast('.', pdfName).trim().ifEmpty { "pdf_import" }
-        val folder = createUniqueFolder(folderName) ?: return null
+        val stagedImport = beginFolderImport(folderName, uniqueTarget = true) ?: return null
+        var committed = false
         return try {
             val importedCount = PdfImageCodec.renderPdfToImages(
+                context = context,
                 contentResolver = context.contentResolver,
                 uri = uri,
-                outputDir = folder
+                outputDir = stagedImport.folder,
+                importPlan = importPlan
             )
             if (importedCount <= 0) {
-                folder.deleteRecursively()
                 CbzImportResult(folder = null, importedCount = 0)
             } else {
-                CbzImportResult(folder = folder, importedCount = importedCount)
+                val committedFolder = stagedImport.commit() ?: return null
+                committed = true
+                CbzImportResult(folder = committedFolder, importedCount = importedCount)
             }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: OutOfMemoryError) {
+            AppLogger.log("LibraryRepo", "PDF import ran out of memory: $pdfName", e)
+            CbzImportResult(folder = null, importedCount = 0, outOfMemory = true)
         } catch (e: Exception) {
             AppLogger.log("LibraryRepo", "PDF import failed: $pdfName", e)
-            folder.deleteRecursively()
             null
+        } finally {
+            if (!committed) {
+                stagedImport.discard()
+            }
         }
     }
 
     fun deleteFolder(folder: File): Boolean {
-        if (!folder.exists()) return false
-        return folder.deleteRecursively()
+        val libraryFolder = canonicalLibraryFolder(folder) ?: return false
+        return libraryFolder.deleteRecursively()
     }
 
     fun renameFolder(folder: File, newName: String): File? {
-        if (!folder.exists() || !folder.isDirectory) return null
+        val libraryFolder = canonicalLibraryFolder(folder) ?: return null
         val trimmed = sanitizeFolderName(newName) ?: return null
-        if (trimmed == folder.name) return folder
-        val target = File(folder.parentFile, trimmed)
+        if (trimmed == libraryFolder.name) return libraryFolder
+        val parent = libraryFolder.parentFile ?: return null
+        val target = File(parent, trimmed)
         if (target.exists()) return null
-        return if (folder.renameTo(target)) target else null
+        val canonicalTarget = canonicalDirectChild(target, parent) ?: return null
+        return if (libraryFolder.renameTo(canonicalTarget)) canonicalTarget else null
     }
 
     fun moveFolderToCollection(folder: File, collection: File): File? {
-        if (!folder.exists() || !folder.isDirectory) return null
-        if (!collection.exists() || !collection.isDirectory) return null
-        if (!isCollectionFolder(collection)) return null
-        if (isCollectionFolder(folder)) return null
-        val currentParent = folder.parentFile ?: return null
-        if (currentParent.absolutePath == collection.absolutePath) return folder
-        if (folder.absolutePath == collection.absolutePath) return null
-        val target = File(collection, folder.name)
+        val sourceFolder = canonicalTopLevelFolder(folder) ?: return null
+        val collectionFolder = canonicalTopLevelCollection(collection) ?: return null
+        if (isCollectionFolder(sourceFolder)) return null
+        if (sourceFolder == collectionFolder) return null
+        val target = File(collectionFolder, sourceFolder.name)
         if (target.exists()) return null
-        return if (folder.renameTo(target)) target else null
+        val canonicalTarget = canonicalDirectChild(target, collectionFolder) ?: return null
+        return if (sourceFolder.renameTo(canonicalTarget)) canonicalTarget else null
     }
 
     fun resolveSettingsFolder(folder: File): File {
@@ -259,29 +366,284 @@ class LibraryRepository(private val context: Context) {
         return ImageFileSupport.isSupportedSourceImageFileName(name)
     }
 
-    private fun resolveUniqueFile(folder: File, fileName: String): File {
+    private suspend fun importImage(
+        destinationFolder: File,
+        sourceName: String,
+        isAvif: Boolean,
+        openInput: () -> InputStream?,
+        maxInputBytes: Long = Long.MAX_VALUE,
+        onAvifConversionStarted: suspend () -> Unit,
+        riskGate: ImportRiskGate? = null
+    ): File? {
+        val outputName = if (isAvif) {
+            ImageFileSupport.resolveImportedAvifOutputName(sourceName)
+        } else {
+            sourceName
+        }
+        val destination = resolveUniqueFile(destinationFolder, outputName)
+        if (destination == null) {
+            AppLogger.log("LibraryRepo", "Reject image target outside library: $outputName")
+            return null
+        }
+        if (!isAvif) {
+            val input = openInput() ?: return null
+            return try {
+                input.use { source ->
+                    FileOutputStream(destination).use { output ->
+                        copyInput(source, output, maxInputBytes, destinationFolder)
+                    }
+                }
+                currentCoroutineContext().ensureActive()
+                destination
+            } catch (e: Exception) {
+                destination.delete()
+                throw e
+            }
+        }
+
+        val sourceTemp = File(context.cacheDir, "avif_import_${UUID.randomUUID()}.avif")
+        val outputTemp = File(destinationFolder, ".avif_import_${UUID.randomUUID()}.tmp")
+        return try {
+            val input = openInput() ?: return null
+            input.use { source ->
+                FileOutputStream(sourceTemp).use { output ->
+                    copyInput(source, output, maxInputBytes, context.cacheDir)
+                }
+            }
+            currentCoroutineContext().ensureActive()
+            if (!AvifBitmapDecoder.convertToPng(
+                    source = sourceTemp,
+                    destination = outputTemp,
+                    propagateOutOfMemory = riskGate != null
+                ) { size ->
+                    val bitmapBytes = DeviceResourcePolicy.estimateBitmapBytes(size.width, size.height)
+                    val estimatedPeakBytes = DeviceResourcePolicy.saturatingAdd(
+                        bitmapBytes,
+                        sourceTemp.length()
+                    )
+                    if (riskGate != null && !riskGate.allow(estimatedPeakBytes)) {
+                        throw ImportCancelledByUserException()
+                    }
+                    onAvifConversionStarted()
+                    currentCoroutineContext().ensureActive()
+                }
+            ) {
+                AppLogger.log("LibraryRepo", "Failed to convert AVIF image: $sourceName")
+                null
+            } else if (!outputTemp.renameTo(destination)) {
+                AppLogger.log("LibraryRepo", "Failed to commit converted AVIF image: $outputName")
+                null
+            } else {
+                currentCoroutineContext().ensureActive()
+                destination
+            }
+        } finally {
+            sourceTemp.delete()
+            outputTemp.delete()
+        }
+    }
+
+    private fun resolveUniqueFile(folder: File, fileName: String): File? {
+        val destinationFolder = canonicalImageFolder(folder) ?: return null
+        if (sanitizeImportedImageFileName(fileName) == null) return null
         val base = fileName.substringBeforeLast('.')
         val ext = fileName.substringAfterLast('.', "")
-        var candidate = File(folder, fileName)
+        var candidate = canonicalDirectChild(File(destinationFolder, fileName), destinationFolder)
+            ?: return null
         var index = 1
         while (candidate.exists()) {
             val suffix = if (ext.isEmpty()) "" else ".$ext"
-            candidate = File(folder, "${base}_$index$suffix")
+            candidate = canonicalDirectChild(
+                File(destinationFolder, "${base}_$index$suffix"),
+                destinationFolder
+            ) ?: return null
             index += 1
         }
         return candidate
     }
 
-    private fun createUniqueFolder(baseName: String): File? {
-        val sanitized = sanitizeFolderName(baseName) ?: return null
-        var index = 0
+    private fun canonicalImageFolder(folder: File): File? {
+        val libraryFolder = canonicalLibraryFolder(folder) ?: return null
+        return libraryFolder.takeUnless(::isCollectionFolder)
+    }
+
+    private fun canonicalTopLevelCollection(folder: File): File? {
+        val libraryFolder = canonicalTopLevelFolder(folder) ?: return null
+        return libraryFolder.takeIf(::isCollectionFolder)
+    }
+
+    private fun canonicalTopLevelFolder(folder: File): File? {
+        val canonicalFolder = canonicalLibraryFolder(folder) ?: return null
+        return canonicalFolder.takeIf { canonicalParent(it) == canonicalRootDir() }
+    }
+
+    private fun canonicalLibraryFolder(folder: File): File? {
+        val canonicalFolder = canonicalFile(folder) ?: return null
+        if (!canonicalFolder.exists() || !canonicalFolder.isDirectory) return null
+        if (!isInsideRoot(canonicalFolder)) return null
+
+        val parent = canonicalParent(canonicalFolder) ?: return null
+        return when {
+            parent == canonicalRootDir() -> canonicalFolder
+            canonicalParent(parent) == canonicalRootDir() && isCollectionFolder(parent) -> canonicalFolder
+            else -> null
+        }
+    }
+
+    private fun canonicalDirectChild(file: File, parent: File): File? {
+        val canonicalCandidate = canonicalFile(file) ?: return null
+        val canonicalParent = canonicalFile(parent) ?: return null
+        return canonicalCandidate.takeIf {
+            canonicalParent(it) == canonicalParent && isInsideRoot(it)
+        }
+    }
+
+    private fun canonicalRootDir(): File = rootDir.canonicalFile
+
+    private fun canonicalParent(file: File): File? = file.parentFile?.let(::canonicalFile)
+
+    private fun canonicalFile(file: File): File? = runCatching { file.canonicalFile }.getOrNull()
+
+    private fun isInsideRoot(file: File): Boolean {
+        val rootPath = canonicalRootDir().path
+        return file.path.startsWith("$rootPath${File.separator}")
+    }
+
+    private suspend fun copyInput(
+        input: InputStream,
+        output: FileOutputStream,
+        maxBytes: Long,
+        spaceDirectory: File
+    ) {
+        var copied = 0L
+        var nextSpaceCheckAt = 0L
+        val buffer = ByteArray(COPY_BUFFER_SIZE)
         while (true) {
-            val candidateName = if (index == 0) sanitized else "${sanitized}_$index"
-            val folder = File(rootDir, candidateName)
-            if (!folder.exists()) {
-                return if (folder.mkdirs()) folder else null
+            currentCoroutineContext().ensureActive()
+            val read = input.read(buffer)
+            if (read < 0) return
+            if (copied > maxBytes - read) {
+                throw ImportLimitExceededException("Imported file exceeds the allowed size")
             }
+            if (copied >= nextSpaceCheckAt) {
+                ensureRemainingSpace(spaceDirectory, SPACE_CHECK_INTERVAL_BYTES)
+                nextSpaceCheckAt = copied + SPACE_CHECK_INTERVAL_BYTES
+            }
+            output.write(buffer, 0, read)
+            copied += read
+        }
+    }
+
+    private fun validateArchive(headers: List<FileHeader>): ArchiveStats {
+        if (headers.size > MAX_ARCHIVE_ENTRY_COUNT) {
+            throw ImportLimitExceededException("Archive has too many entries: ${headers.size}")
+        }
+
+        var totalUncompressed = 0L
+        var totalCompressed = 0L
+        for (header in headers) {
+            if (header.isDirectory) continue
+            val uncompressed = header.uncompressedSize
+            val compressed = header.compressedSize
+            if (uncompressed < 0L || compressed < 0L) {
+                throw ImportLimitExceededException("Archive entry has an unknown size: ${header.fileName}")
+            }
+            if (uncompressed > 0L && compressed == 0L) {
+                throw ImportLimitExceededException("Archive entry has an invalid compression ratio: ${header.fileName}")
+            }
+            val wholeRatio = if (compressed == 0L) 0L else uncompressed / compressed
+            if (
+                compressed > 0L && (
+                    wholeRatio > MAX_ARCHIVE_COMPRESSION_RATIO ||
+                        (wholeRatio == MAX_ARCHIVE_COMPRESSION_RATIO && uncompressed % compressed != 0L)
+                    )
+            ) {
+                throw ImportLimitExceededException("Archive entry compression ratio is too high: ${header.fileName}")
+            }
+            if (totalUncompressed > Long.MAX_VALUE - uncompressed) {
+                throw ImportLimitExceededException("Archive uncompressed size overflow")
+            }
+            totalUncompressed += uncompressed
+            if (totalCompressed > Long.MAX_VALUE - compressed) {
+                throw ImportLimitExceededException("Archive compressed size overflow")
+            }
+            totalCompressed += compressed
+        }
+        ensureRemainingSpace(rootDir, totalUncompressed)
+        AppLogger.log(
+            "LibraryRepo",
+            "Archive validated: $totalUncompressed uncompressed bytes, $totalCompressed compressed bytes"
+        )
+        return ArchiveStats(totalUncompressedBytes = totalUncompressed)
+    }
+
+    private fun ensureRemainingSpace(directory: File, requiredBytes: Long = 0L) {
+        if (!StorageSpaceChecker.hasSpaceFor(
+                context = context,
+                directory = directory,
+                requiredBytes = requiredBytes,
+                reserveBytes = MINIMUM_FREE_SPACE_BYTES
+            )
+        ) {
+            throw ImportLimitExceededException("Insufficient storage space for import")
+        }
+    }
+
+    private fun createStagingDirectory(parent: File): File? {
+        repeat(MAX_STAGING_NAME_ATTEMPTS) {
+            val folder = File(parent, "$STAGING_DIRECTORY_PREFIX${UUID.randomUUID()}")
+            if (folder.mkdirs()) return folder
+        }
+        return null
+    }
+
+    private fun resolveUniqueFolder(parent: File, baseName: String): File? {
+        var index = 0
+        while (index < Int.MAX_VALUE) {
+            val name = if (index == 0) baseName else "${baseName}_$index"
+            val candidate = File(parent, name)
+            if (!candidate.exists()) return candidate
             index += 1
+        }
+        return null
+    }
+
+    inner class StagedImport internal constructor(
+        val folder: File,
+        private val target: File
+    ) {
+        fun commit(): File? {
+            if (!folder.exists() || target.exists()) return null
+            return target.takeIf { folder.renameTo(it) }
+        }
+
+        fun discard() {
+            folder.deleteRecursively()
+        }
+    }
+
+    inner class StagedChildChapterImport internal constructor(
+        val folder: File,
+        private val destinationCollection: File
+    ) {
+        fun commit(): List<File>? {
+            val chapters = listChildFolders(folder)
+            if (chapters.any { File(destinationCollection, it.name).exists() }) return null
+            val committed = ArrayList<Pair<File, File>>()
+            for (chapter in chapters) {
+                val destination = File(destinationCollection, chapter.name)
+                if (!chapter.renameTo(destination)) {
+                    committed.asReversed().forEach { (source, target) -> target.renameTo(source) }
+                    return null
+                }
+                committed += chapter to destination
+            }
+            folder.deleteRecursively()
+            return committed.map { it.second }
+        }
+
+        fun discard() {
+            folder.deleteRecursively()
         }
     }
 
@@ -311,12 +673,49 @@ class LibraryRepository(private val context: Context) {
 
     data class CbzImportResult(
         val folder: File?,
-        val importedCount: Int
+        val importedCount: Int,
+        val outOfMemory: Boolean = false
     )
+
+    private data class ArchiveStats(val totalUncompressedBytes: Long)
+
+    private class ImportRiskGate(
+        accepted: Boolean,
+        private val snapshot: DeviceResourceSnapshot,
+        private val confirm: suspend (ResourceAssessment) -> Boolean
+    ) {
+        private var accepted = accepted
+
+        suspend fun allow(estimatedBytes: Long): Boolean {
+            if (accepted) return true
+            val assessment = DeviceResourcePolicy.assessImport(snapshot, estimatedBytes)
+            if (!assessment.shouldWarn) return true
+            accepted = confirm(assessment)
+            return accepted
+        }
+    }
 
     companion object {
         private const val COLLECTION_MARKER_FILE_NAME = ".folder-collection"
+        private const val STAGING_DIRECTORY_PREFIX = ".import-staging-"
+        private const val MAX_STAGING_NAME_ATTEMPTS = 10
+        private const val COPY_BUFFER_SIZE = 256 * 1024
+        private const val SPACE_CHECK_INTERVAL_BYTES = 8L * 1024 * 1024
+        private const val MAX_ARCHIVE_ENTRY_COUNT = 30_000
+        private const val MAX_ARCHIVE_COMPRESSION_RATIO = 150L
+        private const val MINIMUM_FREE_SPACE_BYTES = 100L * 1024 * 1024
         private val CONTROL_CHARS_REGEX = Regex("[\\u0000-\\u001F]")
+
+        internal fun sanitizeImportedImageFileName(displayName: String): String? {
+            return displayName.takeIf { name ->
+                name.isNotBlank() &&
+                    name != "." &&
+                    name != ".." &&
+                    '/' !in name &&
+                    '\\' !in name &&
+                    !CONTROL_CHARS_REGEX.containsMatchIn(name)
+            }
+        }
 
         internal fun extractImportImageName(entryName: String?): String? {
             val normalized = entryName
@@ -329,7 +728,7 @@ class LibraryRepository(private val context: Context) {
                 return null
             }
             val sanitized = fileName.replace(CONTROL_CHARS_REGEX, "_")
-            return if (ImageFileSupport.isSupportedSourceImageFileName(sanitized)) {
+            return if (ImageFileSupport.isSupportedImportImageFileName(sanitized)) {
                 sanitized
             } else {
                 null
@@ -394,4 +793,8 @@ class LibraryRepository(private val context: Context) {
     private fun logArchiveEntryImportFailure(header: FileHeader, error: Exception) {
         AppLogger.log("LibraryRepo", "Archive entry import failed: ${header.fileName}", error)
     }
+
+    private class ImportLimitExceededException(message: String) : IllegalStateException(message)
+
+    private class ImportCancelledByUserException : CancellationException("Import cancelled by user")
 }

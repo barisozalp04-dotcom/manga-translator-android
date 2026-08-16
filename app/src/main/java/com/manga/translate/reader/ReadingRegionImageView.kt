@@ -15,9 +15,11 @@ import android.util.AttributeSet
 import android.util.LruCache
 import android.view.ViewTreeObserver
 import androidx.appcompat.widget.AppCompatImageView
+import androidx.core.graphics.withMatrix
 import com.manga.translate.platform.ImageProcessingGuards
 import com.manga.translate.platform.recycleSafely
 import java.io.File
+import java.util.WeakHashMap
 import kotlin.math.ceil
 import kotlin.math.floor
 import kotlin.math.max
@@ -28,6 +30,57 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+
+private object ReadingTileCacheBudget {
+    private val lock = Any()
+    private val caches = WeakHashMap<ReadingRegionImageView, Unit>()
+    private var trimming = false
+
+    private val maxKb: Int
+        get() {
+            val runtimeMaxKb = (Runtime.getRuntime().maxMemory() / 1024L).coerceAtLeast(1L)
+            return (runtimeMaxKb / 6L).toInt().coerceIn(32 * 1024, 128 * 1024)
+        }
+
+    fun register(view: ReadingRegionImageView) {
+        synchronized(lock) {
+            caches[view] = Unit
+            enforceLocked()
+        }
+    }
+
+    fun changed() {
+        synchronized(lock) {
+            enforceLocked()
+        }
+    }
+
+    private fun enforceLocked() {
+        if (trimming) return
+        var totalKb = caches.keys.sumOf { it.tileCacheSizeKb() }
+        if (totalKb <= maxKb) return
+        trimming = true
+        try {
+            // Detached holders are the safest place to reclaim first: they will
+            // repopulate their viewport on attach without disrupting visible pages.
+            caches.keys.filter { it.isTileCacheDetached() }.forEach { view ->
+                if (totalKb <= maxKb) return@forEach
+                view.trimTileCacheToKb(0)
+                totalKb = caches.keys.sumOf { it.tileCacheSizeKb() }
+            }
+            while (totalKb > maxKb) {
+                val largest = caches.keys.maxByOrNull { it.tileCacheSizeKb() } ?: break
+                val excess = totalKb - maxKb
+                largest.trimTileCacheToKb((largest.tileCacheSizeKb() - excess).coerceAtLeast(0))
+                val updated = caches.keys.sumOf { it.tileCacheSizeKb() }
+                if (updated >= totalKb) break
+                totalKb = updated
+            }
+        } finally {
+            trimming = false
+        }
+    }
+}
 
 class ReadingRegionImageView @JvmOverloads constructor(
     context: Context,
@@ -70,6 +123,7 @@ class ReadingRegionImageView @JvmOverloads constructor(
             if (newValue !== oldValue && !oldValue.isRecycled) {
                 oldValue.recycle()
             }
+            ReadingTileCacheBudget.changed()
         }
     }
     private val decodeJobs = mutableMapOf<TileKey, Job>()
@@ -79,6 +133,19 @@ class ReadingRegionImageView @JvmOverloads constructor(
     private var generation = 0
     private var lastDecodeSampleSize = 1
     private val scrollChangedListener = ViewTreeObserver.OnScrollChangedListener { invalidate() }
+    private var tileCacheDetached = false
+
+    init {
+        ReadingTileCacheBudget.register(this)
+    }
+
+    internal fun tileCacheSizeKb(): Int = tileCache.size()
+
+    internal fun trimTileCacheToKb(maxSizeKb: Int) {
+        tileCache.trimToSize(maxSizeKb.coerceAtLeast(0))
+    }
+
+    internal fun isTileCacheDetached(): Boolean = tileCacheDetached
 
     fun setRegionSource(next: ReadingRegionImageSource?) {
         if (source == next) return
@@ -118,29 +185,28 @@ class ReadingRegionImageView @JvmOverloads constructor(
         val visibleRequests = planTiles(activeSource, visibleRect, decodeSampleSize, tileSize)
         val prefetchRequests = planPrefetchTiles(activeSource, visibleRequests, decodeSampleSize, tileSize)
         cancelStaleDecodeJobs((visibleRequests + prefetchRequests).mapTo(hashSetOf()) { it.key })
-        val save = canvas.save()
-        canvas.concat(contentMatrix)
-        for (request in visibleRequests) {
-            tileDrawRect.set(
-                request.key.left.toFloat(),
-                request.key.top.toFloat(),
-                request.key.right.toFloat(),
-                request.key.bottom.toFloat()
-            )
-            val sharp = tileCache.get(request.key)
-            if (sharp != null && !sharp.isRecycled) {
-                canvas.drawBitmap(sharp, null, tileDrawRect, paint)
-            } else {
-                val fallback = findFallbackTile(request)
-                if (fallback != null && !fallback.isRecycled) {
-                    canvas.drawBitmap(fallback, null, tileDrawRect, paint)
+        canvas.withMatrix(contentMatrix) {
+            for (request in visibleRequests) {
+                tileDrawRect.set(
+                    request.key.left.toFloat(),
+                    request.key.top.toFloat(),
+                    request.key.right.toFloat(),
+                    request.key.bottom.toFloat()
+                )
+                val sharp = tileCache.get(request.key)
+                if (sharp != null && !sharp.isRecycled) {
+                    drawBitmap(sharp, null, tileDrawRect, paint)
                 } else {
-                    canvas.drawRect(tileDrawRect, missingTilePaint)
+                    val fallback = findFallbackTile(request)
+                    if (fallback != null && !fallback.isRecycled) {
+                        drawBitmap(fallback, null, tileDrawRect, paint)
+                    } else {
+                        drawRect(tileDrawRect, missingTilePaint)
+                    }
+                    enqueueDecode(activeSource, request, priority = true)
                 }
-                enqueueDecode(activeSource, request, priority = true)
             }
         }
-        canvas.restoreToCount(save)
         for (request in prefetchRequests) {
             enqueueDecode(activeSource, request, priority = false)
         }
@@ -148,16 +214,22 @@ class ReadingRegionImageView @JvmOverloads constructor(
 
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
+        tileCacheDetached = true
         viewTreeObserver.removeOnScrollChangedListener(scrollChangedListener)
         generation += 1
         decodeJobs.values.forEach { it.cancel() }
         decodeJobs.clear()
-        tileCache.evictAll()
         closeDecoder()
+        // RecyclerView temporarily detaches cached holders while scrolling. Keep completed
+        // tiles across that detach/attach boundary so a page does not return as transparent
+        // blocks and decode the same viewport again. setRegionSource() still clears the cache
+        // when the holder is recycled or rebound to another image.
     }
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
+        tileCacheDetached = false
+        ReadingTileCacheBudget.register(this)
         viewTreeObserver.addOnScrollChangedListener(scrollChangedListener)
     }
 

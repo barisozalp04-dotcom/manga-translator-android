@@ -5,6 +5,7 @@ import android.content.SharedPreferences
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.RectF
+import androidx.core.graphics.createBitmap
 import com.manga.translate.R
 import com.manga.translate.detection.LocalModelMemoryManager
 import com.manga.translate.library.LibraryRepository
@@ -230,36 +231,45 @@ internal class ReadingEmptyBubbleCoordinator(
         val nextFile = images.getOrNull(currentIndex + 1) ?: return null
         val overflowHeight = rect.bottom - currentCropSource.height.toFloat()
         if (overflowHeight <= 0f) return null
-        val targetWidth = rect.width().toInt().coerceAtLeast(1)
-        val targetHeight = rect.height().toInt().coerceAtLeast(1)
-        val stitched = Bitmap.createBitmap(targetWidth, targetHeight, Bitmap.Config.ARGB_8888)
-        val canvas = Canvas(stitched)
-
-        val currentRect = PipelineBitmapDecoder.clampRect(
-            RectF(rect.left, rect.top.coerceAtLeast(0f), rect.right, currentCropSource.height.toFloat()),
-            currentCropSource.width,
-            currentCropSource.height
-        ) ?: run {
-            stitched.recycleSafely()
-            return null
-        }
-        val currentBitmap = currentCropSource.decodeRegion(currentRect, maxEdge = 4096) ?: run {
-            stitched.recycleSafely()
-            return null
-        }
-        try {
-            canvas.drawBitmap(currentBitmap, 0f, (currentRect.top - rect.top).coerceAtLeast(0f), null)
-        } finally {
-            currentBitmap.recycleSafely()
-        }
-
-        val nextCropSource = PipelineBitmapDecoder.openCropSource(nextFile) ?: run {
-            stitched.recycleSafely()
-            return null
-        }
+        val nextCropSource = PipelineBitmapDecoder.openCropSource(nextFile) ?: return null
         nextCropSource.use { nextSource ->
+            val fitWidthScale = nextSource.width.toFloat() / currentCropSource.width.coerceAtLeast(1)
+            val targetWidth = rect.width().toInt().coerceAtLeast(1)
+            val targetHeight = rect.height().toInt().coerceAtLeast(1)
+            val stitched = createBitmap(targetWidth, targetHeight, Bitmap.Config.ARGB_8888)
+            val canvas = Canvas(stitched)
+
+            val currentRect = PipelineBitmapDecoder.clampRect(
+                RectF(rect.left, rect.top.coerceAtLeast(0f), rect.right, currentCropSource.height.toFloat()),
+                currentCropSource.width,
+                currentCropSource.height
+            ) ?: run {
+                stitched.recycleSafely()
+                return null
+            }
+            val currentBitmap = currentCropSource.decodeRegion(currentRect, maxEdge = 4096) ?: run {
+                stitched.recycleSafely()
+                return null
+            }
+            try {
+                canvas.drawBitmap(
+                    currentBitmap,
+                    null,
+                    RectF(0f, (currentRect.top - rect.top).coerceAtLeast(0f), currentRect.width(),
+                        (currentRect.bottom - rect.top).coerceAtLeast(0f)),
+                    null
+                )
+            } finally {
+                currentBitmap.recycleSafely()
+            }
+
             val nextRect = PipelineBitmapDecoder.clampRect(
-                RectF(rect.left, 0f, rect.right, overflowHeight),
+                RectF(
+                    rect.left * fitWidthScale,
+                    0f,
+                    rect.right * fitWidthScale,
+                    overflowHeight * fitWidthScale
+                ),
                 nextSource.width,
                 nextSource.height
             ) ?: run {
@@ -271,12 +281,19 @@ internal class ReadingEmptyBubbleCoordinator(
                 return null
             }
             try {
-                canvas.drawBitmap(nextBitmap, 0f, (currentCropSource.height.toFloat() - rect.top).coerceAtLeast(0f), null)
+                val destinationTop = (currentCropSource.height.toFloat() - rect.top).coerceAtLeast(0f)
+                canvas.drawBitmap(
+                    nextBitmap,
+                    null,
+                    RectF(0f, destinationTop, targetWidth.toFloat(),
+                        (destinationTop + overflowHeight).coerceAtMost(targetHeight.toFloat())),
+                    null
+                )
             } finally {
                 nextBitmap.recycleSafely()
             }
+            return stitched
         }
-        return stitched
     }
 }
 

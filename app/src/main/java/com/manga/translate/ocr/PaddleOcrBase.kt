@@ -13,6 +13,7 @@ import com.manga.translate.detection.OnnxRuntimeSupport
 import com.manga.translate.detection.OnnxThreadProfile
 import com.manga.translate.platform.AppLogger
 import com.manga.translate.platform.PipelineBitmapDecoder
+import com.manga.translate.platform.recycleSafely
 import com.manga.translate.settings.SettingsStore
 import java.nio.FloatBuffer
 
@@ -71,29 +72,34 @@ abstract class PaddleOcrBase(
         targetW = targetW.coerceAtMost(imgW)
 
         val resized = bitmap.scale(targetW, imgH)
+        return try {
+            val input = FloatArray(3 * imgH * imgW)
+            for (y in 0 until imgH) {
+                for (x in 0 until targetW) {
+                    val pixel = resized[x, y]
+                    val r = ((pixel shr 16) and 0xFF) / 255f
+                    val g = ((pixel shr 8) and 0xFF) / 255f
+                    val b = (pixel and 0xFF) / 255f
+                    val bNorm = (b - 0.5f) / 0.5f
+                    val gNorm = (g - 0.5f) / 0.5f
+                    val rNorm = (r - 0.5f) / 0.5f
+                    val base = y * imgW + x
+                    input[base] = bNorm
+                    input[base + imgH * imgW] = gNorm
+                    input[base + 2 * imgH * imgW] = rNorm
+                }
+            }
 
-        val input = FloatArray(3 * imgH * imgW)
-        for (y in 0 until imgH) {
-            for (x in 0 until targetW) {
-                val pixel = resized[x, y]
-                val r = ((pixel shr 16) and 0xFF) / 255f
-                val g = ((pixel shr 8) and 0xFF) / 255f
-                val b = (pixel and 0xFF) / 255f
-                val bNorm = (b - 0.5f) / 0.5f
-                val gNorm = (g - 0.5f) / 0.5f
-                val rNorm = (r - 0.5f) / 0.5f
-                val base = y * imgW + x
-                input[base] = bNorm
-                input[base + imgH * imgW] = gNorm
-                input[base + 2 * imgH * imgW] = rNorm
+            OnnxTensor.createTensor(
+                env,
+                FloatBuffer.wrap(input),
+                longArrayOf(1, 3, imgH.toLong(), imgW.toLong())
+            )
+        } finally {
+            if (resized !== bitmap) {
+                resized.recycleSafely()
             }
         }
-
-        return OnnxTensor.createTensor(
-            env,
-            FloatBuffer.wrap(input),
-            longArrayOf(1, 3, imgH.toLong(), imgW.toLong())
-        )
     }
 
     private fun preprocess(source: Bitmap, rect: RectF): OnnxTensor {

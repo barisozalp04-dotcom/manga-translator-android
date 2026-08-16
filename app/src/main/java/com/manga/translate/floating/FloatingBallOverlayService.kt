@@ -1,5 +1,6 @@
 package com.manga.translate.floating
 
+import android.annotation.SuppressLint
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -33,10 +34,13 @@ import androidx.appcompat.widget.AppCompatButton
 import androidx.appcompat.widget.AppCompatTextView
 import androidx.core.app.NotificationCompat
 import androidx.core.content.getSystemService
+import androidx.core.graphics.get
+import androidx.core.graphics.scale
 import androidx.core.view.isVisible
 import com.manga.translate.R
+import com.manga.translate.detection.PageRegion
 import com.manga.translate.detection.PageRegionDetector
-import com.manga.translate.detection.RectGeometryDeduplicator
+import com.manga.translate.detection.mapPageLineRectsToCrop
 import com.manga.translate.di.appContainer
 import com.manga.translate.model.BubbleSource
 import com.manga.translate.model.BubbleTranslation
@@ -54,13 +58,14 @@ import com.manga.translate.platform.createWithScrollableMessage
 import com.manga.translate.platform.cropBitmap
 import com.manga.translate.platform.recycleSafely
 import com.manga.translate.platform.showModelErrorDialog
-import com.manga.translate.model.OcrBubble
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.cancel
@@ -120,6 +125,8 @@ class FloatingBallOverlayService : Service() {
     }
     private var pageRegionDetector: PageRegionDetector? = null
     private var detectJob: Job? = null
+    @Volatile
+    private var detectionGeneration: Long = 0L
     private var editModeToggleButton: AppCompatButton? = null
     private var swipeTranslateButton: AppCompatButton? = null
     private var addBubbleButton: AppCompatButton? = null
@@ -159,6 +166,8 @@ class FloatingBallOverlayService : Service() {
                             scheduleNextAutoCloseCheck()
                         }
                     }
+                } catch (e: CancellationException) {
+                    throw e
                 } catch (e: Exception) {
                     AppLogger.log("FloatingOCR", "Auto close screen check failed", e)
                     withContext(Dispatchers.Main) {
@@ -245,7 +254,8 @@ class FloatingBallOverlayService : Service() {
     private suspend fun recognizeFloatingBubbleText(
         crop: Bitmap,
         language: TranslationLanguage,
-        bubbleSource: BubbleSource
+        bubbleSource: BubbleSource,
+        detectedLineRects: List<RectF>? = null
     ): String = withContext(Dispatchers.Default) {
         val ocrSettings = settingsStore.loadOcrApiSettings()
         val resolvedLanguage = TranslationLanguage.resolveForOcr(language, ocrSettings.useLocalOcr)
@@ -254,7 +264,8 @@ class FloatingBallOverlayService : Service() {
             language = resolvedLanguage,
             useLocalOcr = ocrSettings.useLocalOcr && resolvedLanguage.supportsLocalOcr(),
             logTag = "FloatingOCR",
-            bubbleSource = bubbleSource
+            bubbleSource = bubbleSource,
+            detectedLineRects = detectedLineRects
         ).textOrEmpty()
     }
 
@@ -263,6 +274,28 @@ class FloatingBallOverlayService : Service() {
             TranslationLanguage.JA_TO_ZH,
             settingsStore.loadOcrApiSettings().useLocalOcr
         )
+    }
+
+    private fun advanceDetectionGeneration(): Long {
+        detectJob?.cancel()
+        confirmEditInFlight = false
+        detectionGeneration += 1
+        return detectionGeneration
+    }
+
+    private fun isDetectionGenerationCurrent(generation: Long): Boolean {
+        return detectionGeneration == generation
+    }
+
+    private suspend fun runOnMainForDetectionGeneration(
+        generation: Long,
+        block: () -> Unit
+    ) {
+        withContext(Dispatchers.Main) {
+            if (isDetectionGenerationCurrent(generation)) {
+                block()
+            }
+        }
     }
 
     private fun canDrawOverlays(): Boolean {
@@ -703,13 +736,13 @@ class FloatingBallOverlayService : Service() {
     }
 
     private fun startSwipeTranslateMode() {
-        if (detectJob?.isActive == true) return
         if (!screenCaptureSession.isReady()) {
             AppLogger.log("FloatingOCR", "Swipe translate blocked: projection not ready")
             showProgressStatus(R.string.floating_capture_not_ready, autoHide = true)
             Toast.makeText(this, R.string.floating_capture_not_ready, Toast.LENGTH_SHORT).show()
             return
         }
+        val generation = advanceDetectionGeneration()
         showProgressStatus(R.string.floating_progress_capturing)
         detectJob = scope.launch(Dispatchers.Default) {
             val runningJob = currentCoroutineContext()[Job]
@@ -717,7 +750,7 @@ class FloatingBallOverlayService : Service() {
             try {
                 bitmap = screenCaptureSession.captureCurrentScreen()
                 if (bitmap == null) {
-                    withContext(Dispatchers.Main) {
+                    runOnMainForDetectionGeneration(generation) {
                         showProgressStatus(R.string.floating_capture_not_ready, autoHide = true)
                         Toast.makeText(
                             this@FloatingBallOverlayService,
@@ -727,17 +760,18 @@ class FloatingBallOverlayService : Service() {
                     }
                     return@launch
                 }
-                withContext(Dispatchers.Main) {
+                val capturedBitmap = requireNotNull(bitmap)
+                runOnMainForDetectionGeneration(generation) {
                     currentSession = TranslationResult(
                         imageName = "",
-                        width = bitmap.width,
-                        height = bitmap.height,
+                        width = capturedBitmap.width,
+                        height = capturedBitmap.height,
                         bubbles = emptyList()
                     )
                     editSessionSnapshot = null
                     createBubbleModeEnabled = false
                     syncOverlaySession()
-                    replaceCurrentSessionBitmap(bitmap)
+                    replaceCurrentSessionBitmap(capturedBitmap)
                     rebuildAutoCloseReferenceFromCurrentSession()
                     bitmap = null
                     enterEditMode(showToast = false)
@@ -750,9 +784,12 @@ class FloatingBallOverlayService : Service() {
                     ).show()
                 }
                 AppLogger.log("FloatingOCR", "Swipe translate mode ready")
+            } catch (e: CancellationException) {
+                AppLogger.log("FloatingOCR", "Swipe translate mode cancelled")
+                throw e
             } catch (e: Exception) {
                 AppLogger.log("FloatingOCR", "Swipe translate mode failed", e)
-                withContext(Dispatchers.Main) {
+                runOnMainForDetectionGeneration(generation) {
                     showProgressStatus(R.string.floating_detect_failed, autoHide = true)
                     Toast.makeText(
                         this@FloatingBallOverlayService,
@@ -762,11 +799,13 @@ class FloatingBallOverlayService : Service() {
                 }
             } finally {
                 bitmap?.recycle()
-                withContext(Dispatchers.Main) {
+                withContext(Dispatchers.Main + NonCancellable) {
                     if (detectJob === runningJob) {
                         detectJob = null
                     }
-                    updateAutoCloseDetectionState()
+                    if (isDetectionGenerationCurrent(generation)) {
+                        updateAutoCloseDetectionState()
+                    }
                 }
             }
         }
@@ -836,8 +875,8 @@ class FloatingBallOverlayService : Service() {
             Toast.makeText(this, R.string.floating_capture_not_ready, Toast.LENGTH_SHORT).show()
             return
         }
+        val generation = advanceDetectionGeneration()
         showProgressStatus(R.string.overlay_empty_bubble_translating)
-        detectJob?.cancel()
         confirmEditInFlight = true
         detectJob = scope.launch(Dispatchers.Default) {
             val runningJob = currentCoroutineContext()[Job]
@@ -857,7 +896,7 @@ class FloatingBallOverlayService : Service() {
                         language = currentTranslationLanguage()
                     )
                 }
-                withContext(Dispatchers.Main) {
+                runOnMainForDetectionGeneration(generation) {
                     if (outcome.requiresVlModel) {
                         showProgressStatus(R.string.floating_vl_model_required, autoHide = true)
                         Toast.makeText(
@@ -865,31 +904,29 @@ class FloatingBallOverlayService : Service() {
                             R.string.floating_vl_model_required,
                             Toast.LENGTH_LONG
                         ).show()
-                        return@withContext
-                    }
-                    if (outcome.timedOut) {
+                    } else if (outcome.timedOut) {
                         showProgressStatus(R.string.floating_translate_timeout, autoHide = true)
                         Toast.makeText(
                             this@FloatingBallOverlayService,
                             R.string.floating_translate_timeout,
                             Toast.LENGTH_SHORT
                         ).show()
-                        return@withContext
+                    } else {
+                        currentSession = outcome.translation
+                        syncOverlaySession()
+                        finishEditSession(showToast = false)
+                        rebuildAutoCloseReferenceFromCurrentSession()
+                        showProgressStatus(R.string.overlay_empty_bubble_translated, autoHide = true)
+                        Toast.makeText(
+                            this@FloatingBallOverlayService,
+                            R.string.overlay_empty_bubble_translated,
+                            Toast.LENGTH_SHORT
+                        ).show()
                     }
-                    currentSession = outcome.translation
-                    syncOverlaySession()
-                    finishEditSession(showToast = false)
-                    rebuildAutoCloseReferenceFromCurrentSession()
-                    showProgressStatus(R.string.overlay_empty_bubble_translated, autoHide = true)
-                    Toast.makeText(
-                        this@FloatingBallOverlayService,
-                        R.string.overlay_empty_bubble_translated,
-                        Toast.LENGTH_SHORT
-                    ).show()
                 }
             } catch (e: LlmResponseException) {
                 AppLogger.log("FloatingOCR", "Floating edit model response invalid", e)
-                withContext(Dispatchers.Main) {
+                runOnMainForDetectionGeneration(generation) {
                     showModelErrorDialog(
                         responseContent = e.responseContent,
                         onContinue = { confirmEditSession() }
@@ -897,18 +934,20 @@ class FloatingBallOverlayService : Service() {
                 }
             } catch (e: LlmRequestException) {
                 AppLogger.log("FloatingOCR", "Floating edit request failed", e)
-                withContext(Dispatchers.Main) {
+                runOnMainForDetectionGeneration(generation) {
                     showApiErrorDialog(e.errorCode, e.responseBody)
                 }
             } finally {
                 localModelLease.close()
                 bitmapSnapshot.recycle()
-                withContext(Dispatchers.Main) {
+                withContext(Dispatchers.Main + NonCancellable) {
                     if (detectJob === runningJob) {
                         detectJob = null
                     }
-                    confirmEditInFlight = false
-                    updateAutoCloseDetectionState()
+                    if (isDetectionGenerationCurrent(generation)) {
+                        confirmEditInFlight = false
+                        updateAutoCloseDetectionState()
+                    }
                 }
             }
         }
@@ -963,6 +1002,7 @@ class FloatingBallOverlayService : Service() {
     }
 
     private fun clearCurrentSession() {
+        advanceDetectionGeneration()
         blankBubbleErrorDialog?.dismiss()
         blankBubbleErrorDialog = null
         currentSession = null
@@ -1026,19 +1066,19 @@ class FloatingBallOverlayService : Service() {
     }
 
     private fun runTextDetection() {
-        if (detectJob?.isActive == true) return
         blankBubbleErrorDialog?.dismiss()
         blankBubbleErrorDialog = null
         if (editModeEnabled) {
             finishEditSession(showToast = false)
         }
-        updateAutoCloseDetectionState()
         if (!screenCaptureSession.isReady()) {
             AppLogger.log("FloatingOCR", "Run detection blocked: projection not ready")
             showProgressStatus(R.string.floating_capture_not_ready, autoHide = true)
             Toast.makeText(this, R.string.floating_capture_not_ready, Toast.LENGTH_SHORT).show()
             return
         }
+        val generation = advanceDetectionGeneration()
+        stopAutoCloseDetection()
         AppLogger.log("FloatingOCR", "Run detection started")
         showProgressStatus(R.string.floating_progress_capturing)
         detectJob = scope.launch(Dispatchers.Default) {
@@ -1049,7 +1089,7 @@ class FloatingBallOverlayService : Service() {
                 bitmap = screenCaptureSession.captureCurrentScreen()
                 if (bitmap == null) {
                     AppLogger.log("FloatingOCR", "Capture screen returned null")
-                    withContext(Dispatchers.Main) {
+                    runOnMainForDetectionGeneration(generation) {
                         showProgressStatus(R.string.floating_capture_not_ready, autoHide = true)
                         Toast.makeText(
                             this@FloatingBallOverlayService,
@@ -1059,17 +1099,20 @@ class FloatingBallOverlayService : Service() {
                     }
                     return@launch
                 }
-                withContext(Dispatchers.Main) {
+                val capturedBitmap = requireNotNull(bitmap)
+                if (!isDetectionGenerationCurrent(generation)) return@launch
+                runOnMainForDetectionGeneration(generation) {
                     showProgressStatus(R.string.floating_progress_detecting)
                 }
                 val detector = pageRegionDetector ?: PageRegionDetector(
                     applicationContext,
                     settingsStore = settingsStore
                 ).also { pageRegionDetector = it }
-                val pageRegions = detector.detect(bitmap, logTag = "FloatingOCR")
+                val pageRegions = detector.detect(capturedBitmap, logTag = "FloatingOCR")
+                if (!isDetectionGenerationCurrent(generation)) return@launch
                 if (pageRegions == null) {
                     AppLogger.log("FloatingOCR", "Page region detection returned null")
-                    withContext(Dispatchers.Main) {
+                    runOnMainForDetectionGeneration(generation) {
                         showProgressStatus(R.string.floating_detect_failed, autoHide = true)
                         Toast.makeText(
                             this@FloatingBallOverlayService,
@@ -1102,13 +1145,13 @@ class FloatingBallOverlayService : Service() {
                     )
                 }
                 val vlOutcome = if (useVlDirectTranslate) {
-                    withContext(Dispatchers.Main) {
+                    runOnMainForDetectionGeneration(generation) {
                         showProgressStatus(
                             getString(R.string.floating_progress_vl_translating, regionBubbles.size)
                         )
                     }
                     floatingBubbleTranslationCoordinator.translateImageBubbles(
-                        bitmap = bitmap,
+                        bitmap = capturedBitmap,
                         bubbles = regionBubbles,
                         timeoutMs = floatingTimeoutMs,
                         retryCount = FLOATING_TRANSLATE_RETRY_COUNT,
@@ -1121,8 +1164,9 @@ class FloatingBallOverlayService : Service() {
                 } else {
                     null
                 }
+                if (!isDetectionGenerationCurrent(generation)) return@launch
                 if (vlOutcome?.requiresVlModel == true) {
-                    withContext(Dispatchers.Main) {
+                    runOnMainForDetectionGeneration(generation) {
                         showProgressStatus(R.string.floating_vl_model_required, autoHide = true)
                         Toast.makeText(
                             this@FloatingBallOverlayService,
@@ -1140,49 +1184,23 @@ class FloatingBallOverlayService : Service() {
                         vlOutcome?.bubbles ?: emptyList()
                     }
                 } else {
-                    withContext(Dispatchers.Main) {
+                    runOnMainForDetectionGeneration(generation) {
                         showProgressStatus(
                             getString(R.string.floating_progress_recognizing, regionBubbles.size)
                         )
                     }
                     val bubbles = recognizeFloatingTextBubbles(
-                        bitmap = bitmap,
-                        regions = regionBubbles,
+                        bitmap = capturedBitmap,
+                        regions = regions,
                         language = floatingLanguage,
                         concurrency = floatingSettings.ocrConcurrencyLimit
                     )
-                    val mergedBubbles = RectGeometryDeduplicator.mergeShortTextDetectorOcrBubbles(
-                        bubbles = bubbles.map { bubble ->
-                            OcrBubble(
-                                id = bubble.id,
-                                rect = bubble.rect,
-                                text = bubble.originalText,
-                                source = bubble.source,
-                                maskContour = bubble.maskContour
-                            )
-                        },
-                        imageWidth = bitmap.width,
-                        imageHeight = bitmap.height
-                    ).map { bubble ->
-                        BubbleTranslation.pending(
-                            id = bubble.id,
-                            rect = bubble.rect,
-                            originalText = bubble.text,
-                            source = bubble.source,
-                            maskContour = bubble.maskContour
-                        )
-                    }
-                    if (mergedBubbles.size < bubbles.size) {
-                        AppLogger.log(
-                            "FloatingOCR",
-                            "Merged short text detector OCR bubbles: ${bubbles.size} -> ${mergedBubbles.size}"
-                        )
-                    }
-                    withContext(Dispatchers.Main) {
+                    if (!isDetectionGenerationCurrent(generation)) return@launch
+                    runOnMainForDetectionGeneration(generation) {
                         showProgressStatus(R.string.floating_progress_translating)
                     }
                     floatingBubbleTranslationCoordinator.translateTextBubbles(
-                        bubbles = mergedBubbles,
+                        bubbles = bubbles,
                         timeoutMs = floatingTimeoutMs,
                         retryCount = FLOATING_TRANSLATE_RETRY_COUNT,
                         promptAsset = FLOAT_PROMPT_ASSET,
@@ -1190,9 +1208,10 @@ class FloatingBallOverlayService : Service() {
                         language = floatingLanguage
                     )
                 }
+                if (!isDetectionGenerationCurrent(generation)) return@launch
                 if (translatedBubbles == null) {
                     AppLogger.log("FloatingOCR", "Translate timeout")
-                    withContext(Dispatchers.Main) {
+                    runOnMainForDetectionGeneration(generation) {
                         showProgressStatus(R.string.floating_translate_timeout, autoHide = true)
                         Toast.makeText(
                             this@FloatingBallOverlayService,
@@ -1202,7 +1221,7 @@ class FloatingBallOverlayService : Service() {
                     }
                     return@launch
                 }
-                val capturedBitmap = bitmap
+                if (!isDetectionGenerationCurrent(generation)) return@launch
                 val resolvedTranslation = executeWithModelResponseRetries("FloatingOCR") {
                     val firstPass = TranslationResult(
                         imageName = "",
@@ -1230,7 +1249,7 @@ class FloatingBallOverlayService : Service() {
                         firstPass
                     }
                 }
-                withContext(Dispatchers.Main) {
+                runOnMainForDetectionGeneration(generation) {
                     val proofreadingModeEnabled = settingsStore
                         .loadFloatingTranslateApiSettings()
                         .proofreadingModeEnabled
@@ -1243,7 +1262,7 @@ class FloatingBallOverlayService : Service() {
                     editSessionSnapshot = null
                     createBubbleModeEnabled = false
                     syncOverlaySession()
-                    replaceCurrentSessionBitmap(bitmap)
+                    replaceCurrentSessionBitmap(capturedBitmap)
                     rebuildAutoCloseReferenceFromCurrentSession()
                     bitmap = null
                     if (proofreadingModeEnabled) {
@@ -1272,7 +1291,7 @@ class FloatingBallOverlayService : Service() {
                 )
             } catch (e: LlmResponseException) {
                 AppLogger.log("FloatingOCR", "Floating detection model response invalid", e)
-                withContext(Dispatchers.Main) {
+                runOnMainForDetectionGeneration(generation) {
                     showModelErrorDialog(
                         responseContent = e.responseContent,
                         onContinue = { runTextDetection() }
@@ -1280,12 +1299,15 @@ class FloatingBallOverlayService : Service() {
                 }
             } catch (e: LlmRequestException) {
                 AppLogger.log("FloatingOCR", "Floating detection request failed", e)
-                withContext(Dispatchers.Main) {
+                runOnMainForDetectionGeneration(generation) {
                     showApiErrorDialog(e.errorCode, e.responseBody)
                 }
+            } catch (e: CancellationException) {
+                AppLogger.log("FloatingOCR", "Floating detection cancelled")
+                throw e
             } catch (e: Exception) {
                 AppLogger.log("FloatingOCR", "Floating detection failed", e)
-                withContext(Dispatchers.Main) {
+                runOnMainForDetectionGeneration(generation) {
                     showProgressStatus(R.string.floating_detect_failed, autoHide = true)
                     Toast.makeText(
                         this@FloatingBallOverlayService,
@@ -1296,11 +1318,13 @@ class FloatingBallOverlayService : Service() {
             } finally {
                 localModelLease.close()
                 bitmap?.recycle()
-                withContext(Dispatchers.Main) {
+                withContext(Dispatchers.Main + NonCancellable) {
                     if (detectJob === runningJob) {
                         detectJob = null
                     }
-                    updateAutoCloseDetectionState()
+                    if (isDetectionGenerationCurrent(generation)) {
+                        updateAutoCloseDetectionState()
+                    }
                 }
             }
         }
@@ -1308,7 +1332,7 @@ class FloatingBallOverlayService : Service() {
 
     private suspend fun recognizeFloatingTextBubbles(
         bitmap: Bitmap,
-        regions: List<BubbleTranslation>,
+        regions: List<PageRegion>,
         language: TranslationLanguage,
         concurrency: Int
     ): List<BubbleTranslation> = coroutineScope {
@@ -1316,12 +1340,31 @@ class FloatingBallOverlayService : Service() {
         regions.map { region ->
             async(Dispatchers.Default) {
                 semaphore.withPermit {
+                    val bubble = BubbleTranslation.pending(
+                        id = region.id,
+                        rect = region.rect,
+                        originalText = "",
+                        source = region.source,
+                        maskContour = region.maskContour
+                    )
                     val crop = cropBitmap(bitmap, region.rect)
                     if (crop == null) {
-                        return@withPermit region
+                        return@withPermit bubble
                     }
                     val text = try {
-                        recognizeFloatingBubbleText(crop, language, region.source)
+                        recognizeFloatingBubbleText(
+                            crop = crop,
+                            language = language,
+                            bubbleSource = region.source,
+                            detectedLineRects = mapPageLineRectsToCrop(
+                                region.textLineRects,
+                                region.rect,
+                                crop.width,
+                                crop.height
+                            )
+                        )
+                    } catch (e: CancellationException) {
+                        throw e
                     } catch (e: Exception) {
                         AppLogger.log(
                             "FloatingOCR",
@@ -1335,7 +1378,7 @@ class FloatingBallOverlayService : Service() {
                     if (text.isBlank() && region.source == BubbleSource.TEXT_DETECTOR) {
                         null
                     } else {
-                        region.withRecognizedOriginalText(text)
+                        bubble.withRecognizedOriginalText(text)
                     }
                 }
             }
@@ -1424,6 +1467,7 @@ class FloatingBallOverlayService : Service() {
     }
 
 
+    @SuppressLint("ClickableViewAccessibility")
     private fun attachBallGesture(
         target: FloatingBallView,
         menuPanel: View,
@@ -1582,6 +1626,7 @@ class FloatingBallOverlayService : Service() {
     }
 
     private fun releaseProjection() {
+        advanceDetectionGeneration()
         screenCaptureSession.release()
     }
 
@@ -1657,7 +1702,7 @@ class FloatingBallOverlayService : Service() {
         if (source.width <= 0 || source.height <= 0) return null
         val targetWidth = AUTO_CLOSE_REFERENCE_WIDTH
         val targetHeight = max(1, (targetWidth * source.height.toFloat() / source.width.toFloat()).toInt())
-        val scaled = Bitmap.createScaledBitmap(source, targetWidth, targetHeight, true)
+        val scaled = source.scale(targetWidth, targetHeight)
         val ignoreTop = (targetHeight * AUTO_CLOSE_IGNORE_TOP_RATIO).toInt()
         val ignoreBottom = (targetHeight * AUTO_CLOSE_IGNORE_BOTTOM_RATIO).toInt()
         val sideInset = (targetWidth * AUTO_CLOSE_IGNORE_SIDE_RATIO).toInt()
@@ -1689,7 +1734,7 @@ class FloatingBallOverlayService : Service() {
         for (y in top until bottom step AUTO_CLOSE_SAMPLE_STEP) {
             var rowChangedPixels = 0
             for (x in left until right step AUTO_CLOSE_SAMPLE_STEP) {
-                val delta = pixelDelta(reference.bitmap.getPixel(x, y), current.bitmap.getPixel(x, y))
+                val delta = pixelDelta(reference.bitmap[x, y], current.bitmap[x, y])
                 sampled++
                 totalDelta += delta
                 if (delta >= AUTO_CLOSE_SIGNIFICANT_PIXEL_DELTA) {

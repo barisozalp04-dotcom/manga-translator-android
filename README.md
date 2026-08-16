@@ -15,7 +15,7 @@
 - 支持日、英、韩、法、西、葡、德、意、俄等多种源语言翻译为中文，以及中文翻译为英文或俄文
 - 屏幕翻译：支持悬浮窗翻译，在任意界面识别并翻译当前屏幕内容
 - 漫画库管理：新建文件夹、批量导入图片、漫画文件夹导入，支持CBZ、ZIP、PDF导入导出
-- 翻译流程：气泡检测 + OCR（支持 OpenAI 兼容 / 百度 AI）+ LLM 翻译，支持标准模式与全文速译
+- 翻译流程：气泡检测 + 本地或 OpenAI 兼容 API OCR + LLM 翻译，支持标准模式与全文速译
 - 阅读体验：翻译覆盖层、翻译气泡位置可拖动、阅读进度自动保存；新增取消键与加减号微调，条漫与普通阅读缩放同步
 - 字体设置：支持自定义气泡字体、字体加粗，普通气泡框与悬浮窗气泡框共用一套字体配置
 - 译名表与缓存：按文件夹维护 glossary.json，自动累积固定译名
@@ -36,14 +36,14 @@
 ## 快速使用 🚀
 1. 在漫画库中新建文件夹并导入图片
 2. 确保图片文件名顺序与阅读顺序一致（例如 1.jpg, 2.jpg）
-3. 在设置页 OCR 设置中选择 API 格式（OpenAI 兼容 / 百度 AI），并按提示填写对应参数
+3. 在设置页 OCR 设置中选择本地 OCR，或填写 OpenAI 兼容 OCR API 的地址、Key 和模型
 4. 回到漫画库，选择文件夹并点击“翻译文件夹”
 5. 翻译完成后点击“开始阅读”，在阅读页可拖动气泡位置
 
 *全文速译建议：页数较多时分批上传翻译，或在设置中提高 API 超时。*
 
 ## 常见问题 ❓
-- 翻译失败或结果为空：确认 API 地址填写的是服务商给出的 OpenAI 兼容上级地址（例如 `https://api.deepseek.com/v1`、`https://open.bigmodel.cn/api/paas/v4`），软件会自动补全 `/chat/completions`；模型名须与供应商一致且网络可达；若使用百度 AI OCR，请确认 API Key 与 Secret Key 填写正确
+- 翻译失败或结果为空：确认 API 地址填写的是服务商给出的 OpenAI 兼容上级地址（例如 `https://api.deepseek.com/v1`、`https://open.bigmodel.cn/api/paas/v4`），软件会自动补全 `/chat/completions`；模型名须与供应商一致且网络可达
 - 翻译顺序错乱：请先对图片按阅读顺序重命名
 - 怎么获取AI：具体获取方法可以去搜索一下
 
@@ -52,7 +52,7 @@
 
 ## Star History
 ** 喜欢的话可以点个Star哦 **
-[![Star History Chart](https://api.star-history.com/svg?repos=jedzqer/manga-translator&type=date&legend=top-left)](https://www.star-history.com/#jedzqer/manga-translator&type=date&legend=top-left)
+[![Star History Chart](https://api.star-history.com/svg?repos=jedzqer/manga-translator-android&type=date&legend=top-left)](https://www.star-history.com/#jedzqer/manga-translator-android&type=date&legend=top-left)
 
 
 ## 数据与文件说明 🗂️
@@ -76,24 +76,39 @@
 ```
 
 ### 模型与资源
-将以下模型文件放入 `assets/` 对应子目录：
-- `models/detection/manga109-segmentation-bubble.onnx`（普通气泡检测，YOLO11n-seg，1600×1600 ONNX，输出气泡轮廓）
-- `models/detection/yolo11n-text.onnx`（游离文字补检；普通气泡区域会先被屏蔽）
-- `models/ocr/manga_ocr/encoder_model.onnx`、`models/ocr/manga_ocr/decoder_model.onnx`（日文 OCR：MangaOcr，可在设置中切换）
-- `models/ocr/manga_ocr/generation_config.json`、`models/ocr/manga_ocr/preprocessor_config.json`、`models/ocr/manga_ocr/tokenizer.json`、`models/ocr/manga_ocr/special_tokens_map.json`
-- `models/ocr/manga_ocr_mobile/encoder.tflite`、`models/ocr/manga_ocr_mobile/decoder.tflite` 及 tokenizer/config（当前默认日文 OCR：MangaOcr Mobile）
-- `models/ocr/PP-OCRv6_small_rec.onnx`（英文/中文/中英混合 OCR）
-- `models/ocr/korean_PP-OCRv3_rec_infer.onnx`（韩文 OCR）
-- `models/detection/PP-OCRv6_det_mobile_infer.onnx`（英文行检测）
+为避免仓库体积过大，模型文件不随源码仓库提供。请下载后放入 `assets/` 的对应子目录：
 
-模型下载链接：
-- 普通气泡检测模型：Manga109 YOLO11n-seg 气泡分割模型（随应用 assets 提供）
-- 游离文字检测模型：https://huggingface.co/RoyRud1902/yolo11n-text
-- 英文识别模型：https://huggingface.co/PaddlePaddle/PP-OCRv6_small_rec_onnx
-- 英文检测模型：https://huggingface.co/PaddlePaddle/PP-OCRv6_small_det_onnx
-- 韩文 OCR 模型：https://huggingface.co/breezedeus/cnocr-ppocr-korean_PP-OCRv3
+- `models/detection/manga-bubble-seg-yolo26n-1472.onnx`：YOLO26n-seg 气泡分割模型，1472×1472 ONNX 输入，输出气泡轮廓。
+- `models/detection/PP-OCRv6_det_mobile_infer.onnx`：PaddleOCR PP-OCRv6 mobile 文字行检测模型。
+- `models/ocr/PP-OCRv6_small_rec.onnx` 与 `models/ocr/ppocr_keys_v6_small.txt`：日文、英文、中文及中英混合识别模型与字符表。
+- `models/ocr/korean_PP-OCRv5_mobile_rec.onnx` 与 `models/ocr/korean_PP-OCRv5_mobile_rec_dict.txt`：韩文识别模型与字符表。
 
-提示词、字体与 OCR 配置位于 `assets/` 子目录中，名称需与代码保持一致。
+模型来源：
+
+- 文字检测与通用识别模型：[PaddleOCR ONNX 模型](https://huggingface.co/PaddlePaddle/PP-OCRv6_small_rec_onnx)
+- 韩文识别模型：[PaddleOCR Korean PP-OCRv5 ONNX 模型](https://huggingface.co/PaddlePaddle/korean_PP-OCRv5_mobile_rec_onnx)
+- 气泡分割模型：请使用与当前版本 `manga-bubble-seg-yolo26n-1472.onnx` 文件名匹配的 YOLO26n-seg 气泡模型。
+
+提示词、字体与 OCR 配置同样位于 `assets/` 子目录，文件名必须与代码保持一致。
+
+### 本地签名配置
+
+仓库不包含签名密钥或密码。需要构建已签名 release 时，请在本机创建未提交的 `signing.properties`，再通过 Gradle 参数传入：
+
+```properties
+STORE_FILE=/absolute/path/to/your-release-key.jks
+STORE_PASSWORD=your-store-password
+KEY_ALIAS=your-key-alias
+KEY_PASSWORD=your-key-password
+```
+
+```bash
+./gradlew :app:assembleRelease \
+  -PSTORE_FILE="$(grep '^STORE_FILE=' signing.properties | cut -d= -f2-)" \
+  -PSTORE_PASSWORD="$(grep '^STORE_PASSWORD=' signing.properties | cut -d= -f2-)" \
+  -PKEY_ALIAS="$(grep '^KEY_ALIAS=' signing.properties | cut -d= -f2-)" \
+  -PKEY_PASSWORD="$(grep '^KEY_PASSWORD=' signing.properties | cut -d= -f2-)"
+```
 
 ### 发布版本号同步
 需同时修改：

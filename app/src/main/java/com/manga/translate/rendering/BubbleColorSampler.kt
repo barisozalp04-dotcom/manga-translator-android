@@ -7,6 +7,7 @@ import android.graphics.Color
 import android.graphics.Rect
 import android.graphics.RectF
 import android.os.Build
+import androidx.core.graphics.get
 import com.manga.translate.platform.ImageFileSupport
 import java.io.File
 import kotlin.math.max
@@ -16,6 +17,9 @@ internal object BubbleColorSampler {
 
     private const val SAMPLE_STEP = 4
     private const val FILE_SAMPLE_MAX_EDGE = 96
+    private const val DARK_BACKGROUND_MAX_CHANNEL = 72
+    private const val INK_VALUE_GAP = 32
+    private const val MAX_INK_VALUE = 160
 
     fun sampleBackgroundColor(
         bitmap: Bitmap?,
@@ -172,10 +176,12 @@ internal object BubbleColorSampler {
         stepX: Int,
         stepY: Int
     ): Int? {
-        var r = 0L
-        var g = 0L
-        var b = 0L
-        var count = 0
+        val valueHistogram = IntArray(256)
+        val redSums = LongArray(256)
+        val greenSums = LongArray(256)
+        val blueSums = LongArray(256)
+        var sampleCount = 0
+        var darkSampleCount = 0
 
         val yEnd = bottomPx - 1
         val xEnd = rightPx - 1
@@ -183,18 +189,65 @@ internal object BubbleColorSampler {
         while (y <= yEnd) {
             var x = leftPx
             while (x <= xEnd) {
-                val pixel = samplingBitmap.getPixel(x, y)
-                r += Color.red(pixel)
-                g += Color.green(pixel)
-                b += Color.blue(pixel)
-                count++
+                val pixel = samplingBitmap[x, y]
+                val red = Color.red(pixel)
+                val green = Color.green(pixel)
+                val blue = Color.blue(pixel)
+                val value = maxOf(red, green, blue)
+                valueHistogram[value]++
+                redSums[value] += red.toLong()
+                greenSums[value] += green.toLong()
+                blueSums[value] += blue.toLong()
+                sampleCount++
+                if (value <= DARK_BACKGROUND_MAX_CHANNEL) darkSampleCount++
                 x += stepX
             }
             y += stepY
         }
 
+        if (sampleCount == 0) return null
+
+        // A genuinely dark background must win over light lettering or highlights. Otherwise,
+        // remove dark pixels that sit well below the region's median value; these are usually
+        // the original text and should not turn a white or colored background gray.
+        val darkBackground = darkSampleCount * 2 >= sampleCount
+        val inkCutoff = if (darkBackground) {
+            DARK_BACKGROUND_MAX_CHANNEL
+        } else {
+            (medianValue(valueHistogram, sampleCount) - INK_VALUE_GAP)
+                .coerceIn(0, MAX_INK_VALUE)
+        }
+
+        var r = 0L
+        var g = 0L
+        var b = 0L
+        var count = 0
+        for (value in valueHistogram.indices) {
+            val include = if (darkBackground) {
+                value <= inkCutoff
+            } else {
+                value > inkCutoff
+            }
+            if (include) {
+                r += redSums[value]
+                g += greenSums[value]
+                b += blueSums[value]
+                count += valueHistogram[value]
+            }
+        }
+
         if (count == 0) return null
         return Color.rgb((r / count).toInt(), (g / count).toInt(), (b / count).toInt())
+    }
+
+    private fun medianValue(histogram: IntArray, sampleCount: Int): Int {
+        val middle = (sampleCount - 1) / 2
+        var seen = 0
+        for (value in histogram.indices) {
+            seen += histogram[value]
+            if (seen > middle) return value
+        }
+        return 0
     }
 
     private fun createBitmapRegionDecoder(imageFile: File): BitmapRegionDecoder {

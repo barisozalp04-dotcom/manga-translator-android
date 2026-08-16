@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import android.util.Size
 import com.radzivon.bartoshyk.avif.coder.HeifCoder
 import java.io.File
+import java.io.FileOutputStream
 
 object AvifBitmapDecoder {
     private val coder = HeifCoder()
@@ -47,5 +48,53 @@ object AvifBitmapDecoder {
             }.getOrNull()
         }
         return bitmap to size
+    }
+
+    suspend fun convertToPng(
+        source: File,
+        destination: File,
+        propagateOutOfMemory: Boolean = false,
+        beforeDecode: suspend (Size) -> Unit = {}
+    ): Boolean {
+        val bytes = try {
+            source.readBytes()
+        } catch (error: OutOfMemoryError) {
+            if (propagateOutOfMemory) throw error
+            return false
+        } catch (_: Exception) {
+            return false
+        }
+        val size = try {
+            coder.getSize(bytes)
+        } catch (error: OutOfMemoryError) {
+            if (propagateOutOfMemory) throw error
+            return false
+        } catch (_: Exception) {
+            return false
+        } ?: return false
+        beforeDecode(size)
+        val bitmap = ImageProcessingGuards.withDecodePermit(
+            width = size.width,
+            height = size.height,
+            tag = "AvifDecoder"
+        ) {
+            try {
+                coder.decode(bytes)
+            } catch (error: OutOfMemoryError) {
+                if (propagateOutOfMemory) throw error
+                null
+            } catch (_: Exception) {
+                null
+            }
+        } ?: return false
+        return try {
+            FileOutputStream(destination).use { output ->
+                bitmap.compress(Bitmap.CompressFormat.PNG, 100, output)
+            }
+        } catch (_: Exception) {
+            false
+        } finally {
+            bitmap.recycle()
+        }
     }
 }

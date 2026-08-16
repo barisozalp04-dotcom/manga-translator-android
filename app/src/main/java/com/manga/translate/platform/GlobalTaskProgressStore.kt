@@ -4,12 +4,22 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
+internal enum class GlobalTaskProgressStage {
+    PREPARING_TRANSLATION,
+    DETECTING_REGIONS,
+    OCR,
+    GLOSSARY,
+    TRANSLATING
+}
+
 internal data class GlobalTaskProgressState(
     val visible: Boolean = false,
     val title: String = "",
     val detail: String = "",
     val progress: Int? = null,
     val total: Int? = null,
+    val failedCount: Int? = null,
+    val stage: GlobalTaskProgressStage? = null,
     val terminal: Boolean = false,
     val error: Boolean = false
 )
@@ -22,14 +32,18 @@ internal object GlobalTaskProgressStore {
         title: String,
         detail: String,
         progress: Int? = null,
-        total: Int? = null
+        total: Int? = null,
+        failedCount: Int? = null,
+        stage: GlobalTaskProgressStage? = null
     ) {
         _state.value = GlobalTaskProgressState(
             visible = true,
             title = title,
             detail = detail,
             progress = progress,
-            total = total
+            total = total,
+            failedCount = failedCount,
+            stage = stage
         )
     }
 

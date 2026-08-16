@@ -6,46 +6,13 @@ internal class RenderSettingsStore(
     private val storage: SettingsStoreStorage
 ) {
     fun loadBubbleFontSettings(): BubbleFontSettings {
-        if (
-            storage.prefs.contains(SettingsStore.KEY_BUBBLE_FONT) ||
-            storage.prefs.contains(SettingsStore.KEY_BUBBLE_CUSTOM_FONT_FILE) ||
-            storage.prefs.contains(SettingsStore.KEY_BUBBLE_FONT_BOLD)
-        ) {
-            return BubbleFontSettings(
-                font = BubbleFont.fromPref(
-                    storage.prefs.getString(SettingsStore.KEY_BUBBLE_FONT, null)
-                ),
-                customFontFileName = storage.prefs.getString(
-                    SettingsStore.KEY_BUBBLE_CUSTOM_FONT_FILE,
-                    ""
-                ) ?: "",
-                isBold = storage.prefs.getBoolean(SettingsStore.KEY_BUBBLE_FONT_BOLD, false)
-            )
-        }
-
-        val normalFont = BubbleFont.fromPref(
-            storage.prefs.getString(SettingsStore.KEY_NORMAL_BUBBLE_FONT, null)
-        )
-        val floatingFont = BubbleFont.fromPref(
-            storage.prefs.getString(SettingsStore.KEY_FLOATING_BUBBLE_FONT, null)
-        )
-        val customFileName = storage.prefs.getString(
-            SettingsStore.KEY_NORMAL_BUBBLE_CUSTOM_FONT_FILE,
-            ""
-        )?.takeIf { it.isNotBlank() }
-            ?: storage.prefs.getString(SettingsStore.KEY_FLOATING_BUBBLE_CUSTOM_FONT_FILE, "")
-            ?: ""
-        val isBold = storage.prefs.getBoolean(SettingsStore.KEY_NORMAL_BUBBLE_FONT_BOLD, false) ||
-            storage.prefs.getBoolean(SettingsStore.KEY_FLOATING_BUBBLE_FONT_BOLD, false)
-        val selectedFont = when {
-            normalFont == BubbleFont.CUSTOM_FILE || floatingFont == BubbleFont.CUSTOM_FILE ->
-                BubbleFont.CUSTOM_FILE
-            else -> BubbleFont.SYSTEM_DEFAULT
-        }
         return BubbleFontSettings(
-            font = selectedFont,
-            customFontFileName = customFileName,
-            isBold = isBold
+            font = BubbleFont.fromPref(storage.prefs.getString(SettingsStore.KEY_BUBBLE_FONT, null)),
+            customFontFileName = storage.prefs.getString(
+                SettingsStore.KEY_BUBBLE_CUSTOM_FONT_FILE,
+                ""
+            ) ?: "",
+            isBold = storage.prefs.getBoolean(SettingsStore.KEY_BUBBLE_FONT_BOLD, false)
         )
     }
 
@@ -185,13 +152,7 @@ internal class RenderSettingsStore(
                 SettingsStore.MIN_FLOATING_BUBBLE_SIZE_ADJUST_PERCENT,
                 SettingsStore.MAX_FLOATING_BUBBLE_SIZE_ADJUST_PERCENT
             ),
-            opacityPercent = storage.prefs.getInt(
-                SettingsStore.KEY_FLOATING_BUBBLE_OPACITY_PERCENT,
-                loadTranslationBubbleOpacityPercent()
-            ).coerceIn(
-                SettingsStore.MIN_TRANSLATION_BUBBLE_OPACITY_PERCENT,
-                SettingsStore.MAX_TRANSLATION_BUBBLE_OPACITY_PERCENT
-            ),
+            opacityPercent = loadFloatingBubbleOpacityPercent(),
             shape = FloatingBubbleShape.fromPref(
                 storage.prefs.getString(
                     SettingsStore.KEY_FLOATING_BUBBLE_SHAPE,
@@ -291,6 +252,29 @@ internal class RenderSettingsStore(
             SettingsStore.DEFAULT_TRANSLATION_BUBBLE_OPACITY_PERCENT
         )
         return saved.coerceIn(
+            SettingsStore.MIN_TRANSLATION_BUBBLE_OPACITY_PERCENT,
+            SettingsStore.MAX_TRANSLATION_BUBBLE_OPACITY_PERCENT
+        )
+    }
+
+    private fun loadFloatingBubbleOpacityPercent(): Int {
+        val opacity = when {
+            storage.prefs.contains(SettingsStore.KEY_FLOATING_BUBBLE_OPACITY_PERCENT) -> {
+                storage.prefs.getInt(
+                    SettingsStore.KEY_FLOATING_BUBBLE_OPACITY_PERCENT,
+                    SettingsStore.DEFAULT_FLOATING_BUBBLE_OPACITY_PERCENT
+                )
+            }
+            storage.prefs.contains(SettingsStore.KEY_TRANSLATION_BUBBLE_OPACITY_PERCENT) -> {
+                val legacyOpacity = loadTranslationBubbleOpacityPercent()
+                storage.editSettings(setOf(SettingsStore.KEY_FLOATING_BUBBLE_OPACITY_PERCENT)) {
+                    putInt(SettingsStore.KEY_FLOATING_BUBBLE_OPACITY_PERCENT, legacyOpacity)
+                }
+                legacyOpacity
+            }
+            else -> SettingsStore.DEFAULT_FLOATING_BUBBLE_OPACITY_PERCENT
+        }
+        return opacity.coerceIn(
             SettingsStore.MIN_TRANSLATION_BUBBLE_OPACITY_PERCENT,
             SettingsStore.MAX_TRANSLATION_BUBBLE_OPACITY_PERCENT
         )

@@ -19,8 +19,11 @@ import com.manga.translate.R
 import com.manga.translate.background.TranslationKeepAliveService
 import com.manga.translate.model.TranslationResult
 import com.manga.translate.platform.AppLogger
+import com.manga.translate.platform.DeviceResourcePolicy
 import com.manga.translate.platform.ImageFileSupport
 import com.manga.translate.platform.PdfImageCodec
+import com.manga.translate.platform.PipelineBitmapDecoder
+import com.manga.translate.platform.ResourceAssessment
 import com.manga.translate.rendering.BubbleRenderer
 import com.manga.translate.settings.SettingsStore
 import com.manga.translate.storage.TranslationStore
@@ -28,18 +31,17 @@ import java.io.BufferedOutputStream
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
+import java.io.OutputStream
+import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
@@ -53,8 +55,8 @@ internal class LibraryExporter(
     private val settingsStore: SettingsStore,
     prefs: SharedPreferences,
     private val preferencesGateway: LibraryPreferencesGateway,
-    private val dialogs: LibraryDialogs,
-    private val ui: LibraryUiCallbacks
+    private val ui: LibraryUiCallbacks,
+    private val exportTaskHost: ExportTaskHost
 ) {
     private val appContext = context.applicationContext
     private val prefsRef = prefs
@@ -65,8 +67,8 @@ internal class LibraryExporter(
     private var pendingExportThreads = loadExportThreads()
     private var pendingExportFormat: ExportFormat = loadExportFormatDefault()
 
-    fun getExportThreads(): Int = loadExportThreads()
     fun getExportFormat(): ExportFormat = loadExportFormatDefault()
+    fun isExportActiveFor(folder: File): Boolean = exportTaskHost.isExportActiveFor(folder)
     fun buildExportRootPreview(): String {
         val treeUri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             preferencesGateway.getExportTreeUri()?.takeIf { preferencesGateway.hasExportPermission(it) }
@@ -74,6 +76,26 @@ internal class LibraryExporter(
             null
         }
         return treeUri?.let(::buildExportRootPathHint) ?: "/Documents/manga-translate"
+    }
+
+    fun assessExportResources(images: List<File>, requestedThreads: Int): ResourceAssessment {
+        val perWorkerBytes = images.asSequence()
+            .mapNotNull(PipelineBitmapDecoder::readImageSize)
+            .map { size -> DeviceResourcePolicy.estimateExportWorkerBytes(size.width, size.height) }
+            .maxOrNull()
+            ?: DEFAULT_EXPORT_WORKER_BYTES
+        return DeviceResourcePolicy.assessConcurrency(
+            snapshot = DeviceResourcePolicy.readSnapshot(appContext),
+            perWorkerBytes = perWorkerBytes,
+            requestedConcurrency = normalizeExportThreads(requestedThreads),
+            hardCap = MAX_EXPORT_THREADS
+        )
+    }
+
+    fun suggestExportThreads(images: List<File>): Int {
+        val saved = loadExportThreads()
+        val recommended = assessExportResources(images, saved).recommendedConcurrency ?: saved
+        return minOf(saved, recommended).coerceIn(MIN_EXPORT_THREADS, MAX_EXPORT_THREADS)
     }
 
     fun handleStoragePermissionResult(
@@ -152,7 +174,6 @@ internal class LibraryExporter(
             }
         }
         exportFolderInternal(
-            uiContext = uiContext,
             folder = folder,
             images = images,
             exportThreads = pendingExportThreads,
@@ -171,7 +192,6 @@ internal class LibraryExporter(
     ) {
         if (folder == null) return
         exportFolderInternal(
-            uiContext = uiContext,
             folder = folder,
             images = images,
             exportThreads = pendingExportThreads,
@@ -220,7 +240,6 @@ internal class LibraryExporter(
             }
         }
         exportCollectionInternal(
-            uiContext = uiContext,
             collectionFolder = collectionFolder,
             chapterImages = chapterImages,
             exportThreads = pendingExportThreads,
@@ -238,7 +257,6 @@ internal class LibraryExporter(
         onSetExportEnabled: (Boolean) -> Unit
     ) {
         exportCollectionInternal(
-            uiContext = uiContext,
             collectionFolder = collectionFolder,
             chapterImages = chapterImages,
             exportThreads = pendingExportThreads,
@@ -249,7 +267,6 @@ internal class LibraryExporter(
     }
 
     private fun exportFolderInternal(
-        uiContext: Context,
         folder: File,
         images: List<File>,
         exportThreads: Int,
@@ -257,10 +274,9 @@ internal class LibraryExporter(
         onExitSelectionMode: () -> Unit,
         onSetExportEnabled: (Boolean) -> Unit
     ) {
-        onExitSelectionMode()
         val exportImages = images
         if (exportImages.isEmpty()) {
-            ui.setFolderStatus(appContext.getString(R.string.folder_images_empty))
+            LibraryUiBridge.setFolderStatus(appContext.getString(R.string.folder_images_empty))
             return
         }
         val exportTreeUri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -270,15 +286,14 @@ internal class LibraryExporter(
         }
         val verticalLayoutEnabled = !settingsStore.loadNormalBubbleRenderSettings().useHorizontalText
 
-        onSetExportEnabled(false)
-        val exportTaskId = TranslationKeepAliveService.startExportTask(
-            appContext,
-            appContext.getString(R.string.export_keepalive_title),
-            appContext.getString(R.string.translation_keepalive_message),
-            appContext.getString(R.string.exporting_progress, 0, exportImages.size)
-        )
-
-        launchExportTask exportTask@{
+        val target = exportTarget(folder, exportFormat, exportTreeUri)
+        if (!launchExportTask(target) exportTask@{
+            val exportTaskId = TranslationKeepAliveService.startExportTask(
+                appContext,
+                appContext.getString(R.string.export_keepalive_title),
+                appContext.getString(R.string.translation_keepalive_message),
+                appContext.getString(R.string.exporting_progress, 0, exportImages.size)
+            )
             var failed = false
             var exportDir: DocumentFile? = null
             var exportDirReady = true
@@ -297,10 +312,10 @@ internal class LibraryExporter(
                 }
                 if (!exportDirReady) {
                     failed = true
-                    ui.setFolderStatus(appContext.getString(R.string.export_failed))
+                    LibraryUiBridge.setFolderStatus(appContext.getString(R.string.export_failed))
                     return@exportTask
                 }
-                ui.setFolderStatus(appContext.getString(R.string.exporting_progress, 0, exportImages.size))
+                LibraryUiBridge.setFolderStatus(appContext.getString(R.string.exporting_progress, 0, exportImages.size))
                 var successPathHint: String? = null
 
                 when (exportFormat) {
@@ -314,7 +329,7 @@ internal class LibraryExporter(
                             exportTreeUri = exportTreeUri
                         ) { count ->
                             withContext(Dispatchers.Main) {
-                                ui.setFolderStatus(
+                                LibraryUiBridge.setFolderStatus(
                                     appContext.getString(R.string.exporting_progress, count, exportImages.size)
                                 )
                                 TranslationKeepAliveService.updateExportProgress(
@@ -339,7 +354,7 @@ internal class LibraryExporter(
                             exportTreeUri = exportTreeUri
                         ) { count ->
                             withContext(Dispatchers.Main) {
-                                ui.setFolderStatus(
+                                LibraryUiBridge.setFolderStatus(
                                     appContext.getString(R.string.exporting_progress, count, exportImages.size)
                                 )
                                 TranslationKeepAliveService.updateExportProgress(
@@ -377,7 +392,7 @@ internal class LibraryExporter(
                                         }
                                         val count = exportedCount.incrementAndGet()
                                         withContext(Dispatchers.Main) {
-                                            ui.setFolderStatus(
+                                            LibraryUiBridge.setFolderStatus(
                                                 appContext.getString(R.string.exporting_progress, count, exportImages.size)
                                             )
                                             TranslationKeepAliveService.updateExportProgress(
@@ -397,16 +412,16 @@ internal class LibraryExporter(
                     }
                 }
 
-                ui.setFolderStatus(
+                LibraryUiBridge.setFolderStatus(
                     if (failed) appContext.getString(R.string.export_failed) else appContext.getString(R.string.export_done)
                 )
-                if (!failed && ui.isFragmentActive()) {
+                if (!failed) {
                     val path = successPathHint ?: if (exportTreeUri != null) {
                         buildExportPathHint(exportTreeUri, folder.name)
                     } else {
                         "/Documents/manga-translate/${folder.name}"
                     }
-                    dialogs.showExportSuccessDialog(uiContext, path)
+                    LibraryUiBridge.showExportSuccess(path)
                 }
                 AppLogger.log(
                     "Library",
@@ -418,9 +433,9 @@ internal class LibraryExporter(
             } catch (e: Exception) {
                 failed = true
                 AppLogger.log("Library", "Export failed: ${folder.name}", e)
-                ui.setFolderStatus(appContext.getString(R.string.export_failed))
+                LibraryUiBridge.setFolderStatus(appContext.getString(R.string.export_failed))
             } finally {
-                onSetExportEnabled(true)
+                LibraryUiBridge.setFolderExportEnabled(folder, true)
                 TranslationKeepAliveService.finishExportTask(
                     context = appContext,
                     taskId = exportTaskId,
@@ -430,11 +445,16 @@ internal class LibraryExporter(
                     )
                 )
             }
+        }) {
+            LibraryUiBridge.setFolderStatus(appContext.getString(R.string.exporting_progress, 0, exportImages.size))
+            return
         }
+        onExitSelectionMode()
+        onSetExportEnabled(false)
+        LibraryUiBridge.setFolderExportEnabled(folder, false)
     }
 
     private fun exportCollectionInternal(
-        uiContext: Context,
         collectionFolder: File,
         chapterImages: List<Pair<File, List<File>>>,
         exportThreads: Int,
@@ -442,10 +462,9 @@ internal class LibraryExporter(
         onExitSelectionMode: () -> Unit,
         onSetExportEnabled: (Boolean) -> Unit
     ) {
-        onExitSelectionMode()
         val allImages = chapterImages.flatMap { it.second }
         if (allImages.isEmpty()) {
-            ui.setFolderStatus(appContext.getString(R.string.folder_chapters_empty))
+            LibraryUiBridge.setFolderStatus(appContext.getString(R.string.folder_chapters_empty))
             return
         }
         val exportTreeUri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -455,15 +474,14 @@ internal class LibraryExporter(
         }
         val verticalLayoutEnabled = !settingsStore.loadNormalBubbleRenderSettings().useHorizontalText
 
-        onSetExportEnabled(false)
-        val exportTaskId = TranslationKeepAliveService.startExportTask(
-            appContext,
-            appContext.getString(R.string.export_keepalive_title),
-            appContext.getString(R.string.translation_keepalive_message),
-            appContext.getString(R.string.exporting_progress, 0, allImages.size)
-        )
-
-        launchExportTask {
+        val target = exportTarget(collectionFolder, exportFormat, exportTreeUri)
+        if (!launchExportTask(target) {
+            val exportTaskId = TranslationKeepAliveService.startExportTask(
+                appContext,
+                appContext.getString(R.string.export_keepalive_title),
+                appContext.getString(R.string.translation_keepalive_message),
+                appContext.getString(R.string.exporting_progress, 0, allImages.size)
+            )
             var failed = false
             try {
                 when (exportFormat) {
@@ -496,9 +514,7 @@ internal class LibraryExporter(
                             } else {
                                 "/Documents/manga-translate/${collectionFolder.name}.cbz"
                             }
-                            if (ui.isFragmentActive()) {
-                                dialogs.showExportSuccessDialog(uiContext, path)
-                            }
+                            LibraryUiBridge.showExportSuccess(path)
                         }
                     }
                     ExportFormat.PDF -> {
@@ -518,14 +534,12 @@ internal class LibraryExporter(
                             } else {
                                 "/Documents/manga-translate/${collectionFolder.name}.pdf"
                             }
-                            if (ui.isFragmentActive()) {
-                                dialogs.showExportSuccessDialog(uiContext, path)
-                            }
+                            LibraryUiBridge.showExportSuccess(path)
                         }
                     }
                 }
 
-                ui.setFolderStatus(
+                LibraryUiBridge.setFolderStatus(
                     if (failed) appContext.getString(R.string.export_failed) else appContext.getString(R.string.export_done)
                 )
                 AppLogger.log(
@@ -538,9 +552,9 @@ internal class LibraryExporter(
             } catch (e: Exception) {
                 failed = true
                 AppLogger.log("Library", "Collection export failed: ${collectionFolder.name}", e)
-                ui.setFolderStatus(appContext.getString(R.string.export_failed))
+                LibraryUiBridge.setFolderStatus(appContext.getString(R.string.export_failed))
             } finally {
-                onSetExportEnabled(true)
+                LibraryUiBridge.setFolderExportEnabled(collectionFolder, true)
                 TranslationKeepAliveService.finishExportTask(
                     context = appContext,
                     taskId = exportTaskId,
@@ -550,11 +564,29 @@ internal class LibraryExporter(
                     )
                 )
             }
+        }) {
+            LibraryUiBridge.setFolderStatus(appContext.getString(R.string.exporting_progress, 0, allImages.size))
+            return
         }
+        onExitSelectionMode()
+        onSetExportEnabled(false)
+        LibraryUiBridge.setFolderExportEnabled(collectionFolder, false)
     }
 
-    private fun launchExportTask(block: suspend CoroutineScope.() -> Unit) {
-        CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate).launch(block = block)
+    private fun launchExportTask(target: ExportTaskTarget, block: suspend () -> Unit): Boolean {
+        return exportTaskHost.launch(target, block)
+    }
+
+    private fun exportTarget(folder: File, format: ExportFormat, exportTreeUri: Uri?): ExportTaskTarget {
+        val extension = when (format) {
+            ExportFormat.IMAGE_DIR -> "directory"
+            ExportFormat.CBZ -> "cbz"
+            ExportFormat.PDF -> "pdf"
+        }
+        return ExportTaskTarget(
+            folderPath = folder.absolutePath,
+            destination = "${exportTreeUri ?: "legacy"}|${folder.name}|$extension"
+        )
     }
 
     private suspend fun exportCollectionAsImageDir(
@@ -618,7 +650,7 @@ internal class LibraryExporter(
                             }
                             val count = exportedCount.incrementAndGet()
                             withContext(Dispatchers.Main) {
-                                ui.setFolderStatus(
+                                LibraryUiBridge.setFolderStatus(
                                     appContext.getString(R.string.exporting_progress, count, totalImages)
                                 )
                                 TranslationKeepAliveService.updateExportProgress(
@@ -636,14 +668,14 @@ internal class LibraryExporter(
             tasks.awaitAll()
         }
 
-        if (!hasFailures.get() && ui.isFragmentActive()) {
+        if (!hasFailures.get()) {
             val path = if (exportTreeUri != null) {
                 buildExportPathHint(exportTreeUri, collectionName)
             } else {
                 "/Documents/manga-translate/$collectionName"
             }
             withContext(Dispatchers.Main) {
-                dialogs.showExportSuccessDialog(appContext, path)
+                LibraryUiBridge.showExportSuccess(path)
             }
         }
         return hasFailures.get()
@@ -741,25 +773,23 @@ internal class LibraryExporter(
             return CbzExportResult(success = false, pathHint = null)
         }
         val pdfName = resolveUniquePdfName(root, folder.name)
-        val target = root.createFile("application/pdf", pdfName)
-            ?: run {
-                cleanupPreparedCbzEntries(preparedEntries)
-                return CbzExportResult(success = false, pathHint = null)
-            }
         val pathHint = "${buildExportRootPathHint(exportTreeUri)}/$pdfName"
 
         return try {
-            withContext(Dispatchers.IO) {
-                context.contentResolver.openOutputStream(target.uri, "wt")?.use { stream ->
-                    if (!PdfImageCodec.writeImagesToPdfWithOutlines(chapterOutlines, orderedImages, stream)) {
-                        return@withContext CbzExportResult(false, null)
-                    }
-                } ?: return@withContext CbzExportResult(false, null)
-                CbzExportResult(success = true, pathHint = pathHint)
+            val success = writeDocumentFileTransaction(
+                context = context,
+                exportDir = root,
+                finalName = pdfName,
+                mimeType = "application/pdf",
+                replaceExisting = false
+            ) { stream ->
+                PdfImageCodec.writeImagesToPdfWithOutlines(chapterOutlines, orderedImages, stream)
             }
+            CbzExportResult(success = success, pathHint = pathHint.takeIf { success })
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             AppLogger.log("Library", "Export PDF failed: ${folder.name}", e)
-            runCatching { target.delete() }
             CbzExportResult(success = false, pathHint = null)
         } finally {
             cleanupPreparedCbzEntries(preparedEntries)
@@ -780,21 +810,19 @@ internal class LibraryExporter(
             cleanupPreparedCbzEntries(preparedEntries)
             return CbzExportResult(success = false, pathHint = null)
         }
-        val target = resolveUniqueFile(root, "${folder.name}.pdf")
-        val pathHint = "/Documents/manga-translate/${target.name}"
 
         return try {
-            withContext(Dispatchers.IO) {
-                FileOutputStream(target).use { stream ->
-                    if (!PdfImageCodec.writeImagesToPdfWithOutlines(chapterOutlines, orderedImages, stream)) {
-                        return@withContext CbzExportResult(false, null)
-                    }
-                }
-                CbzExportResult(success = true, pathHint = pathHint)
+            val target = writeLegacyExportTransaction(root, "${folder.name}.pdf") { stream ->
+                PdfImageCodec.writeImagesToPdfWithOutlines(chapterOutlines, orderedImages, stream)
             }
+            CbzExportResult(
+                success = target != null,
+                pathHint = target?.let { "/Documents/manga-translate/${it.name}" }
+            )
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             AppLogger.log("Library", "Export PDF failed: ${folder.name}", e)
-            runCatching { target.delete() }
             CbzExportResult(success = false, pathHint = null)
         } finally {
             cleanupPreparedCbzEntries(preparedEntries)
@@ -845,7 +873,7 @@ internal class LibraryExporter(
                             }
                             val count = renderedCount.incrementAndGet()
                             withContext(Dispatchers.Main) {
-                                ui.setFolderStatus(
+                                LibraryUiBridge.setFolderStatus(
                                     appContext.getString(R.string.exporting_progress, count, totalImages)
                                 )
                                 TranslationKeepAliveService.updateExportProgress(
@@ -1075,11 +1103,29 @@ internal class LibraryExporter(
     }
 
     @RequiresApi(Build.VERSION_CODES.Q)
-    private fun openOrCreateMediaStoreUri(
+    private fun createMediaStoreTempUri(
         context: Context,
         spec: ExportSpec,
         folderName: String
-    ): Pair<Uri, Boolean>? {
+    ): Uri? {
+        val resolver = context.contentResolver
+        val collection = MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL)
+        val relativePathWithSlash = "Documents/manga-translate/$folderName/"
+        val values = ContentValues().apply {
+            put(MediaStore.MediaColumns.DISPLAY_NAME, buildExportTempName(spec.displayName))
+            put(MediaStore.MediaColumns.MIME_TYPE, spec.mimeType)
+            put(MediaStore.MediaColumns.RELATIVE_PATH, relativePathWithSlash)
+            put(MediaStore.MediaColumns.IS_PENDING, 1)
+        }
+        return resolver.insert(collection, values)
+    }
+
+    @RequiresApi(Build.VERSION_CODES.Q)
+    private fun findMediaStoreFile(
+        context: Context,
+        spec: ExportSpec,
+        folderName: String
+    ): Uri? {
         val resolver = context.contentResolver
         val collection = MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL)
         val relativePathWithSlash = "Documents/manga-translate/$folderName/"
@@ -1087,7 +1133,7 @@ internal class LibraryExporter(
         val selection =
             "${MediaStore.MediaColumns.RELATIVE_PATH} IN (?, ?) AND ${MediaStore.MediaColumns.DISPLAY_NAME}=?"
         val selectionArgs = arrayOf(relativePathWithSlash, relativePathNoSlash, spec.displayName)
-        val existingUri = resolver.query(
+        return resolver.query(
             collection,
             arrayOf(MediaStore.MediaColumns._ID),
             selection,
@@ -1095,40 +1141,85 @@ internal class LibraryExporter(
             null
         )?.use { cursor ->
             if (cursor.moveToFirst()) {
-                val id = cursor.getLong(0)
-                ContentUris.withAppendedId(collection, id)
+                ContentUris.withAppendedId(collection, cursor.getLong(0))
             } else {
                 null
             }
         }
-        val values = ContentValues()
-        return if (existingUri != null) {
-            values.put(MediaStore.MediaColumns.IS_PENDING, 1)
-            resolver.update(existingUri, values, null, null)
-            existingUri to false
-        } else {
-            values.put(MediaStore.MediaColumns.DISPLAY_NAME, spec.displayName)
-            values.put(MediaStore.MediaColumns.MIME_TYPE, spec.mimeType)
-            values.put(MediaStore.MediaColumns.RELATIVE_PATH, relativePathWithSlash)
-            values.put(MediaStore.MediaColumns.IS_PENDING, 1)
-            val uri = resolver.insert(collection, values) ?: return null
-            uri to true
+    }
+
+    @RequiresApi(Build.VERSION_CODES.Q)
+    private fun writeMediaStoreImage(
+        context: Context,
+        spec: ExportSpec,
+        folderName: String,
+        writer: (OutputStream) -> Boolean
+    ): Boolean {
+        val resolver = context.contentResolver
+        val tempUri = createMediaStoreTempUri(context, spec, folderName) ?: return false
+        var published = false
+        var replacedUri: Uri? = null
+        val backupName = buildExportBackupName(spec.displayName)
+        try {
+            val success = resolver.openOutputStream(tempUri, "wt")?.use { output ->
+                writer(output)
+            } ?: false
+            if (!success) return false
+
+            val existingUri = findMediaStoreFile(context, spec, folderName)
+            if (existingUri != null) {
+                val backupValues = ContentValues().apply {
+                    put(MediaStore.MediaColumns.DISPLAY_NAME, backupName)
+                }
+                if (resolver.update(existingUri, backupValues, null, null) <= 0) {
+                    return false
+                }
+                replacedUri = existingUri
+            }
+
+            val publishValues = ContentValues().apply {
+                put(MediaStore.MediaColumns.DISPLAY_NAME, spec.displayName)
+                put(MediaStore.MediaColumns.MIME_TYPE, spec.mimeType)
+                put(MediaStore.MediaColumns.IS_PENDING, 0)
+            }
+            if (resolver.update(tempUri, publishValues, null, null) <= 0) {
+                return false
+            }
+            published = true
+            if (replacedUri != null) {
+                runCatching { resolver.delete(replacedUri, null, null) }
+                    .onFailure { e ->
+                        AppLogger.log("Library", "Delete replaced export failed: ${spec.displayName}", e)
+                    }
+            }
+            return true
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            AppLogger.log("Library", "Export write failed: ${spec.displayName}", e)
+            return false
+        } finally {
+            if (!published) {
+                runCatching { resolver.delete(tempUri, null, null) }
+                replacedUri?.let { uri ->
+                    restoreMediaStoreFileName(resolver, uri, spec.displayName, backupName)
+                }
+            }
         }
     }
 
     @RequiresApi(Build.VERSION_CODES.Q)
-    private fun finishMediaStoreWrite(
-        context: Context,
+    private fun restoreMediaStoreFileName(
+        resolver: android.content.ContentResolver,
         uri: Uri,
-        createdNew: Boolean,
-        success: Boolean
+        finalName: String,
+        backupName: String
     ) {
         val values = ContentValues().apply {
-            put(MediaStore.MediaColumns.IS_PENDING, 0)
+            put(MediaStore.MediaColumns.DISPLAY_NAME, finalName)
         }
-        context.contentResolver.update(uri, values, null, null)
-        if (!success && createdNew) {
-            context.contentResolver.delete(uri, null, null)
+        if (resolver.update(uri, values, null, null) <= 0) {
+            AppLogger.log("Library", "Restore replaced export failed: $backupName")
         }
     }
 
@@ -1139,17 +1230,9 @@ internal class LibraryExporter(
         spec: ExportSpec,
         folderName: String
     ): Boolean {
-        val (uri, createdNew) = openOrCreateMediaStoreUri(context, spec, folderName) ?: return false
-        val success = try {
-            context.contentResolver.openOutputStream(uri)?.use { output ->
-                bitmap.compress(spec.format, spec.quality, output)
-            } ?: false
-        } catch (e: Exception) {
-            AppLogger.log("Library", "Export write failed: ${spec.displayName}", e)
-            false
+        return writeMediaStoreImage(context, spec, folderName) { output ->
+            bitmap.compress(spec.format, spec.quality, output)
         }
-        finishMediaStoreWrite(context, uri, createdNew, success)
-        return success
     }
 
     @RequiresApi(Build.VERSION_CODES.Q)
@@ -1159,104 +1242,176 @@ internal class LibraryExporter(
         spec: ExportSpec,
         folderName: String
     ): Boolean {
-        val (uri, createdNew) = openOrCreateMediaStoreUri(context, spec, folderName) ?: return false
-        val success = try {
-            context.contentResolver.openOutputStream(uri)?.use { output ->
-                copySourceToStream(source, output)
-            } ?: false
-        } catch (e: Exception) {
-            AppLogger.log("Library", "Export copy failed: ${spec.displayName}", e)
-            false
+        return writeMediaStoreImage(context, spec, folderName) { output ->
+            copySourceToStream(source, output)
         }
-        finishMediaStoreWrite(context, uri, createdNew, success)
-        return success
     }
 
-    private fun resolveDocumentFileTarget(
+    private suspend fun writeDocumentFileTransaction(
+        context: Context,
         exportDir: DocumentFile,
-        spec: ExportSpec
-    ): DocumentFile? {
-        val existing = exportDir.findFile(spec.displayName)
-        return if (existing != null && existing.isFile) {
-            existing
-        } else {
-            exportDir.createFile(spec.mimeType, spec.displayName)
+        finalName: String,
+        mimeType: String,
+        replaceExisting: Boolean,
+        writer: (OutputStream) -> Boolean
+    ): Boolean {
+        val temp = exportDir.createFile(mimeType, buildExportTempName(finalName)) ?: return false
+        var published = false
+        var replacedBackup: DocumentFile? = null
+        try {
+            val success = withContext(Dispatchers.IO) {
+                context.contentResolver.openOutputStream(temp.uri, "wt")?.use { output ->
+                    writer(output)
+                } ?: false
+            }
+            if (!success) return false
+
+            val existing = exportDir.findFile(finalName)
+            if (existing != null) {
+                if (!replaceExisting || !existing.isFile) return false
+                val backupName = buildExportBackupName(finalName)
+                if (!existing.renameTo(backupName)) return false
+                val backup = exportDir.findFile(backupName) ?: existing
+                replacedBackup = backup
+                if (!temp.renameTo(finalName)) return false
+                published = true
+                if (!backup.delete()) {
+                    AppLogger.log("Library", "Delete replaced export failed: $finalName")
+                }
+                return true
+            }
+
+            if (!temp.renameTo(finalName)) return false
+            published = true
+            return true
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            AppLogger.log("Library", "Document export write failed: $finalName", e)
+            return false
+        } finally {
+            if (!published) {
+                runCatching { temp.delete() }
+                replacedBackup?.let { backup ->
+                    if (!backup.renameTo(finalName)) {
+                        AppLogger.log("Library", "Restore replaced export failed: $finalName")
+                    }
+                }
+            }
         }
     }
 
-    private fun saveBitmapToDocumentFile(
+    private suspend fun saveBitmapToDocumentFile(
         context: Context,
         bitmap: Bitmap,
         spec: ExportSpec,
         exportDir: DocumentFile
     ): Boolean {
-        val target = resolveDocumentFileTarget(exportDir, spec) ?: return false
-        return try {
-            context.contentResolver.openOutputStream(target.uri, "wt")?.use { output ->
-                bitmap.compress(spec.format, spec.quality, output)
-            } ?: false
-        } catch (e: Exception) {
-            AppLogger.log("Library", "Export write failed: ${spec.displayName}", e)
-            false
+        return writeDocumentFileTransaction(
+            context = context,
+            exportDir = exportDir,
+            finalName = spec.displayName,
+            mimeType = spec.mimeType,
+            replaceExisting = true
+        ) { output ->
+            bitmap.compress(spec.format, spec.quality, output)
         }
     }
 
-    private fun copyFileToDocumentFile(
+    private suspend fun copyFileToDocumentFile(
         context: Context,
         source: File,
         spec: ExportSpec,
         exportDir: DocumentFile
     ): Boolean {
-        val target = resolveDocumentFileTarget(exportDir, spec) ?: return false
-        return try {
-            context.contentResolver.openOutputStream(target.uri, "wt")?.use { output ->
-                copySourceToStream(source, output)
-            } ?: false
-        } catch (e: Exception) {
-            AppLogger.log("Library", "Export copy failed: ${spec.displayName}", e)
-            false
+        return writeDocumentFileTransaction(
+            context = context,
+            exportDir = exportDir,
+            finalName = spec.displayName,
+            mimeType = spec.mimeType,
+            replaceExisting = true
+        ) { output ->
+            copySourceToStream(source, output)
         }
     }
 
-    private fun resolveLegacyExportTarget(spec: ExportSpec, folderName: String): File? {
+    private fun resolveLegacyExportDirectory(folderName: String): File? {
         val root = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS)
         val exportDir = File(root, "manga-translate/$folderName")
         if (!exportDir.exists() && !exportDir.mkdirs()) {
             AppLogger.log("Library", "Export directory create failed: ${exportDir.absolutePath}")
             return null
         }
-        return resolveUniqueFile(exportDir, spec.displayName)
+        return exportDir
     }
 
-    private fun saveBitmapToLegacyStorage(
+    private suspend fun writeLegacyExportTransaction(
+        exportDir: File,
+        finalName: String,
+        writer: (OutputStream) -> Boolean
+    ): File? {
+        val temp = try {
+            File.createTempFile(".manga_translate_export_", ".tmp", exportDir)
+        } catch (e: Exception) {
+            AppLogger.log("Library", "Create export temp file failed: $finalName", e)
+            return null
+        }
+        var published = false
+        try {
+            val success = withContext(Dispatchers.IO) {
+                FileOutputStream(temp).use { output ->
+                    writer(output)
+                }
+            }
+            if (!success) return null
+
+            val target = resolveUniqueFile(exportDir, finalName)
+            if (!temp.renameTo(target)) {
+                AppLogger.log("Library", "Publish export failed: ${target.absolutePath}")
+                return null
+            }
+            published = true
+            return target
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            AppLogger.log("Library", "Export write failed: $finalName", e)
+            return null
+        } finally {
+            if (!published) {
+                runCatching { temp.delete() }
+            }
+        }
+    }
+
+    private suspend fun saveBitmapToLegacyStorage(
         bitmap: Bitmap,
         spec: ExportSpec,
         folderName: String
     ): Boolean {
-        val target = resolveLegacyExportTarget(spec, folderName) ?: return false
-        return try {
-            FileOutputStream(target).use { output ->
-                bitmap.compress(spec.format, spec.quality, output)
-            }
-        } catch (e: Exception) {
-            AppLogger.log("Library", "Export write failed: ${target.name}", e)
-            false
-        }
+        val exportDir = resolveLegacyExportDirectory(folderName) ?: return false
+        return writeLegacyExportTransaction(exportDir, spec.displayName) { output ->
+            bitmap.compress(spec.format, spec.quality, output)
+        } != null
     }
 
-    private fun copyFileToLegacyStorage(
+    private suspend fun copyFileToLegacyStorage(
         source: File,
         spec: ExportSpec,
         folderName: String
     ): Boolean {
-        val target = resolveLegacyExportTarget(spec, folderName) ?: return false
-        return try {
-            source.copyTo(target, overwrite = true)
-            true
-        } catch (e: Exception) {
-            AppLogger.log("Library", "Export copy failed: ${target.name}", e)
-            false
-        }
+        val exportDir = resolveLegacyExportDirectory(folderName) ?: return false
+        return writeLegacyExportTransaction(exportDir, spec.displayName) { output ->
+            copySourceToStream(source, output)
+        } != null
+    }
+
+    private fun buildExportTempName(finalName: String): String {
+        return ".manga_translate_tmp_${UUID.randomUUID()}_$finalName"
+    }
+
+    private fun buildExportBackupName(finalName: String): String {
+        return ".manga_translate_backup_${UUID.randomUUID()}_$finalName"
     }
 
     private fun resolveExportSpec(fileName: String): ExportSpec {
@@ -1426,31 +1581,32 @@ internal class LibraryExporter(
             return CbzExportResult(success = false, pathHint = null)
         }
         val cbzName = resolveUniqueCbzName(root, folder.name)
-        val target = root.createFile("application/vnd.comicbook+zip", cbzName)
-            ?: run {
-                cleanupPreparedCbzEntries(preparedEntries)
-                return CbzExportResult(success = false, pathHint = null)
-            }
         val pathHint = "${buildExportRootPathHint(exportTreeUri)}/$cbzName"
 
         return try {
-            withContext(Dispatchers.IO) {
-                context.contentResolver.openOutputStream(target.uri, "wt")?.use { stream ->
-                    ZipOutputStream(BufferedOutputStream(stream)).use { zip ->
-                        for (entry in preparedEntries.sortedBy { it.index }) {
-                            zip.putNextEntry(ZipEntry(entry.entryName))
-                            FileInputStream(entry.tempFile).use { input ->
-                                input.copyTo(zip)
-                            }
-                            zip.closeEntry()
+            val success = writeDocumentFileTransaction(
+                context = context,
+                exportDir = root,
+                finalName = cbzName,
+                mimeType = "application/vnd.comicbook+zip",
+                replaceExisting = false
+            ) { stream ->
+                ZipOutputStream(BufferedOutputStream(stream)).use { zip ->
+                    for (entry in preparedEntries.sortedBy { it.index }) {
+                        zip.putNextEntry(ZipEntry(entry.entryName))
+                        FileInputStream(entry.tempFile).use { input ->
+                            input.copyTo(zip)
                         }
+                        zip.closeEntry()
                     }
-                } ?: return@withContext CbzExportResult(false, null)
-                CbzExportResult(success = true, pathHint = pathHint)
+                }
+                true
             }
+            CbzExportResult(success = success, pathHint = pathHint.takeIf { success })
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             AppLogger.log("Library", "Export CBZ failed: ${folder.name}", e)
-            runCatching { target.delete() }
             CbzExportResult(success = false, pathHint = null)
         } finally {
             cleanupPreparedCbzEntries(preparedEntries)
@@ -1469,27 +1625,28 @@ internal class LibraryExporter(
             cleanupPreparedCbzEntries(preparedEntries)
             return CbzExportResult(success = false, pathHint = null)
         }
-        val target = resolveUniqueFile(root, "${folder.name}.cbz")
-        val pathHint = "/Documents/manga-translate/${target.name}"
 
         return try {
-            withContext(Dispatchers.IO) {
-                FileOutputStream(target).use { stream ->
-                    ZipOutputStream(BufferedOutputStream(stream)).use { zip ->
-                        for (entry in preparedEntries.sortedBy { it.index }) {
-                            zip.putNextEntry(ZipEntry(entry.entryName))
-                            FileInputStream(entry.tempFile).use { input ->
-                                input.copyTo(zip)
-                            }
-                            zip.closeEntry()
+            val target = writeLegacyExportTransaction(root, "${folder.name}.cbz") { stream ->
+                ZipOutputStream(BufferedOutputStream(stream)).use { zip ->
+                    for (entry in preparedEntries.sortedBy { it.index }) {
+                        zip.putNextEntry(ZipEntry(entry.entryName))
+                        FileInputStream(entry.tempFile).use { input ->
+                            input.copyTo(zip)
                         }
+                        zip.closeEntry()
                     }
                 }
-                CbzExportResult(success = true, pathHint = pathHint)
+                true
             }
+            CbzExportResult(
+                success = target != null,
+                pathHint = target?.let { "/Documents/manga-translate/${it.name}" }
+            )
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             AppLogger.log("Library", "Export CBZ failed: ${folder.name}", e)
-            runCatching { target.delete() }
             CbzExportResult(success = false, pathHint = null)
         } finally {
             cleanupPreparedCbzEntries(preparedEntries)
@@ -1508,26 +1665,24 @@ internal class LibraryExporter(
             return CbzExportResult(success = false, pathHint = null)
         }
         val pdfName = resolveUniquePdfName(root, folder.name)
-        val target = root.createFile("application/pdf", pdfName)
-            ?: run {
-                cleanupPreparedCbzEntries(preparedEntries)
-                return CbzExportResult(success = false, pathHint = null)
-            }
         val pathHint = "${buildExportRootPathHint(exportTreeUri)}/$pdfName"
 
         return try {
-            withContext(Dispatchers.IO) {
-                context.contentResolver.openOutputStream(target.uri, "wt")?.use { stream ->
-                    val orderedImages = preparedEntries.sortedBy { it.index }.map { it.tempFile }
-                    if (!PdfImageCodec.writeImagesToPdf(orderedImages, stream)) {
-                        return@withContext CbzExportResult(false, null)
-                    }
-                } ?: return@withContext CbzExportResult(false, null)
-                CbzExportResult(success = true, pathHint = pathHint)
+            val success = writeDocumentFileTransaction(
+                context = context,
+                exportDir = root,
+                finalName = pdfName,
+                mimeType = "application/pdf",
+                replaceExisting = false
+            ) { stream ->
+                val orderedImages = preparedEntries.sortedBy { it.index }.map { it.tempFile }
+                PdfImageCodec.writeImagesToPdf(orderedImages, stream)
             }
+            CbzExportResult(success = success, pathHint = pathHint.takeIf { success })
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             AppLogger.log("Library", "Export PDF failed: ${folder.name}", e)
-            runCatching { target.delete() }
             CbzExportResult(success = false, pathHint = null)
         } finally {
             cleanupPreparedCbzEntries(preparedEntries)
@@ -1546,22 +1701,20 @@ internal class LibraryExporter(
             cleanupPreparedCbzEntries(preparedEntries)
             return CbzExportResult(success = false, pathHint = null)
         }
-        val target = resolveUniqueFile(root, "${folder.name}.pdf")
-        val pathHint = "/Documents/manga-translate/${target.name}"
 
         return try {
-            withContext(Dispatchers.IO) {
-                FileOutputStream(target).use { stream ->
-                    val orderedImages = preparedEntries.sortedBy { it.index }.map { it.tempFile }
-                    if (!PdfImageCodec.writeImagesToPdf(orderedImages, stream)) {
-                        return@withContext CbzExportResult(false, null)
-                    }
-                }
-                CbzExportResult(success = true, pathHint = pathHint)
+            val target = writeLegacyExportTransaction(root, "${folder.name}.pdf") { stream ->
+                val orderedImages = preparedEntries.sortedBy { it.index }.map { it.tempFile }
+                PdfImageCodec.writeImagesToPdf(orderedImages, stream)
             }
+            CbzExportResult(
+                success = target != null,
+                pathHint = target?.let { "/Documents/manga-translate/${it.name}" }
+            )
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             AppLogger.log("Library", "Export PDF failed: ${folder.name}", e)
-            runCatching { target.delete() }
             CbzExportResult(success = false, pathHint = null)
         } finally {
             cleanupPreparedCbzEntries(preparedEntries)
@@ -1726,6 +1879,7 @@ internal class LibraryExporter(
         private const val KEY_EXPORT_AS_CBZ = "export_as_cbz"
         private const val KEY_EXPORT_FORMAT = "export_format"
         private const val DEFAULT_EXPORT_THREADS = 2
+        private const val DEFAULT_EXPORT_WORKER_BYTES = 48L * 1024L * 1024L
         private const val MIN_EXPORT_THREADS = 1
         private const val MAX_EXPORT_THREADS = 16
     }

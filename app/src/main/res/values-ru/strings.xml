@@ -1,7 +1,9 @@
 <resources>
+    <string name="exclamation_mark" translatable="false">!</string>
     <string name="app_name">MT Reader</string>
     <string name="preview_image">Предпросмотр распознавания</string>
-    <string name="detecting_bubbles">Обнаружение пузырьков...</string>
+    <string name="detecting_bubbles">Обнаружение текстовых областей…</string>
+    <string name="recognizing_bubbles">Распознавание OCR (областей: %1$d)…</string>
     <string name="translating_bubbles">Перевод…</string>
     <string name="close_action">Закрыть</string>
     <string name="tab_library">Библиотека</string>
@@ -35,6 +37,7 @@
     <string name="missing_api_settings">Пожалуйста, сначала введите адрес API и Key в настройках.</string>
     <string name="missing_translate_api_settings">Пожалуйста, сначала введите адрес API, Key и название модели в настройках.</string>
     <string name="text_layout_horizontal">В комиксах используется горизонтальная компоновка.</string>
+    <string name="bubble_vertical_text">Использовать вертикальную компоновку пузырьков</string>
     <string name="model_io_logging">Распечатать входные и выходные данные модели AI</string>
     <string name="theme_setting_button">Тема</string>
     <string name="theme_setting_title">Тема</string>
@@ -95,7 +98,7 @@
     <string name="ai_provider_profiles_section_label">Список профилей</string>
     <string name="ai_provider_profiles_current">Текущая конфигурация: %1$s</string>
     <string name="ai_provider_profiles_current_none">Текущий профиль: нет</string>
-    <string name="ai_provider_profiles_note">В файле конфигурации будет сохранена текущая основная модель, OCR, покрытие трансляции плавающего окна, параметры AI, планирование для нескольких поставщиков и параметры пользовательского запроса, и он будет применяться в целом при переключении.</string>
+    <string name="ai_provider_profiles_note">В файле конфигурации будут сохранены текущая основная модель, настройки повторов и параллелизма, OCR, покрытие трансляции плавающего окна, параметры AI, планирование для нескольких поставщиков и параметры пользовательского запроса, и он будет применяться в целом при переключении.</string>
     <string name="ai_provider_profiles_empty">Сохраненных конфигураций пока нет.</string>
     <string name="ai_provider_profiles_apply">Переключить на выбранный профиль</string>
     <string name="ai_provider_profiles_save_new">Создать новую и сохранить текущую конфигурацию</string>
@@ -112,8 +115,10 @@
     <string name="ai_provider_profiles_delete_confirm">Вы уверены, что хотите удалить конфигурацию «%1$s»?</string>
     <string name="ai_provider_profiles_deleted">Профиль удален</string>
     <string name="ai_provider_profiles_select_required">Сначала выберите профиль</string>
+    <string name="ai_provider_profiles_apply_invalid">В выбранном профиле число параллельных запросов меньше числа включенных поставщиков, поэтому его нельзя применить.</string>
+    <string name="ai_provider_profiles_write_failed">Не удалось записать профиль. Существующие профили не изменены.</string>
     <string name="fetch_models_title">Список моделей</string>
-    <string name="fetch_models_loading">Получение списка моделей...</string>
+    <string name="fetch_models_loading">Получение списка моделей…</string>
     <string name="fetch_models_failed_title">Не удалось получить список моделей</string>
     <string name="fetch_models_failed_message">Не удалось получить:
 %1$s</string>
@@ -139,7 +144,6 @@
     <string name="custom_request_params_title">Пользовательские параметры запроса</string>
     <string name="custom_request_params_note">Будет добавлен к телу запроса AI с полями верхнего уровня. По умолчанию он действует на основного поставщика, а также может быть назначен отдельно OCR API, поставщику 1, поставщику 2 и т. д. Поддерживает несколько пар ключ-значение, автоматически определяет логические значения, числа, значения NULL и допустимые объекты/массивы JSON. Существующие встроенные параметры не могут быть перезаписаны; дублирование ключей и конфликты внутри одного провайдера блокируются.</string>
     <string name="custom_request_params_add">Добавить параметр</string>
-    <string name="custom_request_params_delete">Удалить параметр</string>
     <string name="custom_request_params_enabled">Включено</string>
     <string name="custom_request_param_key_hint">Ключ параметра</string>
     <string name="custom_request_param_target_provider_hint">Применить к провайдеру</string>
@@ -151,7 +155,6 @@
     <string name="custom_request_params_provider_ocr">OCR API</string>
     <string name="custom_request_params_duplicate_error_scoped">Дубликат ключа специального параметра для поставщика «%1$s»: %2$s.</string>
     <string name="custom_request_params_empty_row_error">Ключ параметра не может быть пустым</string>
-    <string name="custom_request_params_duplicate_error">Существует повторяющийся ключ специального параметра: %1$s.</string>
     <string name="custom_request_params_conflict_error">Специальные параметры не могут переопределять встроенные поля: %1$s.</string>
     <string name="custom_request_params_saved">Параметры специального запроса сохранены.</string>
     <string name="ocr_settings_button">Настройки OCR</string>
@@ -173,17 +176,13 @@
     <string name="normal_bubble_free_opacity_percent_hint">Непрозрачность свободных пузырьков (0–100)</string>
     <string name="normal_bubble_free_auto_adapt_color">Бесплатный адаптивный цвет фона пузырьков</string>
     <string name="normal_bubble_min_area_per_char_label">Нижний предел плотности текста (чем больше значение, тем крупнее текст, из-за чего могут расширяться пузырьки)</string>
-    <string name="normal_bubble_min_area_value">Текущий: %d sp² / слово</string>
-    <string name="normal_bubble_layout_horizontal">Горизонтальная верстка</string>
-    <string name="normal_bubble_layout_vertical">Вертикальная верстка</string>
+    <string name="normal_bubble_min_area_value">Текущее: %d sp² / символ</string>
     <string name="bubble_font_settings_button">Настройки шрифта</string>
     <string name="bubble_font_settings_button_uploaded">Настройки шрифта (загружено)</string>
     <string name="bubble_font_settings_title">Настройки шрифта</string>
     <string name="bubble_font_settings_note">Обычные и плавающие пузыри используют эти настройки шрифта. Можно выбрать системный шрифт или переключаться между загруженными; загруженные шрифты остаются в списке, повторная загрузка не нужна. Большинство системных шрифтов для китайского выглядят почти одинаково.</string>
-    <string name="bubble_font_use_uploaded">Использовать загруженный файл шрифта</string>
     <string name="bubble_font_upload_button">Загрузить файл шрифта</string>
     <string name="bubble_font_uploaded_file_empty">В настоящее время файлы шрифтов не загружены.</string>
-    <string name="bubble_font_uploaded_file_value">Текущий файл шрифта: %1$s</string>
     <string name="bubble_font_upload_missing">Сначала загрузите файл шрифта или выберите системный</string>
     <string name="bubble_font_upload_success">Загружен файл шрифта: %1$s</string>
     <string name="bubble_font_upload_failed">Не удалось загрузить файл шрифта. Подтвердите, что файл действителен.</string>
@@ -194,15 +193,7 @@
     <string name="bubble_font_delete_confirm_message">Удалить шрифт «%1$s»? Это действие нельзя отменить.</string>
     <string name="bubble_font_label">Шрифт</string>
     <string name="bubble_font_system_default">Система по умолчанию</string>
-    <string name="bubble_font_system_sans_serif">Система без засечек</string>
-    <string name="bubble_font_system_serif">Системная засечка</string>
-    <string name="bubble_font_system_monospace">Ширина системы</string>
-    <string name="bubble_font_google_noto_sans_sc">Google Noto Sans SC</string>
-    <string name="bubble_font_google_noto_serif_sc">Google Noto Serif SC</string>
-    <string name="bubble_font_custom_url">Пользовательский веб-шрифт</string>
     <string name="bubble_font_custom_file">файл пользовательского шрифта</string>
-    <string name="bubble_font_custom_url_hint">Общедоступный шрифт URL (например, https://example.com/font.ttf)</string>
-    <string name="bubble_font_custom_file_hint">Имя файла шрифта (assets/или частный каталог)</string>
     <string name="bubble_font_bold">Жирный шрифт</string>
     <string name="floating_bubble_render_settings_button">Пузырьки плавающего окна</string>
     <string name="floating_bubble_render_settings_title">Пузырьки плавающего окна</string>
@@ -215,7 +206,7 @@
     <string name="floating_bubble_shape_inscribed_ellipse">Вписанный эллипс</string>
     <string name="floating_bubble_horizontal_text">Используйте горизонтальную компоновку для плавающих окон.</string>
     <string name="floating_bubble_min_area_per_char_label">Нижний предел плотности текста (чем больше значение, тем крупнее текст, из-за чего могут расширяться пузырьки)</string>
-    <string name="floating_bubble_min_area_value">Текущий: %d sp² / слово</string>
+    <string name="floating_bubble_min_area_value">Текущее: %d sp² / символ</string>
     <string name="floating_api_url_hint">Трансляция плавающего окна адреса API</string>
     <string name="floating_api_key_hint">Перевод плавающего окна API Key</string>
     <string name="floating_model_name_hint">Название модели перевода плавающего окна</string>
@@ -242,9 +233,7 @@
     <string name="floating_translate_settings_note">Оставьте поле пустым, чтобы использовать соответствующую конфигурацию в основных настройках.</string>
     <string name="ocr_use_local">Используйте локальный OCR</string>
     <string name="ocr_api_format_openai_compatible">OpenAI совместим</string>
-    <string name="ocr_api_format_baidu_ai">Байду AI</string>
     <string name="ocr_api_format_hint">OCR API формат</string>
-    <string name="ocr_secret_key_hint">Secret Key (Байду AI)</string>
     <string name="ocr_api_url_hint">OCR API Адрес</string>
     <string name="ocr_api_key_hint">OCR API Key</string>
     <string name="ocr_model_name_hint">OCR название модели</string>
@@ -286,6 +275,15 @@
     <string name="logs_empty">Журналов пока нет</string>
     <string name="library_quick_actions">Быстрые действия</string>
     <string name="library_quick_actions_title">Импорт и инструменты</string>
+    <string name="import_anyway">Всё равно импортировать</string>
+    <string name="import_cancel">Отменить импорт</string>
+    <string name="memory_warning_title">Возможно, недостаточно ресурсов устройства</string>
+    <string name="memory_warning_message">Сейчас доступно %1$s памяти, ожидаемое пиковое использование — %2$s. Продолжение может привести к зависанию, сбою или остановке приложения системой.</string>
+    <string name="memory_warning_message_unavailable">Не удалось определить текущий объём доступной памяти. Продолжение может привести к зависанию, сбою или остановке приложения системой.</string>
+    <string name="resource_concurrency_warning_message">Сейчас доступно %1$s памяти, ожидаемое пиковое использование — %2$s; устройство имеет %3$d ядер CPU. Выбрано потоков: %4$d. С учётом доступной памяти и резерва CPU для системы рекомендуется не более %5$d. Продолжение может вызвать замедление или сбой.</string>
+    <string name="memory_size_unknown">неизвестно</string>
+    <string name="resource_continue_anyway">Всё равно продолжить</string>
+    <string name="resource_cancel">Отмена</string>
     <string name="library_collection_label">Коллекция</string>
     <string name="library_collection_title">Проект манги</string>
     <string name="library_sort_by_name">Имя</string>
@@ -294,6 +292,7 @@
     <string name="library_sort_order_desc">По убыванию</string>
     <string name="library_action_panel_label">Панель управления</string>
     <string name="library_translation_settings_hint">Настройте язык перевода и стратегию быстрого полнотекстового перевода отдельно для текущей папки.</string>
+    <string name="library_translation_settings_info_desc">О настройках перевода</string>
     <string name="library_pages_label">Список страниц</string>
     <string name="tutorial_button">Руководство</string>
     <string name="tutorial_open_title">Открыть руководство</string>
@@ -323,14 +322,14 @@
     <string name="screen_capture_permission_failed">Разрешение на захват экрана не получено, и распознавание наведения не может быть выполнено.</string>
     <string name="common_on">Вкл.</string>
     <string name="common_off">Выкл.</string>
-    <string name="floating_progress_capturing">Выполняется плавающий перевод: захват экрана...</string>
-    <string name="floating_progress_detecting">Плавающий перевод: обнаружение текстовой области...</string>
+    <string name="floating_progress_capturing">Выполняется плавающий перевод: захват экрана…</string>
+    <string name="floating_progress_detecting">Плавающий перевод: обнаружение текстовой области…</string>
     <string name="floating_progress_recognizing">Выполняется плавающий перевод: распознавание текста (области %1$d)…</string>
     <string name="floating_progress_vl_translating">Выполняется перевод приостановки: использование пузырьков перевода модели VL (области %1$d)…</string>
-    <string name="floating_progress_translating">Выполняется плавающий перевод: Перевод текста...</string>
+    <string name="floating_progress_translating">Выполняется плавающий перевод: Перевод текста…</string>
     <string name="floating_progress_done">Плавающий перевод завершен: всего текстовых областей %1$d</string>
     <string name="floating_detected_count">Обнаружено %1$d текстовых областей</string>
-    <string name="overlay_empty_bubble_translating">Добавляем пузыри перевода...</string>
+    <string name="overlay_empty_bubble_translating">Добавляем пузыри перевода…</string>
     <string name="overlay_empty_bubble_translated">Новый перевод пузырьков завершен</string>
     <string name="floating_capture_not_ready">Снимок экрана не готов, перезапустите перевод плавающего окна.</string>
     <string name="floating_detect_failed">Не удалось распознать, попробуйте еще раз.</string>
@@ -339,10 +338,6 @@
     <string name="floating_service_channel">Распознавание плавающего окна</string>
     <string name="floating_service_title">Распознавание плавающего окна запущено</string>
     <string name="floating_service_message">Управляйте плавающим шаром в соответствии с заданными вами жестами.</string>
-    <string name="floating_usage_tip_line">%1$s Подвесной шар: %2$s</string>
-    <string name="floating_usage_tip">Нажмите на плавающий шарик: определите и переведите текущую текстовую область экрана.
-Дважды щелкните плавающий шарик: очистите текущий пузырь распознавания/перевода.
-Длительное нажатие на плавающий шарик: всплывающее меню</string>
     <string name="floating_bubble_placeholder">текстовая область</string>
     <string name="tutorial_option_gitee_recommended">Зеркало</string>
     <string name="tutorial_option_github">GitHub</string>
@@ -385,7 +380,6 @@
     <string name="folder_delete_failed">Не удалось удалить. Повторите попытку позже.</string>
     <string name="folder_delete_empty">Пожалуйста, сначала выберите папку, которую вы хотите удалить</string>
     <string name="folder_rename_failed">Не удалось переименовать, проверьте имя</string>
-    <string name="folder_multi_select_title">Выберите папку для работы</string>
     <string name="folder_collection_title_suffix">(Сборник глав)</string>
     <string name="folder_translation_settings">Настройки перевода</string>
     <string name="folder_reading_settings">Настройки чтения</string>
@@ -397,7 +391,6 @@
     <string name="folder_reading_mode_webtoon_scroll">Прокрутка вебтуна</string>
     <string name="folder_language_setting">Настройка языка: %1$s</string>
     <string name="folder_language_setting_title">Выберите язык перевода</string>
-    <string name="folder_language_to_zh">Перевести на китайский</string>
     <string name="folder_language_to_target">Перевести на %1$s</string>
     <string name="translation_language_pair_format">%1$s → %2$s</string>
     <string name="translation_source_japanese">Японский</string>
@@ -412,17 +405,9 @@
     <string name="translation_source_german">Немецкий</string>
     <string name="translation_source_italian">Итальянский</string>
     <string name="translation_source_russian">Русский</string>
-    <string name="folder_language_ja_to_zh">Японский → Китайский</string>
-    <string name="folder_language_en_to_zh">Английский → Китайский</string>
-    <string name="folder_language_ko_to_zh">Корейский → Китайский</string>
-    <string name="folder_language_chn_eng_to_zh">Смешанный китайский и английский → Китайский</string>
-    <string name="folder_language_fr_to_zh">Французский → Китайский</string>
-    <string name="folder_language_es_to_zh">Испанский → Китайский</string>
-    <string name="folder_language_pt_to_zh">Португальский → Китайский</string>
-    <string name="folder_language_de_to_zh">Немецкий → Китайский</string>
-    <string name="folder_language_it_to_zh">Итальянский → Китайский</string>
-    <string name="folder_language_ru_to_zh">Русский → Китайский</string>
     <string name="folder_use_vl_direct_translate">Переведите весь пузырь, используя модель VL.</string>
+    <string name="folder_use_vl_direct_translate_info_title">О прямом переводе VL</string>
+    <string name="folder_use_vl_direct_translate_info_desc">О прямом переводе VL</string>
     <string name="folder_use_vl_direct_translate_note">При включении обнаруженные пузырьки будут отправляться непосредственно в визуальную модель для перевода, минуя этап распознавания текста. Убедитесь, что заполняемая вами модель поддерживает ввод изображений.</string>
     <string name="folder_use_vl_direct_translate_warning">Папка VL открыта для прямого просмотра. Пожалуйста, подтвердите, что текущая модель поддерживает ввод изображений.</string>
     <string name="folder_vl_model_required">В настоящее время для прямого перевода требуется модель VL. Пожалуйста, переключитесь на модель, поддерживающую ввод изображения в основных настройках, или выключите переключатель.</string>
@@ -431,13 +416,24 @@
     <string name="folder_full_translate_info">После включения он сначала распознает весь текст изображения и извлечет перевод, а затем переведет содержимое пузырька на всей странице. Скорость перевода первой картинки после ее включения зависит от общего количества картинок. После его отключения скорость перевода первого изображения значительно улучшается.</string>
     <string name="folder_full_translate_info_desc">О полном переводе</string>
     <string name="folder_glossary_processing">Обработка глоссария</string>
+    <string name="folder_glossary_processing_info_title">Об обработке глоссария</string>
+    <string name="folder_glossary_processing_info_desc">Об обработке глоссария</string>
     <string name="folder_glossary_processing_note">После отключения обработки перевода параллельный перевод может выполняться быстрее.</string>
+    <string name="folder_bubble_detection_info_title">О режимах обнаружения областей</string>
+    <string name="folder_bubble_detection_info_desc">О режимах обнаружения областей</string>
+    <string name="folder_bubble_detection_info">Только пузыри использует модель сегментации пузырей. Только текст использует Paddle OCR для поиска и объединения всех текстовых блоков и работает быстрее всего. Пузыри и отдельный текст обнаруживает обычные пузыри и дополняет их текстом вне пузырей с помощью Paddle OCR; этот режим работает медленнее всего.</string>
+    <string name="folder_detection_mode_bubbles">Только пузыри</string>
+    <string name="folder_detection_mode_text">Только текст</string>
+    <string name="folder_detection_mode_bubbles_and_text">Пузыри и отдельный текст</string>
     <string name="translation_preparing">Подготовка</string>
     <string name="folder_preprocess_progress">%1$s（%2$d/%3$d）</string>
     <string name="folder_preprocess_stage_ocr">Предобработка OCR</string>
     <string name="folder_preprocess_stage_glossary">Извлечение глоссария</string>
-    <string name="folder_translation_count">%1$d/%2$d</string>
+    <string name="folder_translation_preparing_pages">Подготовка перевода · %1$d стр.</string>
+    <string name="folder_translation_processed">Обработано %1$d/%2$d · Ошибок: %3$d</string>
     <string name="folder_collection_translation_progress">Подраздел %1$d/%2$d · Изображение %3$d/%4$d</string>
+    <string name="folder_collection_translation_preparing">Подраздел %1$d/%2$d · Подготовка перевода · %3$d стр.</string>
+    <string name="folder_collection_translation_processed">Подраздел %1$d/%2$d · Обработано %3$d/%4$d · Ошибок: %5$d</string>
     <string name="folder_collection_translation_target">%1$s · %2$s</string>
     <string name="translation_done">Перевод завершен</string>
     <string name="translation_failed">Ошибка перевода</string>
@@ -472,13 +468,15 @@
     <string name="import_no_images">В выбранной папке нет изображений</string>
     <string name="import_failed">Импорт не удался, попробуйте еще раз</string>
     <string name="import_done">Импортированные изображения %1$d</string>
+    <string name="avif_conversion_progress">Преобразование изображений AVIF в PNG…</string>
     <string name="cbz_import_failed">CBZ/ZIP Не удалось импортировать, повторите попытку.</string>
     <string name="cbz_import_no_images">Импортируемое изображение не найдено в сжатом пакете</string>
     <string name="cbz_import_done">CBZ/ZIP Импорт завершен, изображений %1$d импортировано</string>
     <string name="pdf_import_failed">PDF Не удалось импортировать, повторите попытку.</string>
     <string name="pdf_import_no_images">Импортируемая страница не найдена в PDF</string>
     <string name="pdf_import_done">PDF Импорт завершен, изображения страниц %1$d разделены</string>
-    <string name="exporting_progress">Экспорт...(%1$d/%2$d)</string>
+    <string name="import_out_of_memory">Импорт не удался: на устройстве недостаточно памяти. Закройте другие приложения и повторите попытку.</string>
+    <string name="exporting_progress">Экспорт…(%1$d/%2$d)</string>
     <string name="export_done">Экспорт завершен</string>
     <string name="export_failed">Экспорт не удался</string>
     <string name="export_permission_denied">Разрешение на хранение не предоставлено, экспорт невозможен.</string>
@@ -529,8 +527,6 @@
     <string name="reading_confirm_edit">Завершить редактирование</string>
     <string name="reading_cancel_edit">Отменить редактирование</string>
     <string name="reading_edit_bubble_title">Редактировать текст пузыря</string>
-    <string name="reading_bubble_width_hint">Ширина%%</string>
-    <string name="reading_bubble_height_hint">Высокий%%</string>
     <string name="reading_add_bubble">Добавить пузырь</string>
     <string name="reading_clear_bubbles">Очистить все пузырьки</string>
     <string name="reading_clear_bubbles_done">Все пузырьки на текущей странице удалены.</string>
@@ -538,7 +534,6 @@
     <string name="reading_empty_bubble_translating">Перевод пузырьков…</string>
     <string name="reading_empty_bubble_translated">Перевод пузырьков завершен</string>
     <string name="reading_empty_bubble_failed">Распознавание/перевод пузырька не удался. Пустые пузырьки сохранены — можно повторить или отредактировать вручную.</string>
-    <string name="reading_bubble_resize_done">Подтвердить</string>
     <string name="reading_bubble_action_resize">Изменить размер пузыря</string>
     <string name="reading_bubble_action_delete">Удалить пузырь</string>
     <string name="reading_exit_zoom_before_edit">Пожалуйста, дважды щелкните, чтобы сначала выйти из масштабирования</string>
@@ -582,6 +577,7 @@
     <string name="provider_name_default">Поставщик %1$d</string>
     <string name="global_progress_export">Экспорт</string>
     <string name="global_progress_translate">Перевод</string>
+    <string name="global_progress_preparing_translation">Подготовка перевода</string>
     <string name="global_progress_glossary">Глоссарий</string>
     <string name="global_progress_failed">%1$s не удалось</string>
     <string name="global_progress_done">%1$s Завершено</string>
@@ -589,4 +585,5 @@
     <string name="global_progress_count">%1$s %2$d/%3$d</string>
     <string name="language_english">Английский</string>
     <string name="language_russian">Русский</string>
+    <string name="language_portuguese_brazil">Бразильский португальский</string>
 </resources>

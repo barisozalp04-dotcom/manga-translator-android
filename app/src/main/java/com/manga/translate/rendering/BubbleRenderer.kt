@@ -109,6 +109,14 @@ class BubbleRenderer(context: Context) {
         verticalLayoutEnabled: Boolean
     ): Bitmap {
         val output = ensureMutableArgbBitmap(source)
+        // When render mutates the caller's bitmap, preserve an untouched image for
+        // background sampling so overlapping free bubbles do not sample prior fills.
+        val samplingBitmap = if (output === source) {
+            source.copy(Bitmap.Config.ARGB_8888, false)
+                ?: throw OutOfMemoryError("Failed to allocate bitmap sampling snapshot")
+        } else {
+            source
+        }
         val canvas = Canvas(output)
         val scaleX = if (translation.width > 0) {
             output.width.toFloat() / translation.width.toFloat()
@@ -120,45 +128,51 @@ class BubbleRenderer(context: Context) {
         } else {
             1f
         }
-        for (bubble in translation.bubbles) {
-            val text = bubble.text.trim()
-            if (text.isBlank()) continue
-            val opacityAlpha = resolveBubbleOpacityAlpha(bubble)
-            val useAutoAdaptColor = bubble.source.isFreeBubble &&
-                bubbleRenderSettings.autoAdaptFreeBubbleColor
-            val bubbleFillColor = if (useAutoAdaptColor) {
-                val sampleLeft = bubble.rect.left * scaleX
-                val sampleTop = bubble.rect.top * scaleY
-                val sampleRight = bubble.rect.right * scaleX
-                val sampleBottom = bubble.rect.bottom * scaleY
-                BubbleColorSampler.sampleBackgroundColor(
-                    output, sampleLeft, sampleTop, sampleRight, sampleBottom
-                ) ?: Color.WHITE
-            } else {
-                Color.WHITE
-            }
-            fillPaint.color = bubbleFillColor
-            textPaint.color = if (useAutoAdaptColor) {
-                BubbleTextColorResolver.resolveContrastingTextColor(
-                    backgroundColor = bubbleFillColor,
-                    darkTextColor = DEFAULT_TEXT_COLOR
+        try {
+            for (bubble in translation.bubbles) {
+                val text = bubble.text.trim()
+                if (text.isBlank()) continue
+                val opacityAlpha = resolveBubbleOpacityAlpha(bubble)
+                val useAutoAdaptColor = bubble.source.isFreeBubble &&
+                    bubbleRenderSettings.autoAdaptFreeBubbleColor
+                val bubbleFillColor = if (useAutoAdaptColor) {
+                    val sampleLeft = bubble.rect.left * scaleX
+                    val sampleTop = bubble.rect.top * scaleY
+                    val sampleRight = bubble.rect.right * scaleX
+                    val sampleBottom = bubble.rect.bottom * scaleY
+                    BubbleColorSampler.sampleBackgroundColor(
+                        samplingBitmap, sampleLeft, sampleTop, sampleRight, sampleBottom
+                    ) ?: Color.WHITE
+                } else {
+                    Color.WHITE
+                }
+                fillPaint.color = bubbleFillColor
+                textPaint.color = if (useAutoAdaptColor) {
+                    BubbleTextColorResolver.resolveContrastingTextColor(
+                        backgroundColor = bubbleFillColor,
+                        darkTextColor = DEFAULT_TEXT_COLOR
+                    )
+                } else {
+                    DEFAULT_TEXT_COLOR
+                }
+                fillPaint.alpha = opacityAlpha
+                BubbleShapePaths.buildPath(
+                    outPath = bubblePath,
+                    bubble = bubble,
+                    sourceWidth = translation.width,
+                    sourceHeight = translation.height,
+                    originX = 0f,
+                    originY = 0f,
+                    scaleX = scaleX,
+                    scaleY = scaleY,
+                    shrinkPercent = resolveBubbleShrinkPercent(bubble)
                 )
-            } else {
-                DEFAULT_TEXT_COLOR
+                drawBubble(canvas, text, bubblePath, verticalLayoutEnabled)
             }
-            fillPaint.alpha = opacityAlpha
-            BubbleShapePaths.buildPath(
-                outPath = bubblePath,
-                bubble = bubble,
-                sourceWidth = translation.width,
-                sourceHeight = translation.height,
-                originX = 0f,
-                originY = 0f,
-                scaleX = scaleX,
-                scaleY = scaleY,
-                shrinkPercent = resolveBubbleShrinkPercent(bubble)
-            )
-            drawBubble(canvas, text, bubblePath, verticalLayoutEnabled)
+        } finally {
+            if (samplingBitmap !== source && !samplingBitmap.isRecycled) {
+                samplingBitmap.recycle()
+            }
         }
         return output
     }
@@ -211,11 +225,10 @@ class BubbleRenderer(context: Context) {
         } else {
             val textSize = resolveHorizontalTextSize(rect, text)
             val layout = buildLayout(text, rect.width().toInt().coerceAtLeast(1), textSize)
-            canvas.save()
-            canvas.translate(rect.centerX(), rect.centerY())
-            canvas.translate(-layout.width / 2f, -layout.height / 2f)
-            layout.draw(canvas)
-            canvas.restore()
+            canvas.withTranslation(rect.centerX(), rect.centerY()) {
+                translate(-layout.width / 2f, -layout.height / 2f)
+                layout.draw(this)
+            }
         }
     }
 
@@ -244,28 +257,7 @@ class BubbleRenderer(context: Context) {
         val maxHeight = rect.height().toInt().coerceAtLeast(1)
         val textSize = findDefaultVerticalTextSize(text, maxWidth, maxHeight, rect.width() / 2.2f)
         val layout = buildVerticalLayout(text, maxWidth, maxHeight, textSize)
-        val dx = rect.right - ((rect.width() - layout.totalWidth) / 2f) - layout.columnWidth
-        val dy = rect.top + ((rect.height() - layout.totalHeight) / 2f) - layout.fontMetrics.ascent
-        var col = 0
-        var row = 0
-        for (ch in text) {
-            if (ch == '\n') {
-                col += 1
-                row = 0
-                continue
-            }
-            if (row >= layout.maxRows) {
-                col += 1
-                row = 0
-            }
-            if (col >= layout.columns) break
-            val glyph = ch.toString()
-            val charWidth = textPaint.measureText(glyph)
-            val x = dx - col * layout.columnWidth + (layout.columnWidth - charWidth) / 2f
-            val y = dy + row * layout.lineHeight
-            canvas.drawText(glyph, x, y, textPaint)
-            row += 1
-        }
+        VerticalTextRenderer.draw(canvas, text, rect, textPaint, layout)
     }
 
     private fun findDefaultVerticalTextSize(

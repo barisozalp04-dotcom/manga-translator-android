@@ -20,6 +20,7 @@ import com.manga.translate.di.appContainer
 import com.manga.translate.library.LibraryUiBridge
 import com.manga.translate.platform.AppLogger
 import com.manga.translate.platform.GlobalTaskProgressStore
+import com.manga.translate.platform.GlobalTaskProgressStage
 import com.manga.translate.platform.TranslationCancellationRegistry
 import com.manga.translate.storage.TranslationTaskDescriptor
 import com.manga.translate.storage.TranslationTaskPersistence
@@ -180,7 +181,7 @@ class TranslationKeepAliveService : Service() {
             "MangaTranslator:TranslationKeepAlive"
         ).apply {
             setReferenceCounted(false)
-            acquire()
+            acquire(WAKE_LOCK_TIMEOUT_MILLIS)
         }
     }
 
@@ -385,6 +386,7 @@ class TranslationKeepAliveService : Service() {
         private const val ALERT_NOTIFICATION_REQUEST_CODE = 2
         private const val RESULT_NOTIFICATION_REQUEST_CODE = 3
         private const val CANCEL_REQUEST_CODE = 1
+        private const val WAKE_LOCK_TIMEOUT_MILLIS = 30 * 60 * 1000L
         private const val EXTRA_TITLE = "extra_title"
         private const val EXTRA_MESSAGE = "extra_message"
         private const val EXTRA_CONTENT = "extra_content"
@@ -469,10 +471,15 @@ class TranslationKeepAliveService : Service() {
             )
         }
 
-        fun updateStatus(context: Context, status: String) {
+        internal fun updateStatus(
+            context: Context,
+            status: String,
+            stage: GlobalTaskProgressStage? = null
+        ) {
             GlobalTaskProgressStore.show(
                 title = context.getString(R.string.translation_keepalive_title),
-                detail = status
+                detail = status,
+                stage = stage
             )
             notifyProgress(
                 context,
@@ -559,19 +566,23 @@ class TranslationKeepAliveService : Service() {
             )
         }
 
-        fun updateProgress(
+        internal fun updateProgress(
             context: Context,
             progress: Int,
             total: Int,
             content: String,
             title: String,
-            message: String
+            message: String,
+            failedCount: Int? = null,
+            stage: GlobalTaskProgressStage? = null
         ) {
             GlobalTaskProgressStore.show(
                 title = title,
                 detail = content,
                 progress = progress,
-                total = total
+                total = total,
+                failedCount = failedCount,
+                stage = stage
             )
             notifyProgress(context, title, message, content, progress, total)
         }

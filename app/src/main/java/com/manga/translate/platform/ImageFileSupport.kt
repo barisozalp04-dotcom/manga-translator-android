@@ -8,15 +8,18 @@ object ImageFileSupport {
     private const val AVIF_EXTENSION = "avif"
     private const val PNG_EXTENSION = "png"
 
-    fun supportsAvifDecoding(): Boolean = true
-
     fun isAvifFile(name: String): Boolean = extensionOf(name) == AVIF_EXTENSION
+
+    fun isAvifMimeType(mimeType: String?): Boolean =
+        mimeType.equals("image/avif", ignoreCase = true)
 
     fun isSupportedSourceImageFileName(name: String): Boolean {
         val extension = extensionOf(name) ?: return false
-        return extension in BASE_SOURCE_EXTENSIONS ||
-            (extension == AVIF_EXTENSION && supportsAvifDecoding())
+        return extension in BASE_SOURCE_EXTENSIONS || extension == AVIF_EXTENSION
     }
+
+    fun isSupportedImportImageFileName(name: String): Boolean =
+        isSupportedSourceImageFileName(name)
 
     fun isSupportedRenderedImageFileName(name: String): Boolean {
         return isSupportedSourceImageFileName(name) || extensionOf(name) == PNG_EXTENSION
@@ -29,6 +32,9 @@ object ImageFileSupport {
             sourceName
         }
     }
+
+    fun resolveImportedAvifOutputName(sourceName: String): String =
+        "${sourceName.substringBeforeLast('.', sourceName)}.$PNG_EXTENSION"
 
     fun buildNameLookup(files: List<File>): Map<String, File> {
         return files.associateBy { normalizeName(it.name) }

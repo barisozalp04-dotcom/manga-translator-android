@@ -33,6 +33,7 @@ import com.manga.translate.model.LinkSource
 import com.manga.translate.model.ThemeMode
 import com.manga.translate.platform.AppLogger
 import com.manga.translate.platform.GlobalTaskProgressState
+import com.manga.translate.platform.GlobalTaskProgressStage
 import com.manga.translate.platform.GlobalTaskProgressStore
 import com.manga.translate.platform.showWithScrollableMessage
 import com.manga.translate.theming.CustomThemeUiApplier
@@ -513,12 +514,34 @@ class MainActivity : AppCompatActivity() {
                 getString(R.string.global_progress_done, label)
             }
         }
+        when (state.stage) {
+            GlobalTaskProgressStage.PREPARING_TRANSLATION ->
+                return getString(R.string.global_progress_preparing_translation)
+            GlobalTaskProgressStage.DETECTING_REGIONS ->
+                return getString(R.string.detecting_bubbles)
+            GlobalTaskProgressStage.OCR ->
+                return getString(R.string.global_progress_in_progress, "OCR")
+            GlobalTaskProgressStage.GLOSSARY ->
+                return getString(
+                    R.string.global_progress_in_progress,
+                    getString(R.string.global_progress_glossary)
+                )
+            GlobalTaskProgressStage.TRANSLATING, null -> Unit
+        }
         val stage = extractStage(state.detail)
         if (stage != null) {
             return stage
         }
         val progress = extractProgress(state)
         if (progress != null) {
+            state.failedCount?.let { failedCount ->
+                return getString(
+                    R.string.folder_translation_processed,
+                    progress.first,
+                    progress.second,
+                    failedCount
+                )
+            }
             return getString(R.string.global_progress_count, label, progress.first, progress.second)
         }
         return getString(R.string.global_progress_in_progress, label)
@@ -539,6 +562,8 @@ class MainActivity : AppCompatActivity() {
 
     private fun extractStage(detail: String): String? {
         return when {
+            detail.contains(getString(R.string.detecting_bubbles)) ->
+                getString(R.string.detecting_bubbles)
             detail.contains(getString(R.string.translation_preparing)) &&
                 detail.contains("OCR", ignoreCase = true) -> getString(R.string.folder_preprocess_stage_ocr)
             detail.contains(getString(R.string.translation_preparing)) &&

@@ -74,10 +74,5 @@ interface LlmGateway {
         retryCount: Int = 3,
         apiSettings: ApiSettings? = null
     ): String?
-    suspend fun recognizeFullPageWithBaidu(
-        image: Bitmap,
-        language: TranslationLanguage
-    ): List<BaiduOcrWord>?
-
     fun resourceContext(): Context
 }

@@ -6,6 +6,7 @@ import android.graphics.Color
 import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.Path
+import android.graphics.PathMeasure
 import android.graphics.RectF
 import androidx.core.graphics.createBitmap
 import com.manga.translate.model.BubbleTranslation
@@ -103,7 +104,8 @@ internal object BubbleShapePaths {
         val top: Int,
         val right: Int,
         val bottom: Int,
-        val pad: Float
+        val pad: Float,
+        val shapeHash: Long
     )
 
     private val safeRectCache = androidx.collection.LruCache<SafeRectCacheKey, RectF>(128)
@@ -118,7 +120,8 @@ internal object BubbleShapePaths {
             top = pathBounds.top.toInt(),
             right = pathBounds.right.toInt(),
             bottom = pathBounds.bottom.toInt(),
-            pad = fallbackPad
+            pad = fallbackPad,
+            shapeHash = pathShapeHash(path)
         )
         safeRectCache.get(key)?.let { cached ->
             if (cached.width() > 0f && cached.height() > 0f) {
@@ -134,6 +137,25 @@ internal object BubbleShapePaths {
 
     fun clearSafeRectCache() {
         safeRectCache.evictAll()
+    }
+
+    private fun pathShapeHash(path: Path): Long {
+        val measure = PathMeasure(path, false)
+        val position = FloatArray(2)
+        var hash = 17L
+        do {
+            val length = measure.length
+            hash = hash * 31 + java.lang.Float.floatToIntBits(length).toLong()
+            val samples = 8
+            for (index in 0..samples) {
+                val distance = if (samples == 0) 0f else length * index / samples.toFloat()
+                if (measure.getPosTan(distance, position, null)) {
+                    hash = hash * 31 + java.lang.Float.floatToIntBits(position[0]).toLong()
+                    hash = hash * 31 + java.lang.Float.floatToIntBits(position[1]).toLong()
+                }
+            }
+        } while (measure.nextContour())
+        return hash
     }
 
     private fun applyShrink(path: Path, shrinkPercent: Int) {

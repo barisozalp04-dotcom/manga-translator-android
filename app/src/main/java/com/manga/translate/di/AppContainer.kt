@@ -8,7 +8,7 @@ import com.manga.translate.floating.FloatingEmptyBubbleCoordinator
 import com.manga.translate.library.LibraryPreferencesGateway
 import com.manga.translate.library.LibraryRepository
 import com.manga.translate.library.LibraryUiCallbacks
-import com.manga.translate.network.BaiduAccessTokenManager
+import com.manga.translate.library.ExportTaskHost
 import com.manga.translate.network.LlmClient
 import com.manga.translate.ocr.BubbleTextRecognizer
 import com.manga.translate.ocr.OcrEngineRegistry
@@ -34,12 +34,12 @@ import java.util.concurrent.CopyOnWriteArrayList
 internal class AppContainer(private val appContext: Context) {
     private val translationPipelines = CopyOnWriteArrayList<WeakReference<TranslationPipeline>>()
     val settingsStore = SettingsStore(appContext)
-    val baiduAccessTokenManager = BaiduAccessTokenManager(appContext)
     val crashStateStore = CrashStateStore(appContext)
     val updateIgnoreStore = UpdateIgnoreStore(appContext)
     val readingProgressStore = ReadingProgressStore(appContext)
     val libraryRepository = LibraryRepository(appContext)
-    val llmClient = LlmClient(appContext, settingsStore, baiduAccessTokenManager)
+    val exportTaskHost = ExportTaskHost()
+    val llmClient = LlmClient(appContext, settingsStore)
     val ocrEngineRegistry = com.manga.translate.ocr.OcrEngineRegistry(appContext, settingsStore)
     val localModelMemoryManager = LocalModelMemoryManager {
         releasePipelineModels()
@@ -47,7 +47,7 @@ internal class AppContainer(private val appContext: Context) {
         OnnxRuntimeSupport.closeCachedSessions()
     }
     val bubbleTextRecognizer =
-        com.manga.translate.ocr.BubbleTextRecognizer(llmClient, ocrEngineRegistry, settingsStore)
+        com.manga.translate.ocr.BubbleTextRecognizer(llmClient, ocrEngineRegistry)
     val translationStore = TranslationStore()
     val ocrStore = OcrStore()
     val glossaryStore = GlossaryStore()
@@ -95,6 +95,7 @@ internal class AppContainer(private val appContext: Context) {
             glossaryStore = glossaryStore,
             extractStateStore = extractStateStore,
             translationStore = translationStore,
+            ocrStore = ocrStore,
             settingsStore = settingsStore,
             preferencesGateway = LibraryPreferencesGateway(
                 context = appContext,

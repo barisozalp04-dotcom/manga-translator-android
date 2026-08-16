@@ -28,6 +28,10 @@ internal object LibraryUiBridge {
         callbacks.forEach { it.setTranslationActionsEnabled(enabled) }
     }
 
+    fun setFolderExportEnabled(folder: File, enabled: Boolean) {
+        callbacks.forEach { it.setFolderExportEnabled(folder, enabled) }
+    }
+
     fun showToast(resId: Int) {
         callbacks.forEach { it.showToast(resId) }
     }
@@ -70,6 +74,10 @@ internal object LibraryUiBridge {
 
     fun refreshImages(folder: File) {
         callbacks.forEach { it.refreshImages(folder) }
+    }
+
+    fun showExportSuccess(path: String) {
+        callbacks.firstOrNull { it.isLibraryInForeground() }?.showExportSuccess(path)
     }
 
     fun isAppInForeground(): Boolean = callbacks.any { it.isAppInForeground() }

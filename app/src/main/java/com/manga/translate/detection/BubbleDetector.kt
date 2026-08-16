@@ -10,10 +10,11 @@ import com.manga.translate.model.TranslationCoreDefaults
 import com.manga.translate.platform.AppLogger
 import com.manga.translate.settings.SettingsStore
 import java.nio.FloatBuffer
-import kotlin.math.exp
+import kotlin.math.abs
+import kotlin.math.ceil
 import kotlin.math.floor
 import kotlin.math.max
-import kotlin.math.min
+import kotlin.math.roundToInt
 
 data class BubbleDetection(
     val rect: RectF,
@@ -24,16 +25,21 @@ data class BubbleDetection(
 
 data class UnifiedRegionDetection(
     val balloons: List<BubbleDetection>,
-    val freeTextRects: List<RectF>
+    val freeTextRects: List<RectF>,
+    val detectedTextLines: List<RectF>? = null
 )
 
+private const val MASK_COEFFICIENT_COUNT = 32
+private const val END_TO_END_FEATURE_COUNT = 6 + MASK_COEFFICIENT_COUNT
+private const val END_TO_END_DETECTION_COUNT = 300
+
 /**
- * Manga109 YOLO11n-seg speech-bubble detector.
+ * YOLO26n-seg speech-bubble detector.
  *
- * The exported model has one class (`balloon`) and emits the normal Ultralytics
- * segmentation head: [1, 37, 52500] (`xywh`, confidence, 32 mask coefficients)
- * plus [1, 32, 400, 400] mask prototypes. The detection boxes and confidence
- * are already decoded by the ONNX graph; only NMS and mask reconstruction remain.
+ * The exported end-to-end model has one class (`bubble`) and emits 300 rows as
+ * [x1, y1, x2, y2, confidence, classId, 32 mask coefficients], plus
+ * [1, 32, 368, 368] mask prototypes. Candidate selection is embedded in the
+ * graph, so only confidence filtering and mask reconstruction remain here.
  */
 class BubbleDetector(
     private val context: Context,
@@ -79,7 +85,7 @@ class BubbleDetector(
                     ?: return UnifiedRegionDetection(emptyList(), emptyList())
                 val output0Shape = (output0.info as TensorInfo).shape
                 val configuredThreshold = settingsStore.loadBubbleConfThresholdPercent() / 100f
-                val rawDetections = parseDetections(
+                val detections = parseDetections(
                     buffer = output0.floatBuffer,
                     shape = output0Shape,
                     configuredThreshold = configuredThreshold
@@ -96,24 +102,17 @@ class BubbleDetector(
                 }
 
                 if (settingsStore.loadModelIoLogging()) {
-                    val maxConfidence = rawDetections.maxOfOrNull { it.confidence } ?: 0f
+                    val maxConfidence = detections.maxOfOrNull { it.confidence } ?: 0f
                     AppLogger.log(
                         "BubbleDetector",
-                        "Raw detections=${rawDetections.size}, configured=$configuredThreshold, " +
+                        "Detections=${detections.size}, configured=$configuredThreshold, " +
                             "max balloon=${formatConfidence(maxConfidence)}, " +
                             "input=${inputWidth}x$inputHeight"
                     )
                 }
 
-                val filtered = filterByNms(
-                    detections = rawDetections,
-                    iouThreshold = TranslationCoreDefaults.BubbleDetectorNmsIouThreshold,
-                    preprocessed = preprocessed,
-                    originalWidth = bitmap.width,
-                    originalHeight = bitmap.height
-                )
-                val balloons = ArrayList<BubbleDetection>(filtered.size)
-                for (raw in filtered) {
+                val balloons = ArrayList<BubbleDetection>(detections.size)
+                for (raw in detections) {
                     val rect = raw.toRect(preprocessed, bitmap.width, bitmap.height)
                     if (rect.width() <= 1f || rect.height() <= 1f) continue
                     val contour = prototypes?.let { proto ->
@@ -138,14 +137,24 @@ class BubbleDetector(
                         )
                     )
                 }
+                val deduplicatedBalloons = deduplicateBubbleDetections(balloons)
+                val duplicateCount = balloons.size - deduplicatedBalloons.size
+                if (duplicateCount > 0) {
+                    AppLogger.log(
+                        "BubbleDetector",
+                        "Removed $duplicateCount overlapping bubble detection(s), " +
+                            "kept ${deduplicatedBalloons.size}"
+                    )
+                }
                 if (settingsStore.loadModelIoLogging()) {
                     AppLogger.log(
                         "BubbleDetector",
-                        "Balloons kept=${balloons.size}; maskContours=${balloons.count { it.maskContour != null }}"
+                        "Balloons kept=${deduplicatedBalloons.size}; " +
+                            "maskContours=${deduplicatedBalloons.count { it.maskContour != null }}"
                     )
                 }
                 return UnifiedRegionDetection(
-                    balloons = balloons,
+                    balloons = deduplicatedBalloons,
                     freeTextRects = emptyList()
                 )
             }
@@ -160,17 +169,14 @@ class BubbleDetector(
         shape: LongArray,
         configuredThreshold: Float
     ): List<RawDetection> {
-        if (shape.size != 3 || shape[0] != 1L) return emptyList()
-        val dim1 = shape[1].toInt()
-        val dim2 = shape[2].toInt()
-        if (dim1 <= 0 || dim2 <= 0) return emptyList()
-
-        // Ultralytics exports channels-first [1, 37, 52500]. Accept the
-        // transposed form as well so a future re-export remains loadable.
-        val channelsFirst = dim1 <= dim2
-        val featureCount = if (channelsFirst) dim1 else dim2
-        val detectionCount = if (channelsFirst) dim2 else dim1
-        if (featureCount < 5 + MASK_COEFFICIENT_COUNT) return emptyList()
+        if (
+            shape.size != 3 ||
+            shape[0] != 1L ||
+            shape[1] != END_TO_END_DETECTION_COUNT.toLong() ||
+            shape[2] != END_TO_END_FEATURE_COUNT.toLong()
+        ) {
+            return emptyList()
+        }
 
         val threshold = effectiveDetectionConfidenceThreshold(
             classId = CLASS_BALLOON,
@@ -179,61 +185,25 @@ class BubbleDetector(
         val values = buffer.duplicate()
         values.rewind()
         val result = ArrayList<RawDetection>()
-        for (index in 0 until detectionCount) {
-            val base = if (channelsFirst) 0 else index * featureCount
-            val cx = readFeature(values, base, index, featureCount, detectionCount, channelsFirst, 0)
-            val cy = readFeature(values, base, index, featureCount, detectionCount, channelsFirst, 1)
-            val width = readFeature(values, base, index, featureCount, detectionCount, channelsFirst, 2)
-            val height = readFeature(values, base, index, featureCount, detectionCount, channelsFirst, 3)
-            val confidence = readFeature(values, base, index, featureCount, detectionCount, channelsFirst, 4)
-            if (
-                !cx.isFinite() || !cy.isFinite() || !width.isFinite() || !height.isFinite() ||
-                !confidence.isFinite() || width <= 0f || height <= 0f || confidence < threshold
-            ) {
-                continue
+        for (index in 0 until END_TO_END_DETECTION_COUNT) {
+            val base = index * END_TO_END_FEATURE_COUNT
+            val row = FloatArray(END_TO_END_FEATURE_COUNT) { featureIndex ->
+                values.get(base + featureIndex)
             }
-            val coefficients = FloatArray(MASK_COEFFICIENT_COUNT)
-            for (coefficient in coefficients.indices) {
-                coefficients[coefficient] = readFeature(
-                    values,
-                    base,
-                    index,
-                    featureCount,
-                    detectionCount,
-                    channelsFirst,
-                    5 + coefficient
-                )
-            }
+            val decoded = decodeEndToEndBubbleRow(row) ?: continue
+            if (decoded.classId != CLASS_BALLOON || decoded.confidence < threshold) continue
             result.add(
                 RawDetection(
-                    cx = cx,
-                    cy = cy,
-                    width = width,
-                    height = height,
-                    confidence = confidence.coerceIn(0f, 1f),
-                    classId = CLASS_BALLOON,
-                    maskCoefficients = coefficients
+                    cx = (decoded.left + decoded.right) / 2f,
+                    cy = (decoded.top + decoded.bottom) / 2f,
+                    width = decoded.right - decoded.left,
+                    height = decoded.bottom - decoded.top,
+                    confidence = decoded.confidence.coerceIn(0f, 1f),
+                    maskCoefficients = decoded.maskCoefficients
                 )
             )
         }
         return result
-    }
-
-    private fun readFeature(
-        values: FloatBuffer,
-        base: Int,
-        detectionIndex: Int,
-        featureCount: Int,
-        detectionCount: Int,
-        channelsFirst: Boolean,
-        featureIndex: Int
-    ): Float {
-        val offset = if (channelsFirst) {
-            featureIndex * detectionCount + detectionIndex
-        } else {
-            base + featureIndex
-        }
-        return values.get(offset)
     }
 
     private fun parsePrototypes(buffer: FloatBuffer, shape: LongArray): PrototypeData? {
@@ -249,33 +219,6 @@ class BubbleDetector(
         val data = FloatArray(expected)
         values.get(data)
         return PrototypeData(data = data, height = height, width = width)
-    }
-
-    private fun filterByNms(
-        detections: List<RawDetection>,
-        iouThreshold: Float,
-        preprocessed: LetterboxResult,
-        originalWidth: Int,
-        originalHeight: Int
-    ): List<RawDetection> {
-        val sorted = detections.sortedByDescending { it.confidence }
-        val selected = ArrayList<RawDetection>()
-        val suppressed = BooleanArray(sorted.size)
-        for (index in sorted.indices) {
-            if (suppressed[index]) continue
-            val detection = sorted[index]
-            val rect = detection.toRect(preprocessed, originalWidth, originalHeight)
-            selected.add(detection)
-            for (otherIndex in index + 1 until sorted.size) {
-                if (suppressed[otherIndex]) continue
-                val overlap = iou(
-                    rect,
-                    sorted[otherIndex].toRect(preprocessed, originalWidth, originalHeight)
-                )
-                if (overlap > iouThreshold) suppressed[otherIndex] = true
-            }
-        }
-        return selected
     }
 
     /**
@@ -300,9 +243,29 @@ class BubbleDetector(
         val inputBottom = (detection.cy + detection.height / 2f).coerceIn(0f, inputHeight.toFloat())
         val x1 = floor(inputLeft / inputWidth * protoWidth).toInt().coerceIn(0, protoWidth - 1)
         val y1 = floor(inputTop / inputHeight * protoHeight).toInt().coerceIn(0, protoHeight - 1)
-        val x2 = floor(inputRight / inputWidth * protoWidth).toInt().coerceIn(x1 + 1, protoWidth)
-        val y2 = floor(inputBottom / inputHeight * protoHeight).toInt().coerceIn(y1 + 1, protoHeight)
+        val x2 = ceil(inputRight / inputWidth * protoWidth).toInt().coerceIn(x1 + 1, protoWidth)
+        val y2 = ceil(inputBottom / inputHeight * protoHeight).toInt().coerceIn(y1 + 1, protoHeight)
         if (x2 <= x1 || y2 <= y1) return null
+
+        val maskWidth = x2 - x1
+        val maskHeight = y2 - y1
+        val foreground = BooleanArray(maskWidth * maskHeight)
+        for (localY in 0 until maskHeight) {
+            val protoOffset = (y1 + localY) * protoWidth + x1
+            for (localX in 0 until maskWidth) {
+                var score = 0f
+                for (coefficient in detection.maskCoefficients.indices) {
+                    score += detection.maskCoefficients[coefficient] *
+                        prototypes[coefficient * protoHeight * protoWidth + protoOffset + localX]
+                }
+                foreground[localY * maskWidth + localX] = score >= 0f
+            }
+        }
+        val mainComponent = retainLargestConnectedMaskComponent(
+            foreground,
+            maskWidth,
+            maskHeight
+        ) ?: return null
 
         val sampleCount = (y2 - y1).coerceIn(4, MAX_CONTOUR_SAMPLES)
         val leftEdge = ArrayList<Float>(sampleCount * 2)
@@ -313,13 +276,7 @@ class BubbleDetector(
             var leftX = -1
             var rightX = -1
             for (x in x1 until x2) {
-                var score = 0f
-                val protoOffset = y * protoWidth + x
-                for (coefficient in detection.maskCoefficients.indices) {
-                    score += detection.maskCoefficients[coefficient] *
-                        prototypes[coefficient * protoHeight * protoWidth + protoOffset]
-                }
-                if (sigmoid(score) >= MASK_THRESHOLD) {
+                if (mainComponent[(y - y1) * maskWidth + (x - x1)]) {
                     if (leftX < 0) leftX = x
                     rightX = x
                 }
@@ -374,18 +331,6 @@ class BubbleDetector(
         )
     }
 
-    private fun iou(first: RectF, second: RectF): Float {
-        val left = max(first.left, second.left)
-        val top = max(first.top, second.top)
-        val right = min(first.right, second.right)
-        val bottom = min(first.bottom, second.bottom)
-        val intersection = max(0f, right - left) * max(0f, bottom - top)
-        val firstArea = max(0f, first.width()) * max(0f, first.height())
-        val secondArea = max(0f, second.width()) * max(0f, second.height())
-        val union = firstArea + secondArea - intersection
-        return if (union <= 0f) 0f else intersection / union
-    }
-
     private fun createSession(): OrtSession {
         return OnnxRuntimeSupport.getOrCreateSession(
             cacheDir = context.cacheDir,
@@ -399,14 +344,12 @@ class BubbleDetector(
     private fun formatConfidence(value: Float): String = "%.3f".format(value)
 
     companion object {
-        const val DEFAULT_MODEL_ASSET = "models/detection/manga109-segmentation-bubble.onnx"
+        const val DEFAULT_MODEL_ASSET = "models/detection/manga-bubble-seg-yolo26n-1472.onnx"
         const val CLASS_BALLOON = 0
         // Kept for the shared confidence helper and existing unit tests. The
         // segmentation model itself only emits CLASS_BALLOON.
         const val CLASS_TEXT = 1
-        private const val DEFAULT_INPUT_SIZE = 1600
-        private const val MASK_COEFFICIENT_COUNT = 32
-        private const val MASK_THRESHOLD = 0.5f
+        private const val DEFAULT_INPUT_SIZE = 1472
         private const val MAX_CONTOUR_SAMPLES = 48
     }
 }
@@ -423,7 +366,6 @@ private data class RawDetection(
     val width: Float,
     val height: Float,
     val confidence: Float,
-    val classId: Int,
     val maskCoefficients: FloatArray
 ) {
     fun toRect(
@@ -444,6 +386,92 @@ private data class RawDetection(
             bottom.coerceIn(0f, maxY)
         )
     }
+}
+
+internal data class EndToEndBubbleRow(
+    val left: Float,
+    val top: Float,
+    val right: Float,
+    val bottom: Float,
+    val confidence: Float,
+    val classId: Int,
+    val maskCoefficients: FloatArray
+)
+
+internal fun retainLargestConnectedMaskComponent(
+    foreground: BooleanArray,
+    width: Int,
+    height: Int
+): BooleanArray? {
+    if (width <= 0 || height <= 0 || foreground.size != width * height) return null
+    val labels = IntArray(foreground.size)
+    val queue = IntArray(foreground.size)
+    var nextLabel = 0
+    var largestLabel = 0
+    var largestSize = 0
+
+    for (start in foreground.indices) {
+        if (!foreground[start] || labels[start] != 0) continue
+        nextLabel++
+        var head = 0
+        var tail = 0
+        var componentSize = 0
+        queue[tail++] = start
+        labels[start] = nextLabel
+        while (head < tail) {
+            val current = queue[head++]
+            componentSize++
+            val currentX = current % width
+            val currentY = current / width
+            val minY = maxOf(0, currentY - 1)
+            val maxY = minOf(height - 1, currentY + 1)
+            val minX = maxOf(0, currentX - 1)
+            val maxX = minOf(width - 1, currentX + 1)
+            for (neighborY in minY..maxY) {
+                for (neighborX in minX..maxX) {
+                    val neighbor = neighborY * width + neighborX
+                    if (!foreground[neighbor] || labels[neighbor] != 0) continue
+                    labels[neighbor] = nextLabel
+                    queue[tail++] = neighbor
+                }
+            }
+        }
+        if (componentSize > largestSize) {
+            largestLabel = nextLabel
+            largestSize = componentSize
+        }
+    }
+    if (largestLabel == 0) return null
+    return BooleanArray(foreground.size) { labels[it] == largestLabel }
+}
+
+internal fun decodeEndToEndBubbleRow(featureRow: FloatArray): EndToEndBubbleRow? {
+    if (featureRow.size != END_TO_END_FEATURE_COUNT) return null
+    val left = featureRow[0]
+    val top = featureRow[1]
+    val right = featureRow[2]
+    val bottom = featureRow[3]
+    val confidence = featureRow[4]
+    val classValue = featureRow[5]
+    if (
+        !left.isFinite() || !top.isFinite() || !right.isFinite() || !bottom.isFinite() ||
+        !confidence.isFinite() || !classValue.isFinite() || right <= left || bottom <= top
+    ) {
+        return null
+    }
+    val classId = classValue.roundToInt()
+    if (abs(classValue - classId) > 1e-3f) return null
+    val coefficients = featureRow.copyOfRange(6, featureRow.size)
+    if (coefficients.any { !it.isFinite() }) return null
+    return EndToEndBubbleRow(
+        left = left,
+        top = top,
+        right = right,
+        bottom = bottom,
+        confidence = confidence,
+        classId = classId,
+        maskCoefficients = coefficients
+    )
 }
 
 internal data class YoloClassScore(
@@ -482,11 +510,78 @@ internal fun effectiveDetectionConfidenceThreshold(
     }
 }
 
-private fun sigmoid(value: Float): Float {
-    return if (value >= 0f) {
-        1f / (1f + exp(-value))
-    } else {
-        val expValue = exp(value)
-        expValue / (1f + expValue)
+/**
+ * Final class-aware NMS for residual overlapping boxes left by the exported model.
+ * The result keeps the detector's original order while selecting winners by confidence.
+ */
+internal fun deduplicateBubbleDetections(
+    detections: List<BubbleDetection>,
+    iouThreshold: Float = TranslationCoreDefaults.BubbleDedupIouThreshold
+): List<BubbleDetection> {
+    if (detections.size <= 1) return detections
+
+    val ranked = detections.indices.sortedWith(
+        compareByDescending<Int> { detections[it].confidence }
+            .thenByDescending { detectionArea(detections[it].rect) }
+            .thenBy { it }
+    )
+    val keptIndices = ArrayList<Int>(detections.size)
+    for (candidateIndex in ranked) {
+        val candidate = detections[candidateIndex]
+        val duplicate = keptIndices.any { keptIndex ->
+            val kept = detections[keptIndex]
+            candidate.classId == kept.classId &&
+                areDuplicateBubbleRects(candidate.rect, kept.rect, iouThreshold)
+        }
+        if (!duplicate) keptIndices.add(candidateIndex)
     }
+    keptIndices.sort()
+    return keptIndices.map(detections::get)
 }
+
+private fun areDuplicateBubbleRects(a: RectF, b: RectF, iouThreshold: Float): Boolean {
+    val areaA = detectionArea(a)
+    val areaB = detectionArea(b)
+    if (areaA <= 0f || areaB <= 0f) return false
+
+    val intersection = detectionIntersectionArea(a, b)
+    if (intersection <= 0f) return false
+    val union = areaA + areaB - intersection
+    if (union > 0f && intersection / union >= iouThreshold.coerceIn(0f, 1f)) return true
+
+    val overlapOverMinArea = intersection / minOf(areaA, areaB)
+    if (overlapOverMinArea >= BUBBLE_DUPLICATE_CONTAINMENT_THRESHOLD) return true
+
+    // Slightly shifted predictions for the same bubble can fall below the strict NMS
+    // IoU threshold. Only use this relaxed path when their size and center also agree,
+    // so two genuinely adjacent bubbles that merely overlap are retained.
+    if (overlapOverMinArea < BUBBLE_DUPLICATE_RELAXED_OVERLAP_THRESHOLD) return false
+    val widthA = a.width()
+    val widthB = b.width()
+    val heightA = a.height()
+    val heightB = b.height()
+    val widthRatio = minOf(widthA, widthB) / maxOf(widthA, widthB)
+    val heightRatio = minOf(heightA, heightB) / maxOf(heightA, heightB)
+    if (widthRatio < BUBBLE_DUPLICATE_SIZE_RATIO_THRESHOLD ||
+        heightRatio < BUBBLE_DUPLICATE_SIZE_RATIO_THRESHOLD
+    ) {
+        return false
+    }
+
+    val centerDx = abs((a.left + a.right) - (b.left + b.right)) * 0.5f
+    val centerDy = abs((a.top + a.bottom) - (b.top + b.bottom)) * 0.5f
+    return centerDx <= minOf(widthA, widthB) * BUBBLE_DUPLICATE_CENTER_DRIFT_RATIO &&
+        centerDy <= minOf(heightA, heightB) * BUBBLE_DUPLICATE_CENTER_DRIFT_RATIO
+}
+
+private fun detectionArea(rect: RectF): Float =
+    max(0f, rect.width()) * max(0f, rect.height())
+
+private fun detectionIntersectionArea(a: RectF, b: RectF): Float =
+    max(0f, minOf(a.right, b.right) - max(a.left, b.left)) *
+        max(0f, minOf(a.bottom, b.bottom) - max(a.top, b.top))
+
+private const val BUBBLE_DUPLICATE_CONTAINMENT_THRESHOLD = 0.85f
+private const val BUBBLE_DUPLICATE_RELAXED_OVERLAP_THRESHOLD = 0.55f
+private const val BUBBLE_DUPLICATE_SIZE_RATIO_THRESHOLD = 0.75f
+private const val BUBBLE_DUPLICATE_CENTER_DRIFT_RATIO = 0.25f

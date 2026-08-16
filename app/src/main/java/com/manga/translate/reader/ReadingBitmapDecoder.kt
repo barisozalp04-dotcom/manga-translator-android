@@ -6,8 +6,6 @@ import android.graphics.BitmapRegionDecoder
 import android.graphics.Rect
 import android.os.Build
 import com.manga.translate.detection.shouldUseLongImageTiling
-import com.manga.translate.platform.AvifBitmapDecoder
-import com.manga.translate.platform.ImageFileSupport
 import com.manga.translate.platform.ImageProcessingGuards
 import kotlin.math.max
 
@@ -50,7 +48,9 @@ internal data class ReadingSourceTile(
 }
 
 object ReadingBitmapDecoder {
-    private const val DETAIL_MULTIPLIER = 3
+    // Decode a modest amount of extra detail for the first paint. Tiled paths can request
+    // sharper data later, while a lower multiplier keeps initial page latency down.
+    private const val INITIAL_DETAIL_MULTIPLIER = 2
     private const val MAX_LONG_EDGE = 8192
     private const val MAX_FULL_DECODE_PIXELS = 12_000_000
     private const val MAX_TOTAL_PIXELS = 16_777_216 // ~16MP hard cap for whole-image decode
@@ -58,9 +58,6 @@ object ReadingBitmapDecoder {
     private const val TILE_OUTPUT_PIXEL_BUDGET = 4_194_304 // ~4MP per tile plan unit
 
     suspend fun decode(imageFile: java.io.File, targetWidth: Int, targetHeight: Int): DecodedReadingBitmap? {
-        if (ImageFileSupport.isAvifFile(imageFile.name)) {
-            return decodeAvif(imageFile, targetWidth, targetHeight)
-        }
         val safeTargetWidth = targetWidth.coerceAtLeast(1)
         val safeTargetHeight = targetHeight.coerceAtLeast(1)
         val bounds = BitmapFactory.Options().apply {
@@ -92,39 +89,10 @@ object ReadingBitmapDecoder {
         val sampleSize = calculateInSampleSize(
             sourceWidth = sourceWidth,
             sourceHeight = sourceHeight,
-            targetWidth = safeTargetWidth * DETAIL_MULTIPLIER,
-            targetHeight = safeTargetHeight * DETAIL_MULTIPLIER
+            targetWidth = safeTargetWidth * INITIAL_DETAIL_MULTIPLIER,
+            targetHeight = safeTargetHeight * INITIAL_DETAIL_MULTIPLIER
         )
         val bitmap = decodeWholeImage(imageFile, sourceWidth, sourceHeight, sampleSize) ?: return null
-        return toDecodedReadingBitmap(
-            bitmap = bitmap,
-            sourceWidth = sourceWidth,
-            sourceHeight = sourceHeight
-        )
-    }
-
-    private suspend fun decodeAvif(
-        imageFile: java.io.File,
-        targetWidth: Int,
-        targetHeight: Int
-    ): DecodedReadingBitmap? {
-        val size = AvifBitmapDecoder.getSize(imageFile) ?: return null
-        val sourceWidth = size.width
-        val sourceHeight = size.height
-        if (sourceWidth <= 0 || sourceHeight <= 0) return null
-        // AVIF has no BitmapRegionDecoder path; decode as whole image with higher detail target.
-        val safeWidth = targetWidth.coerceAtLeast(1) * DETAIL_MULTIPLIER
-        val safeHeight = targetHeight.coerceAtLeast(1) * DETAIL_MULTIPLIER
-        val sampleSize = calculateInSampleSize(
-            sourceWidth = sourceWidth,
-            sourceHeight = sourceHeight,
-            targetWidth = safeWidth,
-            targetHeight = safeHeight
-        )
-        val decodeWidth = ceilDiv(sourceWidth, sampleSize)
-        val decodeHeight = ceilDiv(sourceHeight, sampleSize)
-        val (bitmap, _) = AvifBitmapDecoder.decodeSampled(imageFile, decodeWidth, decodeHeight)
-        if (bitmap == null) return null
         return toDecodedReadingBitmap(
             bitmap = bitmap,
             sourceWidth = sourceWidth,
@@ -193,7 +161,7 @@ object ReadingBitmapDecoder {
         targetHeight: Int
     ): Int {
         val preserveReadableWidth = shouldUseLongImageTiling(sourceWidth, sourceHeight)
-        val minReadableWidth = (targetWidth / DETAIL_MULTIPLIER).coerceAtLeast(1)
+        val minReadableWidth = (targetWidth / INITIAL_DETAIL_MULTIPLIER).coerceAtLeast(1)
         var sample = 1
         while (
             sourceWidth / (sample * 2) >= targetWidth &&

@@ -79,23 +79,6 @@
         </com.google.android.material.textfield.TextInputLayout>
 
         <com.google.android.material.textfield.TextInputLayout
-            android:id="@+id/ocr_secret_key_layout"
-            style="@style/Widget.MangaTranslator.Input"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:hint="@string/ocr_secret_key_hint"
-            android:visibility="gone">
-
-            <com.google.android.material.textfield.TextInputEditText
-                style="@style/Widget.MangaTranslator.DialogEditText"
-                android:id="@+id/ocr_secret_key_input"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:inputType="textPassword" />
-        </com.google.android.material.textfield.TextInputLayout>
-
-        <com.google.android.material.textfield.TextInputLayout
             android:id="@+id/ocr_model_name_layout"
             style="@style/Widget.MangaTranslator.Input"
             android:layout_width="match_parent"

@@ -32,7 +32,7 @@ internal class PendingBubbleRetranslator(
     suspend fun refill(
         imageFile: File,
         baseTranslation: TranslationResult,
-        glossary: MutableMap<String, String>,
+        glossary: Map<String, String>,
         language: TranslationLanguage,
         promptAsset: String,
         translationMode: String,
@@ -123,10 +123,6 @@ internal class PendingBubbleRetranslator(
             } ?: run {
                 AppLogger.log(logTag, "Refill returned null translation result")
                 return@withContext null
-            }
-
-            if (translated.glossaryUsed.isNotEmpty()) {
-                glossary.putAll(translated.glossaryUsed)
             }
 
             val translationMap = translated.bubbles.associateBy { it.id }

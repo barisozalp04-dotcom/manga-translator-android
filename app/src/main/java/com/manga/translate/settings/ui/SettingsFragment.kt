@@ -9,7 +9,6 @@ import com.manga.translate.settings.CustomThemeColors
 import com.manga.translate.settings.FloatingBubbleRenderSettings
 import com.manga.translate.settings.FloatingBubbleShape
 import com.manga.translate.settings.FloatingTranslateApiSettings
-import com.manga.translate.settings.JapaneseLocalOcrEngine
 import com.manga.translate.settings.LlmParameterSettings
 import com.manga.translate.settings.NormalBubbleRenderSettings
 import com.manga.translate.settings.OCR_PROVIDER_ID
@@ -47,6 +46,7 @@ import androidx.core.content.FileProvider
 import androidx.core.net.toUri
 import androidx.core.view.ViewCompat
 import androidx.core.view.doOnLayout
+import androidx.core.view.isEmpty
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import com.google.android.material.textfield.MaterialAutoCompleteTextView
@@ -83,8 +83,10 @@ import com.manga.translate.model.TranslationLanguage
 import com.manga.translate.network.LlmClient
 import com.manga.translate.network.LlmErrorCode
 import com.manga.translate.network.LlmRequestException
+import com.manga.translate.ocr.LocalOcrConcurrency
 import com.manga.translate.platform.AppLogger
 import com.manga.translate.platform.ErrorDialogFormatter
+import com.manga.translate.platform.ResourceWarningDialogs
 import com.manga.translate.platform.showWithScrollableMessage
 import com.manga.translate.rendering.BubbleFont
 import com.manga.translate.rendering.BubbleFontResolver
@@ -226,9 +228,9 @@ class SettingsFragment : Fragment() {
                 label = getString(R.string.custom_request_params_provider_ocr)
             )
         )
-        settingsStore.loadAdditionalTranslationProviders().forEachIndexed { index, _ ->
+        settingsStore.loadAdditionalTranslationProviders().forEachIndexed { index, provider ->
             options += RequestParamProviderOption(
-                providerId = "additional_${index + 1}",
+                providerId = provider.providerId,
                 label = settingsStore.defaultAdditionalProviderName(index)
             )
         }
@@ -999,7 +1001,9 @@ class SettingsFragment : Fragment() {
         ) { dialog, selected ->
             settingsStore.saveAppLanguage(selected)
             updateLanguageButton(selected)
-            AppCompatDelegate.setApplicationLocales(selected.resolveApplicationLocales())
+            AppCompatDelegate.setApplicationLocales(
+                selected.resolveApplicationLocales(requireContext())
+            )
             AppLogger.log("Settings", "App language set to ${selected.prefValue}")
             dialog.dismiss()
         }
@@ -1304,7 +1308,7 @@ class SettingsFragment : Fragment() {
                 override fun onStopTrackingTouch(seekBar: SeekBar?) {}
             }
         )
-        dialogBinding.normalBubbleHorizontalTextSwitch.isChecked = currentSettings.useHorizontalText
+        dialogBinding.normalBubbleVerticalTextSwitch.isChecked = !currentSettings.useHorizontalText
         dialogBinding.normalBubbleFreeAutoAdaptColorSwitch.isChecked = currentSettings.autoAdaptFreeBubbleColor
         AlertDialog.Builder(requireContext())
             .setTitle(R.string.normal_bubble_render_settings_title)
@@ -1324,7 +1328,7 @@ class SettingsFragment : Fragment() {
                         dialogBinding.normalBubbleFreeOpacityPercentInput.text?.toString()
                     ) ?: currentSettings.freeBubbleOpacityPercent,
                     minAreaPerCharSp = 16f + dialogBinding.normalBubbleMinAreaSeekbar.progress * 2.4f,
-                    useHorizontalText = dialogBinding.normalBubbleHorizontalTextSwitch.isChecked,
+                    useHorizontalText = !dialogBinding.normalBubbleVerticalTextSwitch.isChecked,
                     autoAdaptFreeBubbleColor = dialogBinding.normalBubbleFreeAutoAdaptColorSwitch.isChecked
                 )
                 settingsStore.saveNormalBubbleRenderSettings(updated)
@@ -1347,7 +1351,7 @@ class SettingsFragment : Fragment() {
             dialogBinding.floatingBubbleShapeInput,
             currentSettings.shape
         )
-        dialogBinding.floatingBubbleHorizontalTextSwitch.isChecked = currentSettings.useHorizontalText
+        dialogBinding.floatingBubbleVerticalTextSwitch.isChecked = !currentSettings.useHorizontalText
         dialogBinding.floatingBubbleAutoAdaptColorSwitch.isChecked = currentSettings.autoAdaptBubbleColor
         val seekBarProgress = ((currentSettings.minAreaPerCharSp - 16f) / 2.4f).roundToInt().coerceIn(0, 100)
         dialogBinding.floatingBubbleMinAreaSeekbar.progress = seekBarProgress
@@ -1379,7 +1383,7 @@ class SettingsFragment : Fragment() {
                         dialogBinding.floatingBubbleShapeInput,
                         currentSettings.shape
                     ),
-                    useHorizontalText = dialogBinding.floatingBubbleHorizontalTextSwitch.isChecked,
+                    useHorizontalText = !dialogBinding.floatingBubbleVerticalTextSwitch.isChecked,
                     minAreaPerCharSp = 16f + dialogBinding.floatingBubbleMinAreaSeekbar.progress * 2.4f,
                     autoAdaptBubbleColor = dialogBinding.floatingBubbleAutoAdaptColorSwitch.isChecked
                 )
@@ -1462,6 +1466,9 @@ class SettingsFragment : Fragment() {
                 android.view.MotionEvent.ACTION_UP,
                 android.view.MotionEvent.ACTION_CANCEL -> {
                     view.parent?.requestDisallowInterceptTouchEvent(false)
+                    if (event.actionMasked == android.view.MotionEvent.ACTION_UP) {
+                        view.performClick()
+                    }
                 }
             }
             false
@@ -1478,9 +1485,18 @@ class SettingsFragment : Fragment() {
                 persistSettings()
                 val saved = settingsStore.saveCurrentAsAiProviderProfile(profileName)
                 if (!saved) {
+                    val message = if (
+                        settingsStore.loadAiProviderProfilesState().profiles.any {
+                            it.name == profileName
+                        }
+                    ) {
+                        R.string.ai_provider_profiles_name_duplicate
+                    } else {
+                        R.string.ai_provider_profiles_write_failed
+                    }
                     Toast.makeText(
                         requireContext(),
-                        R.string.ai_provider_profiles_name_duplicate,
+                        message,
                         Toast.LENGTH_SHORT
                     ).show()
                     return@showCreateAiProviderProfileDialog
@@ -1494,9 +1510,14 @@ class SettingsFragment : Fragment() {
         dialogBinding.aiProviderProfilesOverwriteButton.setOnClickListener {
             persistSettings()
             if (!settingsStore.overwriteActiveAiProviderProfile()) {
+                val message = if (settingsStore.loadAiProviderProfilesState().activeProfileName == null) {
+                    R.string.ai_provider_profiles_overwrite_missing
+                } else {
+                    R.string.ai_provider_profiles_write_failed
+                }
                 Toast.makeText(
                     requireContext(),
-                    R.string.ai_provider_profiles_overwrite_missing,
+                    message,
                     Toast.LENGTH_SHORT
                 ).show()
                 return@setOnClickListener
@@ -1515,10 +1536,18 @@ class SettingsFragment : Fragment() {
                 ).show()
                 return@setOnClickListener
             }
+            if (!settingsStore.canApplyAiProviderProfile(profileName)) {
+                Toast.makeText(
+                    requireContext(),
+                    R.string.ai_provider_profiles_apply_invalid,
+                    Toast.LENGTH_SHORT
+                ).show()
+                return@setOnClickListener
+            }
             if (!settingsStore.applyAiProviderProfile(profileName)) {
                 Toast.makeText(
                     requireContext(),
-                    R.string.ai_provider_profiles_select_required,
+                    R.string.ai_provider_profiles_write_failed,
                     Toast.LENGTH_SHORT
                 ).show()
                 return@setOnClickListener
@@ -1553,6 +1582,12 @@ class SettingsFragment : Fragment() {
                         Toast.makeText(
                             requireContext(),
                             R.string.ai_provider_profiles_deleted,
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    } else {
+                        Toast.makeText(
+                            requireContext(),
+                            R.string.ai_provider_profiles_write_failed,
                             Toast.LENGTH_SHORT
                         ).show()
                     }
@@ -1839,7 +1874,7 @@ class SettingsFragment : Fragment() {
             }
             rowBinding.customRequestParamDeleteButton.setOnClickListener {
                 dialogBinding.customRequestParamsContainer.removeView(rowBinding.root)
-                if (dialogBinding.customRequestParamsContainer.childCount == 0) {
+                if (dialogBinding.customRequestParamsContainer.isEmpty()) {
                     addRow()
                 } else {
                     refreshRowTitles()
@@ -1925,6 +1960,7 @@ class SettingsFragment : Fragment() {
                 dialogBinding.multiProviderSchedulingContainer,
                 false
             )
+            rowBinding.root.setTag(R.id.additional_translation_provider_uuid, provider.providerId)
             rowBinding.translationProviderEnabledSwitch.isChecked = provider.enabled
             rowBinding.translationProviderApiUrlInput.setText(provider.apiUrl)
             rowBinding.translationProviderApiKeyInput.setText(provider.apiKey)
@@ -1935,7 +1971,7 @@ class SettingsFragment : Fragment() {
             }
             rowBinding.translationProviderDeleteButton.setOnClickListener {
                 dialogBinding.multiProviderSchedulingContainer.removeView(rowBinding.root)
-                if (dialogBinding.multiProviderSchedulingContainer.childCount == 0) {
+                if (dialogBinding.multiProviderSchedulingContainer.isEmpty()) {
                     addRow()
                 } else {
                     refreshRowTitles()
@@ -2113,8 +2149,6 @@ class SettingsFragment : Fragment() {
         dialogBinding.localOcrConcurrencyInput.setText(
             String.format(Locale.getDefault(), "%d", currentSettings.localOcrConcurrencyLimit)
         )
-        dialogBinding.ocrSecretKeyInput.setText(currentSettings.secretKey)
-
         // Setup format dropdown
         val formatEntries = OcrApiFormat.entries.map { getString(it.labelRes) }
         val formatValues = OcrApiFormat.entries.toTypedArray()
@@ -2140,24 +2174,20 @@ class SettingsFragment : Fragment() {
 
         fun updateInputsEnabled(useLocalOcr: Boolean) {
             val enabled = !useLocalOcr
-            val isBaidu = enabled && resolveSelectedFormat() == OcrApiFormat.BAIDU_AI
-            val isOpenAi = enabled && !isBaidu
             dialogBinding.ocrApiFormatLayout.visibility =
                 if (enabled) android.view.View.VISIBLE else android.view.View.GONE
             dialogBinding.ocrApiUrlLayout.visibility =
-                if (isOpenAi) android.view.View.VISIBLE else android.view.View.GONE
+                if (enabled) android.view.View.VISIBLE else android.view.View.GONE
             dialogBinding.ocrApiKeyLayout.visibility =
                 if (enabled) android.view.View.VISIBLE else android.view.View.GONE
             dialogBinding.ocrModelNameLayout.visibility =
-                if (isOpenAi) android.view.View.VISIBLE else android.view.View.GONE
+                if (enabled) android.view.View.VISIBLE else android.view.View.GONE
             dialogBinding.ocrApiTimeoutLayout.visibility =
                 if (enabled) android.view.View.VISIBLE else android.view.View.GONE
             dialogBinding.ocrApiUrlInput.isEnabled = enabled
             dialogBinding.ocrApiKeyInput.isEnabled = enabled
             dialogBinding.ocrModelNameInput.isEnabled = enabled
             dialogBinding.ocrApiTimeoutInput.isEnabled = enabled
-            dialogBinding.ocrSecretKeyLayout.visibility =
-                if (isBaidu) android.view.View.VISIBLE else android.view.View.GONE
             dialogBinding.ocrApiConcurrencyLayout.visibility =
                 if (enabled) android.view.View.VISIBLE else android.view.View.GONE
             dialogBinding.localOcrConcurrencyLayout.visibility =
@@ -2194,30 +2224,51 @@ class SettingsFragment : Fragment() {
                 val format = resolveSelectedFormat()
                 val settings = OcrApiSettings(
                     useLocalOcr = dialogBinding.useLocalOcrSwitch.isChecked,
-                    japaneseLocalOcrEngine = JapaneseLocalOcrEngine.MANGA_OCR_MOBILE,
                     apiUrl = dialogBinding.ocrApiUrlInput.text?.toString()?.trim().orEmpty(),
                     apiKey = dialogBinding.ocrApiKeyInput.text?.toString()?.trim().orEmpty(),
                     modelName = dialogBinding.ocrModelNameInput.text?.toString()?.trim().orEmpty(),
                     timeoutSeconds = timeoutSeconds,
                     apiOcrConcurrencyLimit = apiOcrConcurrencyLimit,
                     localOcrConcurrencyLimit = localOcrConcurrencyLimit,
-                    ocrApiFormat = format,
-                    secretKey = dialogBinding.ocrSecretKeyInput.text?.toString()?.trim().orEmpty()
+                    ocrApiFormat = format
                 )
-                settingsStore.saveOcrApiSettings(settings)
-                AppLogger.log(
-                    "Settings",
-                    "OCR mode set to ${
-                        if (settings.useLocalOcr) {
-                            "local:${settings.japaneseLocalOcrEngine.prefValue}"
-                        } else {
-                            "${settings.ocrApiFormat.prefValue} api"
-                        }
-                    }"
-                )
+                saveOcrSettingsWithResourceCheck(settings)
             }
             .setNegativeButton(android.R.string.cancel, null)
             .show()
+    }
+
+    private fun saveOcrSettingsWithResourceCheck(settings: OcrApiSettings) {
+        fun save() {
+            settingsStore.saveOcrApiSettings(settings)
+            AppLogger.log(
+                "Settings",
+                "OCR mode set to ${
+                    if (settings.useLocalOcr) {
+                        "local:ppocrv6_small_rec"
+                    } else {
+                        "${settings.ocrApiFormat.prefValue} api"
+                    }
+                }"
+            )
+        }
+
+        if (!settings.useLocalOcr || settings.localOcrConcurrencyLimit <= 0) {
+            save()
+            return
+        }
+        val assessment = LocalOcrConcurrency.assess(
+            requireContext(),
+            settings.localOcrConcurrencyLimit
+        )
+        if (!assessment.shouldWarn) {
+            save()
+            return
+        }
+        ResourceWarningDialogs.createBuilder(requireContext(), assessment)
+            .setNegativeButton(R.string.resource_continue_anyway) { _, _ -> save() }
+            .setPositiveButton(R.string.resource_cancel, null)
+            .showWithScrollableMessage()
     }
 
     private fun showFloatingTranslateSettingsDialog() {
@@ -2380,6 +2431,8 @@ class SettingsFragment : Fragment() {
             val child = dialogBinding.multiProviderSchedulingContainer.getChildAt(index)
             val rowBinding = ItemAdditionalTranslationProviderBinding.bind(child)
             collected += AdditionalTranslationProvider(
+                providerId = rowBinding.root.getTag(R.id.additional_translation_provider_uuid) as? String
+                    ?: java.util.UUID.randomUUID().toString(),
                 name = settingsStore.defaultAdditionalProviderName(index),
                 apiUrl = rowBinding.translationProviderApiUrlInput.text?.toString()?.trim().orEmpty(),
                 apiKey = rowBinding.translationProviderApiKeyInput.text?.toString()?.trim().orEmpty(),

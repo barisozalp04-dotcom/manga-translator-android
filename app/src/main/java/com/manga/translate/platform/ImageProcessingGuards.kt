@@ -13,7 +13,7 @@ internal object ImageProcessingGuards {
     private const val MEMORY_WAIT_MS = 32L
     private const val MEMORY_RETRY_COUNT = 3
 
-    private val cpuCount = Runtime.getRuntime().availableProcessors().coerceAtLeast(1)
+    private val cpuCount = DeviceResourcePolicy.readCpuCoreCount()
     private val maxMemoryBytes = Runtime.getRuntime().maxMemory().coerceAtLeast(1L)
 
     val renderConcurrency: Int = computeRenderConcurrency()
@@ -108,4 +108,5 @@ internal object ImageProcessingGuards {
         }
         return min(byCpu, byMemory).coerceAtLeast(1)
     }
+
 }

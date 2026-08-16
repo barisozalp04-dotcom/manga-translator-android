@@ -1,5 +1,6 @@
 package com.manga.translate
 
+import android.app.Application
 import android.graphics.Bitmap
 import android.graphics.RectF
 import com.manga.translate.platform.DETECTION_MAX_EDGE
@@ -16,7 +17,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [35])
+@Config(sdk = [35], application = Application::class)
 class PipelineBitmapDecoderTest {
     @Test
     fun `in-memory full-page crop owns its bitmap`() = runBlocking {

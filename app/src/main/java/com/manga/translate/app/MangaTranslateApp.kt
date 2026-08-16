@@ -68,7 +68,9 @@ class MangaTranslateApp : Application() {
     }
 
     private fun syncAppLocales() {
-        val resolvedLocales = appContainer.settingsStore.loadAppLanguage().resolveApplicationLocales()
+        val resolvedLocales = appContainer.settingsStore
+            .loadAppLanguage()
+            .resolveApplicationLocales(this)
         if (AppCompatDelegate.getApplicationLocales().toLanguageTags() == resolvedLocales.toLanguageTags()) {
             return
         }

@@ -3,6 +3,7 @@ package com.manga.translate.platform
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.BitmapRegionDecoder
+import android.graphics.ImageDecoder
 import android.graphics.Rect
 import android.graphics.RectF
 import android.os.Build
@@ -125,7 +126,18 @@ internal object PipelineBitmapDecoder {
         return if (ImageFileSupport.isAvifFile(imageFile.name)) {
             AvifBitmapCropSource(imageFile)
         } else {
-            FileBitmapRegionCropSource(imageFile)
+            try {
+                FileBitmapRegionCropSource(imageFile)
+            } catch (error: Exception) {
+                // Region decoding is not available for every WebP variant. Preserve source
+                // coordinates and use a bounded whole-image decode through the compatible path.
+                AppLogger.log(
+                    "PipelineDecoder",
+                    "BitmapRegionDecoder rejected ${imageFile.name}; using sampled whole-image " +
+                        "fallback (${error::class.java.simpleName}: ${error.message.orEmpty()})"
+                )
+                SampledFileBitmapCropSource.open(imageFile)
+            }
         }
     }
 
@@ -161,6 +173,26 @@ internal object PipelineBitmapDecoder {
             sample *= 2
         }
         return max(sample, 1)
+    }
+
+    internal fun calculateFallbackSampleSize(
+        sourceWidth: Int,
+        sourceHeight: Int,
+        maxPixels: Long = 12_000_000L
+    ): Int {
+        if (sourceWidth <= 0 || sourceHeight <= 0 || maxPixels <= 0L) return 1
+        var sample = 1
+        while (
+            ceilDiv(sourceWidth, sample).toLong() * ceilDiv(sourceHeight, sample) > maxPixels &&
+            sample <= Int.MAX_VALUE / 2
+        ) {
+            sample *= 2
+        }
+        return sample
+    }
+
+    private fun ceilDiv(value: Int, divisor: Int): Int {
+        return ((value.toLong() + divisor - 1L) / divisor).toInt()
     }
 
     private class FileBitmapRegionCropSource(
@@ -204,6 +236,190 @@ internal object PipelineBitmapDecoder {
                 BitmapRegionDecoder.newInstance(path, false)
             }
         }
+    }
+
+    private class SampledFileBitmapCropSource(
+        private val imageFile: File,
+        override val width: Int,
+        override val height: Int,
+        private val sampleSize: Int,
+        initialBitmap: Bitmap? = null
+    ) : BitmapCropSource {
+        private var bitmap: Bitmap? = initialBitmap
+
+        override suspend fun decodeRegion(rect: RectF, maxEdge: Int): Bitmap? {
+            val source = ensureBitmap() ?: return null
+            val scaleX = source.width / width.toFloat().coerceAtLeast(1f)
+            val scaleY = source.height / height.toFloat().coerceAtLeast(1f)
+            val sampledRect = RectF(
+                rect.left * scaleX,
+                rect.top * scaleY,
+                rect.right * scaleX,
+                rect.bottom * scaleY
+            )
+            val crop = cropBitmap(source, sampledRect) ?: return null
+            if (crop === source && max(source.width, source.height) > maxEdge) {
+                val scale = maxEdge / max(source.width, source.height).toFloat()
+                val targetWidth = max(1, (source.width * scale).roundToInt())
+                val targetHeight = max(1, (source.height * scale).roundToInt())
+                return ImageProcessingGuards.withDecodePermit(
+                    width = targetWidth,
+                    height = targetHeight,
+                    tag = "PipelineDecoder"
+                ) {
+                    source.scale(targetWidth, targetHeight)
+                }
+            }
+            val ownedCrop = ensureOwnedCrop(crop, source) ?: return null
+            return scaleDownIfNeeded(ownedCrop, maxEdge)
+        }
+
+        override fun close() {
+            bitmap.recycleSafely()
+            bitmap = null
+        }
+
+        private suspend fun ensureBitmap(): Bitmap? {
+            if (bitmap != null && bitmap?.isRecycled == false) return bitmap
+            val decodedWidth = ceilDiv(width, sampleSize)
+            val decodedHeight = ceilDiv(height, sampleSize)
+            val config = if (
+                ImageProcessingGuards.hasMemoryBudgetForBitmap(
+                    decodedWidth,
+                    decodedHeight,
+                    copies = 2
+                )
+            ) {
+                Bitmap.Config.ARGB_8888
+            } else {
+                Bitmap.Config.RGB_565
+            }
+            bitmap = ImageProcessingGuards.withDecodePermit(
+                width = decodedWidth,
+                height = decodedHeight,
+                tag = "PipelineDecoder"
+            ) {
+                runCatching {
+                    BitmapFactory.decodeFile(
+                        imageFile.absolutePath,
+                        BitmapFactory.Options().apply {
+                            inSampleSize = sampleSize
+                            inPreferredConfig = config
+                            inScaled = false
+                        }
+                    )
+                }.getOrNull()
+            }
+            if (bitmap == null) {
+                val fallback = decodeFileWithImageDecoder(
+                    imageFile = imageFile,
+                    expectedWidth = width,
+                    expectedHeight = height,
+                    requestedSampleSize = sampleSize
+                )
+                bitmap = fallback?.bitmap
+                if (bitmap != null) {
+                    AppLogger.log(
+                        "PipelineDecoder",
+                        "ImageDecoder pixel fallback opened ${imageFile.name} as " +
+                            "${bitmap?.width}x${bitmap?.height}"
+                    )
+                }
+            }
+            return bitmap
+        }
+
+        companion object {
+            suspend fun open(imageFile: File): BitmapCropSource? {
+                val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                BitmapFactory.decodeFile(imageFile.absolutePath, bounds)
+                val sourceWidth = bounds.outWidth
+                val sourceHeight = bounds.outHeight
+                if (sourceWidth <= 0 || sourceHeight <= 0) {
+                    return openImageDecoderCropSource(imageFile)
+                }
+                return SampledFileBitmapCropSource(
+                    imageFile = imageFile,
+                    width = sourceWidth,
+                    height = sourceHeight,
+                    sampleSize = calculateFallbackSampleSize(sourceWidth, sourceHeight)
+                )
+            }
+        }
+    }
+
+    private suspend fun openImageDecoderCropSource(imageFile: File): BitmapCropSource? {
+        val fallback = decodeFileWithImageDecoder(imageFile) ?: return null
+        val fallbackSampleSize = calculateFallbackSampleSize(
+            fallback.sourceWidth,
+            fallback.sourceHeight
+        )
+        AppLogger.log(
+            "PipelineDecoder",
+            "ImageDecoder fallback opened ${imageFile.name} as " +
+                "${fallback.sourceWidth}x${fallback.sourceHeight} -> " +
+                "${fallback.bitmap.width}x${fallback.bitmap.height}"
+        )
+        return SampledFileBitmapCropSource(
+            imageFile = imageFile,
+            width = fallback.sourceWidth,
+            height = fallback.sourceHeight,
+            sampleSize = fallbackSampleSize,
+            initialBitmap = fallback.bitmap
+        )
+    }
+
+    private data class ImageDecoderResult(
+        val bitmap: Bitmap,
+        val sourceWidth: Int,
+        val sourceHeight: Int
+    )
+
+    private suspend fun decodeFileWithImageDecoder(
+        imageFile: File,
+        expectedWidth: Int = 0,
+        expectedHeight: Int = 0,
+        requestedSampleSize: Int? = null
+    ): ImageDecoderResult? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) return null
+        val guardSampleSize = requestedSampleSize ?: calculateFallbackSampleSize(
+            expectedWidth,
+            expectedHeight
+        )
+        val guardWidth = if (expectedWidth > 0) ceilDiv(expectedWidth, guardSampleSize) else 0
+        val guardHeight = if (expectedHeight > 0) ceilDiv(expectedHeight, guardSampleSize) else 0
+        var sourceWidth = expectedWidth
+        var sourceHeight = expectedHeight
+        val bitmap = ImageProcessingGuards.withDecodePermit(
+            width = guardWidth,
+            height = guardHeight,
+            tag = "PipelineDecoder"
+        ) {
+            try {
+                ImageDecoder.decodeBitmap(ImageDecoder.createSource(imageFile)) { decoder, info, _ ->
+                    sourceWidth = info.size.width
+                    sourceHeight = info.size.height
+                    val sampleSize = requestedSampleSize ?: calculateFallbackSampleSize(
+                        sourceWidth,
+                        sourceHeight
+                    )
+                    decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
+                    decoder.setTargetSampleSize(sampleSize)
+                }
+            } catch (error: Exception) {
+                AppLogger.log(
+                    "PipelineDecoder",
+                    "ImageDecoder fallback rejected ${imageFile.name}",
+                    error
+                )
+                null
+            }
+        } ?: return null
+        if (sourceWidth <= 0 || sourceHeight <= 0) {
+            bitmap.recycleSafely()
+            return null
+        }
+        return ImageDecoderResult(bitmap, sourceWidth, sourceHeight)
     }
 
     private class AvifBitmapCropSource(
@@ -257,9 +473,15 @@ internal object PipelineBitmapDecoder {
 
     private fun ensureOwnedCrop(crop: Bitmap, source: Bitmap): Bitmap? {
         if (crop !== source) return crop
-        val copyConfig = source.config
-            ?.takeUnless { it == Bitmap.Config.HARDWARE }
-            ?: Bitmap.Config.ARGB_8888
+        val copyConfig = source.config?.let { config ->
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+                config == Bitmap.Config.HARDWARE
+            ) {
+                Bitmap.Config.ARGB_8888
+            } else {
+                config
+            }
+        } ?: Bitmap.Config.ARGB_8888
         return runCatching { source.copy(copyConfig, false) }.getOrNull()
     }
 

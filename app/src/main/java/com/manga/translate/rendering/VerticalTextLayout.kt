@@ -41,7 +41,10 @@ internal object VerticalTextLayoutCalculator {
         maxCharWidth = maxCharWidth.coerceAtLeast(1f)
         val columns = ((charCount + maxRows - 1) / maxRows).coerceAtLeast(1)
         val totalWidth = columns * maxCharWidth
-        val totalHeight = maxRows * lineHeight
+        // Center only the rows occupied by this string. Using maxRows makes a short
+        // string look top-aligned inside a tall bubble.
+        val usedRows = charCount.coerceAtMost(maxRows)
+        val totalHeight = usedRows * lineHeight
         val fits = totalWidth <= maxWidth && totalHeight <= maxHeight
         return VerticalTextLayout(
             columnWidth = maxCharWidth,

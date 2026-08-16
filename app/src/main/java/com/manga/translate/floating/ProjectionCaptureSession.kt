@@ -17,6 +17,8 @@ import com.manga.translate.platform.AppLogger
 import com.manga.translate.platform.recycleSafely
 import kotlin.coroutines.resume
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
 
 internal class ProjectionCaptureSession(
@@ -25,6 +27,7 @@ internal class ProjectionCaptureSession(
 ) {
     private val appContext = context.applicationContext
     private val mainHandler = Handler(Looper.getMainLooper())
+    private val captureMutex = Mutex()
     private var mediaProjection: MediaProjection? = null
     private var virtualDisplay: VirtualDisplay? = null
     private var imageReader: ImageReader? = null
@@ -89,12 +92,12 @@ internal class ProjectionCaptureSession(
     suspend fun captureCurrentScreen(
         timeoutMs: Long = DEFAULT_CAPTURE_TIMEOUT_MS,
         requireFreshFrame: Boolean = false
-    ): Bitmap? {
-        val reader = imageReader ?: return null
+    ): Bitmap? = captureMutex.withLock {
+        val reader = imageReader ?: return@withLock null
         if (!requireFreshFrame) {
             acquireLatestBitmap(reader)?.let { bitmap ->
                 AppLogger.log("FloatingOCR", "Captured frame ${bitmap.width}x${bitmap.height} immediately")
-                return bitmap
+                return@withLock bitmap
             }
         } else {
             discardPendingImages(reader)
@@ -103,7 +106,7 @@ internal class ProjectionCaptureSession(
             suspendCancellableCoroutine<Bitmap?> { continuation ->
                 val listener = ImageReader.OnImageAvailableListener { availableReader ->
                     val captured = acquireLatestBitmap(availableReader) ?: return@OnImageAvailableListener
-                    availableReader.setOnImageAvailableListener(null, null)
+                    clearImageReaderListener(availableReader)
                     if (continuation.isActive) {
                         continuation.resume(captured)
                     } else {
@@ -112,17 +115,17 @@ internal class ProjectionCaptureSession(
                 }
                 reader.setOnImageAvailableListener(listener, mainHandler)
                 continuation.invokeOnCancellation {
-                    reader.setOnImageAvailableListener(null, null)
+                    clearImageReaderListener(reader)
                 }
             }
         }
-        reader.setOnImageAvailableListener(null, null)
+        clearImageReaderListener(reader)
         if (bitmap == null) {
             AppLogger.log("FloatingOCR", "Capture frame timeout after ${timeoutMs}ms")
         } else {
             AppLogger.log("FloatingOCR", "Captured frame ${bitmap.width}x${bitmap.height} after wait")
         }
-        return bitmap
+        return@withLock bitmap
     }
 
     private fun discardPendingImages(reader: ImageReader) {
@@ -139,6 +142,14 @@ internal class ProjectionCaptureSession(
         }
     }
 
+    private fun clearImageReaderListener(reader: ImageReader) {
+        try {
+            reader.setOnImageAvailableListener(null, null)
+        } catch (_: Exception) {
+            // The projection may close the reader concurrently with cancellation.
+        }
+    }
+
     fun release() {
         val projection = mediaProjection
         if (projection != null) {
@@ -152,8 +163,10 @@ internal class ProjectionCaptureSession(
         } catch (_: Exception) {
         }
         try {
-            imageReader?.setOnImageAvailableListener(null, null)
-            imageReader?.close()
+            imageReader?.let {
+                clearImageReaderListener(it)
+                it.close()
+            }
         } catch (_: Exception) {
         }
         try {

@@ -38,7 +38,7 @@ enum class ReleaseChannel {
 
 object UpdateChecker {
     private const val UPDATE_URL_GITHUB =
-        "https://raw.githubusercontent.com/jedzqer/manga-translator/main/update.json"
+        "https://raw.githubusercontent.com/jedzqer/manga-translator-android/main/update.json"
     private const val UPDATE_URL_GITEE =
         "https://gitee.com/jedzqer/manga-translator/raw/main/update.json"
     private val updateUrls = listOf(UPDATE_URL_GITHUB, UPDATE_URL_GITEE)
@@ -62,7 +62,7 @@ object UpdateChecker {
         withContext(Dispatchers.IO) {
             val coroutineContext = currentCoroutineContext()
             val job = coroutineContext[Job]
-            for ((index, url) in updateUrls.withIndex()) {
+            for (url in updateUrls) {
                 coroutineContext.ensureActive()
                 val connection = (URL(url).openConnection() as HttpURLConnection).apply {
                     requestMethod = "GET"
@@ -81,7 +81,6 @@ object UpdateChecker {
                     }
                     val body = stream?.bufferedReader()?.use { it.readText() } ?: ""
                     if (code !in 200..299) {
-                        AppLogger.log("UpdateChecker", "[$index] $url HTTP $code: $body")
                         continue
                     }
                     val parsed = parseUpdateInfo(body, includePreview, languageKey)
@@ -92,9 +91,8 @@ object UpdateChecker {
                         )
                         return@withContext parsed
                     }
-                    AppLogger.log("UpdateChecker", "[$index] $url returned invalid update json")
-                } catch (e: Exception) {
-                    AppLogger.log("UpdateChecker", "[$index] Update request failed: $url", e)
+                } catch (_: Exception) {
+                    // An unavailable update source is expected to fall back to the next source.
                 } finally {
                     cancelHandle?.dispose()
                     connection.disconnect()
@@ -240,21 +238,35 @@ object UpdateChecker {
     /**
      * Resolve changelog text by app UI language.
      * Supported fields: changelog (zh-Hans default), changelog_hant, changelog_en, changelog_ru.
-     * Missing localized fields fall back to [CHANGELOG_KEY_DEFAULT].
+     * Missing localized fields fall back to English, then Chinese default.
      */
     internal fun resolveLocalizedChangelog(json: JSONObject, languageKey: String): String {
         val preferredKey = when (languageKey) {
+            "zh_hans" -> CHANGELOG_KEY_DEFAULT
             "zh_hant" -> CHANGELOG_KEY_HANT
             "en" -> CHANGELOG_KEY_EN
             "ru" -> CHANGELOG_KEY_RU
-            else -> CHANGELOG_KEY_DEFAULT
+            else -> null // Unsupported language, will fall back to English
         }
-        val preferred = json.optString(preferredKey).trim()
-        if (preferred.isNotBlank()) return preferred
+
+        // Try preferred language first
+        if (preferredKey != null) {
+            val preferred = json.optString(preferredKey).trim()
+            if (preferred.isNotBlank()) return preferred
+        }
+
+        // Fallback to English if preferred language is not available
+        if (preferredKey != CHANGELOG_KEY_EN) {
+            val englishFallback = json.optString(CHANGELOG_KEY_EN).trim()
+            if (englishFallback.isNotBlank()) return englishFallback
+        }
+
+        // Final fallback to default Chinese if English is also not available
         if (preferredKey != CHANGELOG_KEY_DEFAULT) {
-            val fallback = json.optString(CHANGELOG_KEY_DEFAULT).trim()
-            if (fallback.isNotBlank()) return fallback
+            val defaultFallback = json.optString(CHANGELOG_KEY_DEFAULT).trim()
+            if (defaultFallback.isNotBlank()) return defaultFallback
         }
+
         return ""
     }
 

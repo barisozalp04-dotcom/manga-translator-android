@@ -3,9 +3,11 @@
 build/
 */build/
 
-# Local configuration
+# Local configuration and release signing credentials
 local.properties
+signing.properties
 *.keystore
+*.jks
 keystore.jks
 
 # APK / AAB outputs
@@ -47,10 +49,13 @@ lint-reports/
 .DS_Store
 Thumbs.db
 
-# Large model assets
+# Large model assets are downloaded separately; see README.
 assets/models/
 
-# test pic
+# Internal planning documents
+开发计划.md
+
+# Test assets
 test.webp
 
 # Misc

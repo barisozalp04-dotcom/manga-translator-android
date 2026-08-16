@@ -374,6 +374,38 @@ internal class LibraryDialogs {
         )
     }
 
+    fun showTranslationSettingsInfo(context: Context) {
+        showMessageDialog(
+            context,
+            R.string.folder_translation_settings,
+            context.getString(R.string.library_translation_settings_hint)
+        )
+    }
+
+    fun showBubbleDetectionInfo(context: Context) {
+        showMessageDialog(
+            context,
+            R.string.folder_bubble_detection_info_title,
+            context.getString(R.string.folder_bubble_detection_info)
+        )
+    }
+
+    fun showGlossaryProcessingInfo(context: Context) {
+        showMessageDialog(
+            context,
+            R.string.folder_glossary_processing_info_title,
+            context.getString(R.string.folder_glossary_processing_note)
+        )
+    }
+
+    fun showVlDirectTranslateInfo(context: Context) {
+        showMessageDialog(
+            context,
+            R.string.folder_use_vl_direct_translate_info_title,
+            context.getString(R.string.folder_use_vl_direct_translate_note)
+        )
+    }
+
     fun showLanguageSettingDialog(
         context: Context,
         languages: List<TranslationLanguage>,

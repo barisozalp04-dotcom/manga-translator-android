@@ -44,6 +44,7 @@
 
         <LinearLayout
             android:id="@+id/folder_actions"
+            style="?attr/buttonBarStyle"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
@@ -51,6 +52,7 @@
 
             <Button
                 android:id="@+id/folder_move"
+                style="@style/Widget.MangaTranslator.ButtonBar"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:minWidth="0dp"
@@ -58,6 +60,7 @@
 
             <Button
                 android:id="@+id/folder_rename"
+                style="@style/Widget.MangaTranslator.ButtonBar"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginStart="8dp"
@@ -66,6 +69,7 @@
 
             <Button
                 android:id="@+id/folder_delete"
+                style="@style/Widget.MangaTranslator.ButtonBar"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginStart="8dp"

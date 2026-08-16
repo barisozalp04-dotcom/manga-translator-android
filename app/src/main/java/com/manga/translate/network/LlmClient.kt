@@ -2,10 +2,8 @@ package com.manga.translate.network
 
 import android.content.Context
 import android.graphics.Bitmap
-import android.graphics.RectF
 import com.manga.translate.R
 import com.manga.translate.model.ApiFormat
-import com.manga.translate.model.OcrApiFormat
 import com.manga.translate.model.TranslationLanguage
 import com.manga.translate.platform.AppLogger
 import com.manga.translate.platform.ImageEncodingUtils
@@ -29,6 +27,8 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import okhttp3.Call
 import okhttp3.MediaType.Companion.toMediaType
@@ -41,14 +41,13 @@ import org.json.JSONObject
 
 class LlmClient(
     context: Context,
-    private val settingsStore: SettingsStore = SettingsStore(context.applicationContext),
-    private val baiduTokenManager: BaiduAccessTokenManager = BaiduAccessTokenManager(context.applicationContext)
+    private val settingsStore: SettingsStore = SettingsStore(context.applicationContext)
 ) : LlmGateway {
     private val appContext = context.applicationContext
     private val promptCache = ConcurrentHashMap<String, LlmPromptConfig>()
     private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
-    private val formUrlEncodedMediaType = "application/x-www-form-urlencoded".toMediaType()
     private val baseHttpClient = OkHttpClient()
+    private val ocrConcurrencyLimiter = DynamicConcurrencyLimiter()
     private val httpClientCache = object : LinkedHashMap<Int, OkHttpClient>(MAX_CACHED_HTTP_CLIENTS, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Int, OkHttpClient>?): Boolean {
             return size > MAX_CACHED_HTTP_CLIENTS
@@ -130,10 +129,7 @@ class LlmClient(
         if (!ocrSettings.isValid() || ocrSettings.useLocalOcr) {
             return@withContext null
         }
-        return@withContext when (ocrSettings.ocrApiFormat) {
-            OcrApiFormat.OPENAI_COMPATIBLE -> recognizeWithOpenAi(ocrSettings, image)
-            OcrApiFormat.BAIDU_AI -> recognizeWithBaiduAi(ocrSettings, image, language)
-        }
+        return@withContext recognizeWithOpenAi(ocrSettings, image)
     }
 
     private suspend fun recognizeWithOpenAi(ocrSettings: OcrApiSettings, image: Bitmap): String? {
@@ -145,24 +141,26 @@ class LlmClient(
         for (attempt in 1..RETRY_COUNT) {
             currentCoroutineContext().ensureActive()
             val result = try {
-                executeRequest(
-                    request = Request.Builder()
-                        .url(endpoint)
-                        .post(payload.toString().toRequestBody(jsonMediaType))
-                        .header("Content-Type", "application/json")
-                        .header("Authorization", "Bearer ${ocrSettings.apiKey}")
-                        .build(),
-                    timeoutMs = timeoutMs
-                ).use { response ->
-                    val code = response.code
-                    val body = response.body?.string().orEmpty()
-                    if (code !in 200..299) {
-                        AppLogger.log("LlmClient", "OCR HTTP $code on ${redactEndpoint(endpoint)}: ${summarizeBody(body)}")
-                        lastErrorCode = "HTTP $code"
-                        lastErrorBody = body
-                        null
-                    } else {
-                        parseResponseContent(body, ApiFormat.OPENAI_COMPATIBLE)?.trim()
+                ocrConcurrencyLimiter.withPermit(ocrSettings.apiOcrConcurrencyLimit) {
+                    executeRequest(
+                        request = Request.Builder()
+                            .url(endpoint)
+                            .post(payload.toString().toRequestBody(jsonMediaType))
+                            .header("Content-Type", "application/json")
+                            .header("Authorization", "Bearer ${ocrSettings.apiKey}")
+                            .build(),
+                        timeoutMs = timeoutMs
+                    ).use { response ->
+                        val code = response.code
+                        val body = response.body.string()
+                        if (code !in 200..299) {
+                            AppLogger.log("LlmClient", "OCR HTTP $code on ${redactEndpoint(endpoint)}: ${summarizeBody(body)}")
+                            lastErrorCode = "HTTP $code"
+                            lastErrorBody = body
+                            null
+                        } else {
+                            parseResponseContent(body, ApiFormat.OPENAI_COMPATIBLE)?.trim()
+                        }
                     }
                 }
             } catch (e: CancellationException) {
@@ -190,223 +188,6 @@ class LlmClient(
             )
         }
         return null
-    }
-
-    private suspend fun recognizeWithBaiduAi(ocrSettings: OcrApiSettings, image: Bitmap, language: TranslationLanguage): String? {
-        val accessToken = baiduTokenManager.getAccessToken(ocrSettings.apiKey, ocrSettings.secretKey)
-            ?: run {
-                AppLogger.log("LlmClient", "Baidu OCR: failed to obtain access token")
-                return null
-            }
-        val endpoint = BAIDU_OCR_GENERAL_URL + "?access_token=" + accessToken
-        val imageBase64 = ImageEncodingUtils.encodeBitmapToBase64(image)
-            ?: run {
-                AppLogger.log("LlmClient", "Baidu OCR: failed to encode image")
-                return null
-            }
-        val body = "image=" + java.net.URLEncoder.encode(imageBase64, "UTF-8") +
-                "&language_type=" + java.net.URLEncoder.encode(language.baiduLanguageType, "UTF-8")
-        val timeoutMs = ocrSettings.timeoutSeconds * 1000
-        var lastErrorCode: String? = null
-        var lastErrorBody: String? = null
-        for (attempt in 1..RETRY_COUNT) {
-            currentCoroutineContext().ensureActive()
-            val result = try {
-                executeRequest(
-                    request = Request.Builder()
-                        .url(endpoint)
-                        .post(body.toRequestBody(formUrlEncodedMediaType))
-                        .build(),
-                    timeoutMs = timeoutMs
-                ).use { response ->
-                    val code = response.code
-                    val respBody = response.body?.string().orEmpty()
-                    if (code !in 200..299) {
-                        AppLogger.log("LlmClient", "Baidu OCR HTTP $code: ${summarizeBody(respBody)}")
-                        lastErrorCode = "HTTP $code"
-                        lastErrorBody = respBody
-                        null
-                    } else {
-                        parseBaiduOcrResponse(respBody)?.trim()
-                    }
-                }
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                AppLogger.log("LlmClient", "Baidu OCR request failed (attempt $attempt)", e)
-                lastErrorCode = "NETWORK_ERROR"
-                null
-            }
-            if (result != null || attempt == RETRY_COUNT) {
-                if (result != null) return result
-                if (lastErrorCode != null) {
-                    AppLogger.log(
-                        "LlmClient",
-                        "Baidu OCR request failed: $lastErrorCode, body=${summarizeBody(lastErrorBody)}"
-                    )
-                }
-                return null
-            }
-            maybeBackoffBeforeRetry(
-                attempt,
-                RetryPolicy(maxAttempts = RETRY_COUNT, mode = RetryMode.DEFAULT),
-                lastErrorCode,
-                lastErrorBody
-            )
-        }
-        return null
-    }
-
-    override suspend fun recognizeFullPageWithBaidu(
-        image: Bitmap,
-        language: TranslationLanguage
-    ): List<BaiduOcrWord>? {
-        val ocrSettings = settingsStore.loadOcrApiSettings()
-        val accessToken = baiduTokenManager.getAccessToken(ocrSettings.apiKey, ocrSettings.secretKey)
-            ?: run {
-                AppLogger.log("LlmClient", "Baidu full-page OCR: failed to obtain access token")
-                return null
-            }
-        val endpoint = BAIDU_OCR_GENERAL_LOCATION_URL + "?access_token=" + accessToken
-        val imageBase64 = ImageEncodingUtils.encodeBitmapToBase64(image)
-            ?: run {
-                AppLogger.log("LlmClient", "Baidu full-page OCR: failed to encode image")
-                return null
-            }
-        val body = "image=" + java.net.URLEncoder.encode(imageBase64, "UTF-8") +
-                "&language_type=" + java.net.URLEncoder.encode(language.baiduLanguageType, "UTF-8") +
-                "&recognize_granularity=big" +
-                "&detect_direction=false" +
-                "&vertexes_location=false" +
-                "&paragraph=false"
-        val timeoutMs = ocrSettings.timeoutSeconds * 1000
-        var lastErrorCode: String? = null
-        var lastErrorBody: String? = null
-        for (attempt in 1..RETRY_COUNT) {
-            currentCoroutineContext().ensureActive()
-            val result = try {
-                executeRequest(
-                    request = Request.Builder()
-                        .url(endpoint)
-                        .post(body.toRequestBody(formUrlEncodedMediaType))
-                        .build(),
-                    timeoutMs = timeoutMs
-                ).use { response ->
-                    val code = response.code
-                    val respBody = response.body?.string().orEmpty()
-                    if (code !in 200..299) {
-                        AppLogger.log("LlmClient", "Baidu full-page OCR HTTP $code: ${summarizeBody(respBody)}")
-                        lastErrorCode = "HTTP $code"
-                        lastErrorBody = respBody
-                        null
-                    } else {
-                        parseBaiduFullPageOcrResponse(respBody)
-                    }
-                }
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                AppLogger.log("LlmClient", "Baidu full-page OCR request failed (attempt $attempt)", e)
-                lastErrorCode = "NETWORK_ERROR"
-                null
-            }
-            if (result != null || attempt == RETRY_COUNT) {
-                if (result != null) return result
-                if (lastErrorCode != null) {
-                    AppLogger.log(
-                        "LlmClient",
-                        "Baidu full-page OCR request failed: $lastErrorCode, body=${summarizeBody(lastErrorBody)}"
-                    )
-                }
-                return null
-            }
-            maybeBackoffBeforeRetry(
-                attempt,
-                RetryPolicy(maxAttempts = RETRY_COUNT, mode = RetryMode.DEFAULT),
-                lastErrorCode,
-                lastErrorBody
-            )
-        }
-        return null
-    }
-
-    private fun parseBaiduFullPageOcrResponse(body: String): List<BaiduOcrWord>? {
-        return try {
-            val json = JSONObject(body)
-            if (json.has("error_code")) {
-                val errorCode = json.optInt("error_code")
-                if (errorCode != 0) {
-                    val errorMsg = json.optString("error_msg", "")
-                    AppLogger.log("LlmClient", "Baidu full-page OCR error: code=$errorCode, msg=$errorMsg")
-                    return null
-                }
-            }
-            val wordsResult = json.optJSONArray("words_result")
-            if (wordsResult != null && wordsResult.length() > 0) {
-                val results = ArrayList<BaiduOcrWord>(wordsResult.length())
-                for (i in 0 until wordsResult.length()) {
-                    val item = wordsResult.optJSONObject(i) ?: continue
-                    val words = item.optString("words").trim().orEmpty()
-                    if (words.isBlank()) continue
-                    val location = item.optJSONObject("location")?.let { loc ->
-                        val top = loc.optInt("top", 0).toFloat()
-                        val left = loc.optInt("left", 0).toFloat()
-                        val width = loc.optInt("width", 0).toFloat()
-                        val height = loc.optInt("height", 0).toFloat()
-                        if (width > 0f && height > 0f) {
-                            RectF(left, top, left + width, top + height)
-                        } else {
-                            null
-                        }
-                    }
-                    results.add(BaiduOcrWord(words = words, location = location))
-                }
-                return results.ifEmpty { null }
-            }
-            null
-        } catch (e: Exception) {
-            AppLogger.log("LlmClient", "Baidu full-page OCR response parse failed", e)
-            null
-        }
-    }
-
-    private fun parseBaiduOcrResponse(body: String): String? {
-        return try {
-            val json = JSONObject(body)
-            if (json.has("error_code")) {
-                val errorCode = json.optInt("error_code")
-                if (errorCode != 0) {
-                    val errorMsg = json.optString("error_msg", "")
-                    AppLogger.log("LlmClient", "Baidu OCR error: code=$errorCode, msg=$errorMsg")
-                    return null
-                }
-            }
-            // Try words_result (general_basic format)
-            val wordsResult = json.optJSONArray("words_result")
-            if (wordsResult != null && wordsResult.length() > 0) {
-                val texts = ArrayList<String>(wordsResult.length())
-                for (i in 0 until wordsResult.length()) {
-                    val word = wordsResult.optJSONObject(i)?.optString("words")?.trim().orEmpty()
-                    if (word.isNotBlank()) texts.add(word)
-                }
-                return texts.joinToString("\n").ifBlank { null }
-            }
-            // Try data.ret (iOCR format)
-            val data = json.optJSONObject("data")
-            val ret = data?.optJSONArray("ret")
-            if (ret != null && ret.length() > 0) {
-                val texts = ArrayList<String>(ret.length())
-                for (i in 0 until ret.length()) {
-                    val word = ret.optJSONObject(i)?.optString("word")?.trim().orEmpty()
-                    if (word.isNotBlank()) texts.add(word)
-                }
-                return texts.joinToString("\n").ifBlank { null }
-            }
-            null
-        } catch (e: Exception) {
-            AppLogger.log("LlmClient", "Baidu OCR response parse failed", e)
-            null
-        }
     }
 
     override suspend fun translateImageBubble(
@@ -464,13 +245,14 @@ class LlmClient(
         var lastResponseException: LlmResponseException? = null
         for (attempt in 1..retries) {
             currentCoroutineContext().ensureActive()
+            lastResponseException = null
             val result = try {
                 executeRequest(
                     request = buildJsonPostRequest(endpoint, payload, settings),
                     timeoutMs = timeoutMs
                 ).use { response ->
                     val code = response.code
-                    val body = response.body?.string().orEmpty()
+                    val body = response.body.string()
                     if (code !in 200..299) {
                         AppLogger.log(
                             "LlmClient",
@@ -565,13 +347,14 @@ class LlmClient(
         var lastResponseException: LlmResponseException? = null
         for (attempt in 1..retries) {
             currentCoroutineContext().ensureActive()
+            lastResponseException = null
             val result = try {
                 executeRequest(
                     request = buildJsonPostRequest(endpoint, payload, settings),
                     timeoutMs = timeoutMs
                 ).use { response ->
                     val code = response.code
-                    val body = response.body?.string().orEmpty()
+                    val body = response.body.string()
                     if (code !in 200..299) {
                         AppLogger.log("LlmClient", "HTTP $code on ${redactEndpoint(endpoint)}: ${summarizeBody(body)}")
                         lastErrorCode = "HTTP $code"
@@ -630,6 +413,32 @@ class LlmClient(
             maybeBackoffBeforeRetry(attempt, retryPolicy, lastErrorCode, lastErrorBody)
         }
         return null
+    }
+
+    private class DynamicConcurrencyLimiter {
+        private val mutex = Mutex()
+        private var active = 0
+
+        suspend fun <T> withPermit(limit: Int, block: suspend () -> T): T {
+            val normalizedLimit = limit.coerceAtLeast(1)
+            while (true) {
+                val acquired = mutex.withLock {
+                    if (active < normalizedLimit) {
+                        active++
+                        true
+                    } else {
+                        false
+                    }
+                }
+                if (acquired) break
+                delay(10)
+            }
+            return try {
+                block()
+            } finally {
+                mutex.withLock { active-- }
+            }
+        }
     }
 
     private fun buildOpenAiEndpoint(baseUrl: String): String {
@@ -711,6 +520,7 @@ class LlmClient(
                 userPayload = userPayload
             )
             ApiFormat.GEMINI -> buildGeminiTextPayload(
+                settings = settings,
                 config = config,
                 userPayload = userPayload
             )
@@ -795,6 +605,7 @@ class LlmClient(
     }
 
     private fun buildGeminiTextPayload(
+        settings: ApiSettings,
         config: LlmPromptConfig,
         userPayload: String
     ): JSONObject {
@@ -805,10 +616,7 @@ class LlmClient(
             payload.put("systemInstruction", buildGeminiSystemInstruction(config.systemPrompt))
         }
         buildGeminiGenerationConfig(useJsonPayload = true)?.let { payload.put("generationConfig", it) }
-        applyCustomRequestParameters(
-            payload,
-            ApiSettings(apiUrl = "", apiKey = "", modelName = "", apiFormat = ApiFormat.GEMINI)
-        )
+        applyCustomRequestParameters(payload, settings)
         return payload
     }
 
@@ -991,7 +799,7 @@ class LlmClient(
                 imageBase64 = imageBase64,
                 promptAsset = promptAsset
             )
-            ApiFormat.GEMINI -> buildGeminiImageTranslationPayload(imageBase64, promptAsset)
+            ApiFormat.GEMINI -> buildGeminiImageTranslationPayload(settings, imageBase64, promptAsset)
         }
     }
 
@@ -1109,7 +917,9 @@ class LlmClient(
         llmParams.temperature?.let { payload.put("temperature", it) }
         llmParams.topP?.let { payload.put("top_p", it) }
         llmParams.topK?.let { payload.put("top_k", it) }
-        llmParams.maxOutputTokens?.let { payload.put("max_output_tokens", it) }
+        // max_output_tokens belongs to the Responses API. Chat Completions uses the
+        // broadly supported max_tokens name for the same user-facing setting.
+        llmParams.maxOutputTokens?.let { payload.put("max_tokens", it) }
         llmParams.frequencyPenalty?.let { payload.put("frequency_penalty", it) }
         llmParams.presencePenalty?.let { payload.put("presence_penalty", it) }
     }
@@ -1124,6 +934,7 @@ class LlmClient(
     }
 
     private fun buildGeminiImageTranslationPayload(
+        settings: ApiSettings,
         imageBase64: String,
         promptAsset: String
     ): JSONObject {
@@ -1147,10 +958,7 @@ class LlmClient(
         buildGeminiGenerationConfig(useJsonPayload = false)?.let {
             payload.put("generationConfig", it)
         }
-        applyCustomRequestParameters(
-            payload,
-            ApiSettings(apiUrl = "", apiKey = "", modelName = "", apiFormat = ApiFormat.GEMINI)
-        )
+        applyCustomRequestParameters(payload, settings)
         return payload
     }
 
@@ -1499,7 +1307,7 @@ class LlmClient(
                 }
                 executeRequest(requestBuilder.build(), timeoutMs).use { response ->
                     val code = response.code
-                    val body = response.body?.string().orEmpty()
+                    val body = response.body.string()
                     if (code !in 200..299) {
                         AppLogger.log(
                             "LlmClient",
@@ -1899,8 +1707,6 @@ class LlmClient(
         private const val DEFAULT_IMAGE_TRANSLATION_USER_PROMPT =
             "Translate only the text visible in this manga bubble into Simplified Chinese. Output only the translated text."
         private const val RETRY_COUNT = 3
-        private const val BAIDU_OCR_GENERAL_URL = "https://aip.baidubce.com/rest/2.0/ocr/v1/general_basic"
-        private const val BAIDU_OCR_GENERAL_LOCATION_URL = "https://aip.baidubce.com/rest/2.0/ocr/v1/general"
         private const val MAX_CACHED_HTTP_CLIENTS = 4
         private const val RETRY_BASE_DELAY_MS = 750
         private const val RETRY_MAX_DELAY_MS = 4_000
@@ -1944,6 +1750,8 @@ class LlmClient(
                     "temperature",
                     "top_p",
                     "top_k",
+                    "max_tokens",
+                    "max_completion_tokens",
                     "max_output_tokens",
                     "frequency_penalty",
                     "presence_penalty",
@@ -1956,6 +1764,8 @@ class LlmClient(
                     "instructions",
                     "temperature",
                     "top_p",
+                    "max_tokens",
+                    "max_completion_tokens",
                     "max_output_tokens",
                     "enable_thinking",
                     "thinking_budget"
@@ -2022,11 +1832,6 @@ data class LlmBubbleTranslationResult(
 data class LlmBubbleTranslationItem(
     val id: Int,
     val translation: String
-)
-
-data class BaiduOcrWord(
-    val words: String,
-    val location: RectF?
 )
 
 private data class LlmPromptConfig(

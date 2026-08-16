@@ -42,8 +42,6 @@ internal class TextBubbleTranslationCoordinator(
 
         val translatedMap = HashMap<Int, String>(translatable.size)
         val removedBubbleIds = LinkedHashSet<Int>()
-        val cacheMisses = ArrayList<BubbleTranslation>(translatable.size)
-        cacheMisses.addAll(translatable)
 
         fun merge(): List<BubbleTranslation> {
             return bubbles.filterNot { it.id in removedBubbleIds }.map { bubble ->
@@ -53,15 +51,8 @@ internal class TextBubbleTranslationCoordinator(
             }
         }
 
-        if (cacheMisses.isEmpty()) {
-            return TextBubbleTranslationBatchResult(
-                bubbles = merge(),
-                glossaryUsed = emptyMap()
-            )
-        }
-
-        AppLogger.log(logTag, "Translate request segments=${cacheMisses.size}")
-        val requestItems = cacheMisses
+        AppLogger.log(logTag, "Translate request segments=${translatable.size}")
+        val requestItems = translatable
             .sortedWith(compareBy({ it.rect.top }, { it.rect.left }, { it.id }))
             .map {
                 LlmBubbleTranslationRequestItem(
@@ -106,7 +97,7 @@ internal class TextBubbleTranslationCoordinator(
             throw LlmResponseException(LlmErrorCode.MissingTranslationItems, error)
         }
 
-        for (source in cacheMisses) {
+        for (source in translatable) {
             val translatedText = translationById[source.id].orEmpty()
             if (translatedText.isBlank()) {
                 removedBubbleIds.add(source.id)

@@ -25,7 +25,9 @@ enum class OnnxThreadProfile(
 }
 
 object OnnxRuntimeSupport {
-    private val env: OrtEnvironment = OrtEnvironment.getEnvironment()
+    private val env: OrtEnvironment by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        OrtEnvironment.getEnvironment()
+    }
     private val sessionCache = ConcurrentHashMap<String, OrtSession>()
 
     fun environment(): OrtEnvironment = env
@@ -170,6 +172,12 @@ object OnnxRuntimeSupport {
             writeAssetHash(cacheDir, assetName, expectedHash)
         }
         return target
+    }
+
+    fun deleteCachedAsset(cacheDir: File, assetName: String) {
+        synchronized(cacheLock) {
+            deleteCachedModel(cacheDir, assetName)
+        }
     }
 
     fun closeCachedSessions() {

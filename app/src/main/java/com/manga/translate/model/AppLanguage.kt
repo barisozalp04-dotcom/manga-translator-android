@@ -1,6 +1,8 @@
 package com.manga.translate.model
 
+import android.content.Context
 import androidx.annotation.StringRes
+import androidx.core.app.LocaleManagerCompat
 import androidx.core.os.LocaleListCompat
 import com.manga.translate.R
 import java.util.Locale
@@ -14,7 +16,8 @@ enum class AppLanguage(
     SIMPLIFIED_CHINESE("zh_hans", R.string.language_simplified_chinese, "zh-Hans"),
     TRADITIONAL_CHINESE("zh_hant", R.string.language_traditional_chinese, "zh-Hant"),
     ENGLISH("en", R.string.language_english, "en"),
-    RUSSIAN("ru", R.string.language_russian, "ru");
+    RUSSIAN("ru", R.string.language_russian, "ru"),
+    PORTUGUESE_BRAZIL("pt_br", R.string.language_portuguese_brazil, "pt-BR");
 
     fun toLocales(): LocaleListCompat {
         return if (languageTags.isNullOrBlank()) {
@@ -24,9 +27,11 @@ enum class AppLanguage(
         }
     }
 
-    fun resolveApplicationLocales(
-        systemLocales: LocaleListCompat = LocaleListCompat.getAdjustedDefault()
-    ): LocaleListCompat {
+    fun resolveApplicationLocales(context: Context): LocaleListCompat {
+        return resolveApplicationLocales(LocaleManagerCompat.getSystemLocales(context))
+    }
+
+    internal fun resolveApplicationLocales(systemLocales: LocaleListCompat): LocaleListCompat {
         if (this != FOLLOW_SYSTEM) return toLocales()
         return if (hasSupportedSystemLanguage(systemLocales)) {
             LocaleListCompat.getEmptyLocaleList()
@@ -51,8 +56,10 @@ enum class AppLanguage(
         }
 
         private fun isSupportedLanguageTag(tag: String): Boolean {
-            val language = Locale.forLanguageTag(tag).language.lowercase(Locale.ROOT)
-            return language in SUPPORTED_SYSTEM_LANGUAGES
+            val locale = Locale.forLanguageTag(tag)
+            val language = locale.language.lowercase(Locale.ROOT)
+            return language in SUPPORTED_SYSTEM_LANGUAGES ||
+                (language == "pt" && locale.country.equals("BR", ignoreCase = true))
         }
 
         private val SUPPORTED_SYSTEM_LANGUAGES = setOf("zh", "en", "ru")

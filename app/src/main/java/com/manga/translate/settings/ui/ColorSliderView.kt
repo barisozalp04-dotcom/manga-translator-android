@@ -16,13 +16,17 @@ class ColorSliderView @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null
 ) : View(context, attrs) {
+    private val density = resources.displayMetrics.density
+    private val thumbRadius = 10f * density
+    private val trackRadius = 5f * density
     private val trackPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val thumbPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
     private val thumbStrokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        strokeWidth = resources.displayMetrics.density * 2f
+        strokeWidth = density * 2f
         color = Color.DKGRAY
     }
+    private val trackBounds = RectF()
     private var gradientColors = intArrayOf(Color.BLACK, Color.WHITE)
     var value: Float = 0f
         set(newValue) {
@@ -33,6 +37,7 @@ class ColorSliderView @JvmOverloads constructor(
 
     fun setGradient(colors: IntArray) {
         gradientColors = colors
+        updateTrackGradient()
         invalidate()
     }
 
@@ -46,29 +51,23 @@ class ColorSliderView @JvmOverloads constructor(
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
-        val density = resources.displayMetrics.density
-        val thumbRadius = 10f * density
-        val track = RectF(
-            paddingLeft + thumbRadius,
-            height / 2f - 5f * density,
-            width - paddingRight - thumbRadius,
-            height / 2f + 5f * density
-        )
-        trackPaint.shader = LinearGradient(
-            track.left,
-            track.centerY(),
-            track.right,
-            track.centerY(),
-            gradientColors,
-            null,
-            Shader.TileMode.CLAMP
-        )
-        canvas.drawRoundRect(track, 5f * density, 5f * density, trackPaint)
-        trackPaint.shader = null
-        val x = track.left + value * track.width()
+        canvas.drawRoundRect(trackBounds, trackRadius, trackRadius, trackPaint)
+        val x = trackBounds.left + value * trackBounds.width()
         thumbPaint.color = interpolateGradient(value)
-        canvas.drawCircle(x, track.centerY(), thumbRadius, thumbPaint)
-        canvas.drawCircle(x, track.centerY(), thumbRadius, thumbStrokePaint)
+        canvas.drawCircle(x, trackBounds.centerY(), thumbRadius, thumbPaint)
+        canvas.drawCircle(x, trackBounds.centerY(), thumbRadius, thumbStrokePaint)
+    }
+
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        super.onSizeChanged(w, h, oldw, oldh)
+        val centerY = h / 2f
+        trackBounds.set(
+            paddingLeft + thumbRadius,
+            centerY - trackRadius,
+            w - paddingRight - thumbRadius,
+            centerY + trackRadius
+        )
+        updateTrackGradient()
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
@@ -99,12 +98,27 @@ class ColorSliderView @JvmOverloads constructor(
     }
 
     private fun updateFromTouch(x: Float) {
-        val thumbRadius = 10f * resources.displayMetrics.density
         val left = paddingLeft + thumbRadius
         val right = width - paddingRight - thumbRadius
         if (right <= left) return
         value = ((x - left) / (right - left)).coerceIn(0f, 1f)
         onValueChanged?.invoke(value)
+    }
+
+    private fun updateTrackGradient() {
+        if (trackBounds.width() <= 0f || gradientColors.isEmpty()) {
+            trackPaint.shader = null
+            return
+        }
+        trackPaint.shader = LinearGradient(
+            trackBounds.left,
+            trackBounds.centerY(),
+            trackBounds.right,
+            trackBounds.centerY(),
+            gradientColors,
+            null,
+            Shader.TileMode.CLAMP
+        )
     }
 
     private fun interpolateGradient(position: Float): Int {

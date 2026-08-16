@@ -1,21 +1,33 @@
 package com.manga.translate
 
+import android.app.Application
 import android.graphics.RectF
 import com.manga.translate.detection.BubblePriorityCandidate
 import com.manga.translate.detection.DetectionTile
 import com.manga.translate.detection.RectGeometryDeduplicator
+import com.manga.translate.detection.RegionDetectionSelection
+import com.manga.translate.detection.TextBlockMerger
+import com.manga.translate.detection.TextLineOrientation
+import com.manga.translate.detection.adaptiveNextTileTop
 import com.manga.translate.detection.buildTileTextSuppressionRects
 import com.manga.translate.detection.choosePreferredBubbleCandidateIndex
 import com.manga.translate.detection.longImageBubbleDetectionTileHeight
+import com.manga.translate.detection.longImageBubbleDetectionInputHeight
 import com.manga.translate.detection.longImageMaxRegionHeight
 import com.manga.translate.detection.longImageTextDetectionTileHeight
+import com.manga.translate.detection.lineBelongsToRegion
+import com.manga.translate.detection.mapPageLineRectsToCrop
+import com.manga.translate.detection.isDetectionAtInternalTileBottom
+import com.manga.translate.detection.isDetectionAtReplayTileTop
 import com.manga.translate.detection.mergePageMaskContours
 import com.manga.translate.detection.planLongImageBubbleDetectionTiles
 import com.manga.translate.detection.planLongImageTextDetectionTiles
+import com.manga.translate.detection.planPaddleTextDetectionTiles
 import com.manga.translate.detection.remapTileMaskContourToPage
 import com.manga.translate.detection.shouldDeduplicateTileCandidates
 import com.manga.translate.detection.shouldFilterLongImageRegion
 import com.manga.translate.detection.shouldFilterTextRectByBubble
+import com.manga.translate.detection.shouldDiscardReplayTileTopFragments
 import com.manga.translate.detection.shouldTreatRectsAsSameBubbleForDedup
 import com.manga.translate.detection.shouldUnionTileBubbleCandidates
 import com.manga.translate.detection.shouldUseLongImageTiling
@@ -29,10 +41,129 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.robolectric.annotation.Config
 import org.robolectric.RobolectricTestRunner
 
 @RunWith(RobolectricTestRunner::class)
+@Config(application = Application::class)
 class PageRegionDetectorTest {
+
+    @Test
+    fun `detected page lines map into scaled OCR crop coordinates`() {
+        val mapped = mapPageLineRectsToCrop(
+            lineRects = listOf(RectF(120f, 240f, 220f, 280f)),
+            cropRect = RectF(100f, 200f, 300f, 400f),
+            cropWidth = 100,
+            cropHeight = 100
+        )
+
+        assertEquals(listOf(RectF(10f, 20f, 60f, 40f)), mapped)
+        assertEquals(null, mapPageLineRectsToCrop(null, RectF(0f, 0f, 10f, 10f), 10, 10))
+    }
+
+    @Test
+    fun `text line is assigned to region by containment or majority overlap`() {
+        val region = RectF(100f, 100f, 300f, 300f)
+
+        assertTrue(lineBelongsToRegion(RectF(120f, 140f, 220f, 180f), region))
+        assertTrue(lineBelongsToRegion(RectF(80f, 140f, 180f, 180f), region))
+        assertFalse(lineBelongsToRegion(RectF(20f, 140f, 140f, 180f), region))
+    }
+
+    @Test
+    fun `region detection selections map to expected detectors`() {
+        assertTrue(RegionDetectionSelection.BUBBLES_ONLY.detectBubbles)
+        assertFalse(RegionDetectionSelection.BUBBLES_ONLY.detectText)
+        assertFalse(RegionDetectionSelection.TEXT_ONLY.detectBubbles)
+        assertTrue(RegionDetectionSelection.TEXT_ONLY.detectText)
+        assertTrue(RegionDetectionSelection.BUBBLES_AND_TEXT.detectBubbles)
+        assertTrue(RegionDetectionSelection.BUBBLES_AND_TEXT.detectText)
+        assertEquals(
+            RegionDetectionSelection.BUBBLES_AND_TEXT,
+            RegionDetectionSelection.fromPref(null)
+        )
+    }
+
+    @Test
+    fun `Paddle horizontal lines merge into one text block`() {
+        val blocks = TextBlockMerger.merge(
+            lineRects = listOf(
+                RectF(20f, 20f, 220f, 50f),
+                RectF(21f, 62f, 190f, 92f),
+                RectF(20f, 104f, 210f, 134f)
+            ),
+            imageWidth = 1000,
+            imageHeight = 1000
+        )
+
+        assertEquals(1, blocks.size)
+        assertEquals(3, blocks.single().lines.size)
+        assertEquals(TextLineOrientation.HORIZONTAL, blocks.single().orientation)
+        assertEquals(RectF(20f, 20f, 220f, 134f), blocks.single().rect)
+        assertArrayEquals(
+            floatArrayOf(
+                0.020f, 0.020f,
+                0.020f, 0.050f,
+                0.021f, 0.062f,
+                0.021f, 0.092f,
+                0.020f, 0.104f,
+                0.020f, 0.134f,
+                0.210f, 0.134f,
+                0.210f, 0.104f,
+                0.190f, 0.092f,
+                0.190f, 0.062f,
+                0.220f, 0.050f,
+                0.220f, 0.020f
+            ),
+            blocks.single().maskContour,
+            1e-4f
+        )
+    }
+
+    @Test
+    fun `Paddle vertical lines form polygon from line corners`() {
+        val blocks = TextBlockMerger.merge(
+            lineRects = listOf(
+                RectF(20f, 20f, 50f, 220f),
+                RectF(62f, 21f, 92f, 190f),
+                RectF(104f, 20f, 134f, 210f)
+            ),
+            imageWidth = 1000,
+            imageHeight = 1000
+        )
+
+        assertEquals(1, blocks.size)
+        assertEquals(TextLineOrientation.VERTICAL, blocks.single().orientation)
+        assertEquals(RectF(20f, 20f, 134f, 220f), blocks.single().rect)
+        assertArrayEquals(
+            floatArrayOf(
+                0.020f, 0.020f,
+                0.050f, 0.020f,
+                0.062f, 0.021f,
+                0.092f, 0.021f,
+                0.104f, 0.020f,
+                0.134f, 0.020f,
+                0.134f, 0.210f,
+                0.104f, 0.210f,
+                0.092f, 0.190f,
+                0.062f, 0.190f,
+                0.050f, 0.220f,
+                0.020f, 0.220f
+            ),
+            blocks.single().maskContour,
+            1e-4f
+        )
+    }
+
+    @Test
+    fun `Paddle overlapping long-image tiles cover page`() {
+        val tiles = planPaddleTextDetectionTiles(pageWidth = 1000, pageHeight = 7000)
+
+        assertTrue(tiles.size > 1)
+        assertEquals(0, tiles.first().top)
+        assertEquals(7000, tiles.last().bottom)
+        assertTrue(tiles.zipWithNext().all { (first, second) -> second.top < first.bottom })
+    }
 
     @Test
     fun `long image tiling only enables for threshold-matching vertical pages`() {
@@ -57,13 +188,12 @@ class PageRegionDetectorTest {
         val tileHeight = longImageTextDetectionTileHeight(pageWidth = 1000, pageHeight = 7000)
 
         assertEquals(1500, tileHeight)
-        assertEquals(7, tiles.size)
+        assertEquals(5, tiles.size)
         assertEquals(0, tiles.first().top)
         assertEquals(7000, tiles.last().bottom)
         assertTrue(tiles.all { it.left == 0 && it.right == 1000 })
         assertTrue(tiles.all { it.width == 1000 && it.height <= 1500 })
-        assertTrue(tiles.zipWithNext().all { (a, b) -> b.top < a.bottom })
-        assertTrue(tiles.zipWithNext().minOf { (a, b) -> a.bottom - b.top } >= 450)
+        assertTrue(tiles.zipWithNext().all { (a, b) -> b.top == a.bottom })
     }
 
     @Test
@@ -95,23 +225,130 @@ class PageRegionDetectorTest {
     fun `reference webtoon text plan has no horizontal tile multiplication`() {
         val tiles = planLongImageTextDetectionTiles(pageWidth = 1080, pageHeight = 28800)
 
-        assertEquals(25, tiles.size)
+        assertEquals(18, tiles.size)
         assertTrue(tiles.all { it.left == 0 && it.right == 1080 })
         assertTrue(tiles.all { it.width == 1080 && it.height <= 1620 })
         assertEquals(28800, tiles.maxOf { it.bottom })
     }
 
     @Test
-    fun `long image bubble plan uses full width 2x tiles and overlap`() {
+    fun `long image bubble plan uses contiguous full width 2_5x tiles`() {
         val tiles = planLongImageBubbleDetectionTiles(pageWidth = 1080, pageHeight = 28800)
 
-        assertEquals(2160, longImageBubbleDetectionTileHeight(1080, 28800))
-        assertEquals(17, tiles.size)
-        assertTrue(tiles.all { it.left == 0 && it.right == 1080 && it.height <= 2160 })
+        assertEquals(2700, longImageBubbleDetectionTileHeight(1080, 28800))
+        assertEquals(11, tiles.size)
+        assertTrue(tiles.all { it.left == 0 && it.right == 1080 && it.height <= 2700 })
         assertEquals(0, tiles.first().top)
         assertEquals(28800, tiles.last().bottom)
-        assertTrue(tiles.zipWithNext().all { (a, b) -> b.top < a.bottom })
-        assertTrue(tiles.zipWithNext().minOf { (a, b) -> a.bottom - b.top } >= 432)
+        assertTrue(tiles.zipWithNext().all { (a, b) -> b.top == a.bottom })
+    }
+
+    @Test
+    fun `internal bottom edge candidates trigger adaptive replay above candidate`() {
+        val tile = DetectionTile(left = 0, top = 0, right = 1000, bottom = 1500)
+        val edgeRect = RectF(100f, 600f, 500f, 740f)
+
+        assertTrue(
+            isDetectionAtInternalTileBottom(
+                rect = edgeRect,
+                tileBitmapHeight = 750,
+                tileBottom = tile.bottom,
+                pageHeight = 7000
+            )
+        )
+        assertEquals(
+            1155,
+            adaptiveNextTileTop(
+                tile = tile,
+                pageHeight = 7000,
+                tileBitmapHeight = 750,
+                bottomEdgeRects = listOf(edgeRect)
+            )
+        )
+    }
+
+    @Test
+    fun `tiles stay contiguous without edge candidates and retain real page bottom`() {
+        val internalTile = DetectionTile(left = 0, top = 0, right = 1000, bottom = 1500)
+        val finalTile = DetectionTile(left = 0, top = 6000, right = 1000, bottom = 7000)
+        val bottomRect = RectF(100f, 600f, 500f, 750f)
+
+        assertEquals(
+            1500,
+            adaptiveNextTileTop(
+                tile = internalTile,
+                pageHeight = 7000,
+                tileBitmapHeight = 750,
+                bottomEdgeRects = emptyList()
+            )
+        )
+        assertFalse(
+            isDetectionAtInternalTileBottom(
+                rect = bottomRect,
+                tileBitmapHeight = 750,
+                tileBottom = finalTile.bottom,
+                pageHeight = 7000
+            )
+        )
+        assertEquals(
+            7000,
+            adaptiveNextTileTop(
+                tile = finalTile,
+                pageHeight = 7000,
+                tileBitmapHeight = 750,
+                bottomEdgeRects = listOf(bottomRect)
+            )
+        )
+    }
+
+    @Test
+    fun `replay top fragments are not bottom edge replay triggers`() {
+        val tile = DetectionTile(left = 0, top = 1155, right = 1000, bottom = 2655)
+        val topFragment = RectF(100f, 4f, 500f, 200f)
+
+        assertTrue(isDetectionAtReplayTileTop(topFragment, tileBitmapHeight = 750))
+        assertFalse(
+            isDetectionAtInternalTileBottom(
+                rect = topFragment,
+                tileBitmapHeight = 750,
+                tileBottom = tile.bottom,
+                pageHeight = 7000
+            )
+        )
+        assertEquals(
+            tile.bottom,
+            adaptiveNextTileTop(
+                tile = tile,
+                pageHeight = 7000,
+                tileBitmapHeight = 750,
+                bottomEdgeRects = emptyList()
+            )
+        )
+    }
+
+    @Test
+    fun `final replay tile retains top edge candidates`() {
+        assertTrue(
+            shouldDiscardReplayTileTopFragments(
+                overlapsPreviousTile = true,
+                tileBottom = 6500,
+                pageHeight = 7000
+            )
+        )
+        assertFalse(
+            shouldDiscardReplayTileTopFragments(
+                overlapsPreviousTile = true,
+                tileBottom = 7000,
+                pageHeight = 7000
+            )
+        )
+    }
+
+    @Test
+    fun `long image bubble input compresses height by twenty percent`() {
+        assertEquals(1536, longImageBubbleDetectionInputHeight(bitmapHeight = 1920))
+        assertEquals(1, longImageBubbleDetectionInputHeight(bitmapHeight = 1))
+        assertEquals(0, longImageBubbleDetectionInputHeight(bitmapHeight = 0))
     }
 
     @Test
@@ -181,7 +418,7 @@ class PageRegionDetectorTest {
             )
         )
 
-        val merged = RectGeometryDeduplicator.mergeShortTextDetectorOcrBubbles(
+        val merged = RectGeometryDeduplicator.mergeShortOcrBubbles(
             bubbles = bubbles,
             imageWidth = 1000,
             imageHeight = 7000,
@@ -393,23 +630,23 @@ class PageRegionDetectorTest {
     @Test
     fun `detection strategy tag switches between full and tiled modes`() {
         assertEquals(
-            "det_full_scaled_manga109seg1600_text_yolo11_v16",
+            "det_full_yolo26nseg1472_paddle_blocks_v3",
             buildDetectionStrategyTag(pageWidth = 640, pageHeight = 640)
         )
         assertEquals(
-            "det_full_scaled_manga109seg1600_text_yolo11_v16",
+            "det_full_yolo26nseg1472_paddle_blocks_v3",
             buildDetectionStrategyTag(pageWidth = 1080, pageHeight = 1600)
         )
         assertEquals(
-            "det_full_scaled_manga109seg1600_text_yolo11_v16",
+            "det_full_yolo26nseg1472_paddle_blocks_v3",
             buildDetectionStrategyTag(pageWidth = 4096, pageHeight = 4096)
         )
         assertEquals(
-            "det_full_scaled_manga109seg1600_text_yolo11_v16",
+            "det_full_yolo26nseg1472_paddle_blocks_v3",
             buildDetectionStrategyTag(pageWidth = 8192, pageHeight = 2048)
         )
         assertEquals(
-            "det_vertical_tiled_bubble_2x_text_1_5x_manga109seg_yolo11_v17",
+            "det_vertical_tiled_yolo26nseg1472_paddle_blocks_v3",
             buildDetectionStrategyTag(pageWidth = 1000, pageHeight = 2200)
         )
     }

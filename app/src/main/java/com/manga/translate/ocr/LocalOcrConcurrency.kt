@@ -1,19 +1,31 @@
 package com.manga.translate.ocr
 
-import kotlin.math.min
+import android.content.Context
+import com.manga.translate.platform.DeviceResourcePolicy
+import com.manga.translate.platform.DeviceResourceSnapshot
 
 internal object LocalOcrConcurrency {
-    private const val MEMORY_PER_INSTANCE_BYTES = 45L * 1024L * 1024L
-    private const val HARD_CAP = 3
-    private const val THREADS_PER_INSTANCE = 1
+    private const val HARD_CAP = 8
 
-    fun compute(): Int {
-        val rt = Runtime.getRuntime()
-        val byCpu = rt.availableProcessors() / THREADS_PER_INSTANCE
-        val byMemory = (rt.maxMemory() / MEMORY_PER_INSTANCE_BYTES).toInt()
-        return min(min(byCpu, byMemory), HARD_CAP).coerceAtLeast(1)
-    }
+    fun compute(snapshot: DeviceResourceSnapshot): Int =
+        DeviceResourcePolicy.recommendConcurrency(
+            snapshot = snapshot,
+            perWorkerBytes = DeviceResourcePolicy.OCR_INSTANCE_BYTES,
+            hardCap = HARD_CAP
+        )
+
+    fun compute(context: Context): Int =
+        compute(DeviceResourcePolicy.readSnapshot(context))
 
     // 0 means auto; positive values override the computed result
-    fun resolve(override: Int): Int = if (override > 0) override else compute()
+    fun resolve(override: Int, context: Context): Int =
+        if (override > 0) override.coerceAtMost(HARD_CAP) else compute(context)
+
+    fun assess(context: Context, requestedConcurrency: Int) =
+        DeviceResourcePolicy.assessConcurrency(
+            snapshot = DeviceResourcePolicy.readSnapshot(context),
+            perWorkerBytes = DeviceResourcePolicy.OCR_INSTANCE_BYTES,
+            requestedConcurrency = requestedConcurrency,
+            hardCap = HARD_CAP
+        )
 }

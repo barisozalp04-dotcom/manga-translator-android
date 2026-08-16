@@ -36,10 +36,12 @@ class AppLanguageTest {
     }
 
     @Test
-    fun `supported language detection matches chinese english and russian only`() {
+    fun `supported language detection includes brazilian portuguese`() {
         assertTrue(AppLanguage.hasSupportedSystemLanguage(LocaleListCompat.forLanguageTags("zh-CN")))
         assertTrue(AppLanguage.hasSupportedSystemLanguage(LocaleListCompat.forLanguageTags("en-US")))
         assertTrue(AppLanguage.hasSupportedSystemLanguage(LocaleListCompat.forLanguageTags("ru-RU")))
+        assertTrue(AppLanguage.hasSupportedSystemLanguage(LocaleListCompat.forLanguageTags("pt-BR")))
+        assertFalse(AppLanguage.hasSupportedSystemLanguage(LocaleListCompat.forLanguageTags("pt-PT")))
         assertFalse(AppLanguage.hasSupportedSystemLanguage(LocaleListCompat.forLanguageTags("fr-FR")))
     }
 }

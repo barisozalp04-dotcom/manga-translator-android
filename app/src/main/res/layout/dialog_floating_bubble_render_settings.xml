@@ -75,11 +75,11 @@
         </com.google.android.material.textfield.TextInputLayout>
 
         <androidx.appcompat.widget.SwitchCompat
-            android:id="@+id/floating_bubble_horizontal_text_switch"
+            android:id="@+id/floating_bubble_vertical_text_switch"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="14dp"
-            android:text="@string/floating_bubble_horizontal_text"
+            android:text="@string/bubble_vertical_text"
             android:textColor="?attr/dialogTextColor" />
 
         <TextView

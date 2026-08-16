@@ -14,7 +14,8 @@ class KoreanOcr(
     modelAssetName = MODEL_ASSET,
     logTag = LOG_TAG,
     threadProfile = threadProfile,
-    settingsStore = settingsStore
+    settingsStore = settingsStore,
+    dictAssetName = DICT_ASSET
 ) {
     override fun trimLowConfidenceTail(tokens: List<OcrToken>): List<OcrToken> {
         if (tokens.isEmpty()) return tokens
@@ -74,7 +75,8 @@ class KoreanOcr(
     }
 
     companion object {
-        private const val MODEL_ASSET = "models/ocr/korean_PP-OCRv3_rec_infer.onnx"
+        private const val MODEL_ASSET = "models/ocr/korean_PP-OCRv5_mobile_rec.onnx"
+        private const val DICT_ASSET = "models/ocr/korean_PP-OCRv5_mobile_rec_dict.txt"
         private const val LOG_TAG = "KoreanOcr"
         private const val LOW_CONFIDENCE_TAIL_SCORE = 0.65f
     }

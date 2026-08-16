@@ -6,16 +6,31 @@ internal class OcrSettingsStore(
     private val storage: SettingsStoreStorage
 ) {
     fun loadOcrApiSettings(): OcrApiSettings {
-        val useLocal = storage.prefs.getBoolean(SettingsStore.KEY_OCR_USE_LOCAL, true)
-        val url = storage.prefs.getString(
-            SettingsStore.KEY_OCR_API_URL,
-            SettingsStore.DEFAULT_OCR_API_URL
-        ) ?: SettingsStore.DEFAULT_OCR_API_URL
-        val key = storage.prefs.getString(SettingsStore.KEY_OCR_API_KEY, "") ?: ""
-        val model = storage.prefs.getString(
-            SettingsStore.KEY_OCR_MODEL_NAME,
-            SettingsStore.DEFAULT_OCR_MODEL_NAME
-        ) ?: SettingsStore.DEFAULT_OCR_MODEL_NAME
+        val apiFormatPref = storage.prefs.getString(SettingsStore.KEY_OCR_API_FORMAT, null)
+        val hasUnsupportedApiFormat = OcrApiFormat.isUnsupportedPref(apiFormatPref)
+        val useLocal = storage.prefs.getBoolean(SettingsStore.KEY_OCR_USE_LOCAL, true) ||
+            hasUnsupportedApiFormat
+        val url = if (hasUnsupportedApiFormat) {
+            ""
+        } else {
+            storage.prefs.getString(
+                SettingsStore.KEY_OCR_API_URL,
+                SettingsStore.DEFAULT_OCR_API_URL
+            ) ?: SettingsStore.DEFAULT_OCR_API_URL
+        }
+        val key = if (hasUnsupportedApiFormat) {
+            ""
+        } else {
+            storage.prefs.getString(SettingsStore.KEY_OCR_API_KEY, "") ?: ""
+        }
+        val model = if (hasUnsupportedApiFormat) {
+            ""
+        } else {
+            storage.prefs.getString(
+                SettingsStore.KEY_OCR_MODEL_NAME,
+                SettingsStore.DEFAULT_OCR_MODEL_NAME
+            ) ?: SettingsStore.DEFAULT_OCR_MODEL_NAME
+        }
         val timeoutSeconds = storage.prefs.getInt(
             SettingsStore.KEY_OCR_API_TIMEOUT_SECONDS,
             SettingsStore.DEFAULT_OCR_API_TIMEOUT_SECONDS
@@ -25,9 +40,6 @@ internal class OcrSettingsStore(
         )
         return OcrApiSettings(
             useLocalOcr = useLocal,
-            japaneseLocalOcrEngine = JapaneseLocalOcrEngine.fromPref(
-                storage.prefs.getString(SettingsStore.KEY_JAPANESE_LOCAL_OCR_ENGINE, null)
-            ),
             apiUrl = url,
             apiKey = key,
             modelName = model,
@@ -46,10 +58,7 @@ internal class OcrSettingsStore(
                 SettingsStore.MIN_LOCAL_OCR_CONCURRENCY,
                 SettingsStore.MAX_LOCAL_OCR_CONCURRENCY
             ),
-            ocrApiFormat = OcrApiFormat.fromPref(
-                storage.prefs.getString(SettingsStore.KEY_OCR_API_FORMAT, null)
-            ),
-            secretKey = storage.prefs.getString(SettingsStore.KEY_OCR_SECRET_KEY, "") ?: ""
+            ocrApiFormat = OcrApiFormat.fromPref(apiFormatPref)
         )
     }
 
@@ -69,22 +78,16 @@ internal class OcrSettingsStore(
         storage.editSettings(
             setOf(
                 SettingsStore.KEY_OCR_USE_LOCAL,
-                SettingsStore.KEY_JAPANESE_LOCAL_OCR_ENGINE,
                 SettingsStore.KEY_OCR_API_URL,
                 SettingsStore.KEY_OCR_API_KEY,
                 SettingsStore.KEY_OCR_MODEL_NAME,
                 SettingsStore.KEY_OCR_API_TIMEOUT_SECONDS,
                 SettingsStore.KEY_OCR_API_CONCURRENCY,
                 SettingsStore.KEY_LOCAL_OCR_CONCURRENCY,
-                SettingsStore.KEY_OCR_API_FORMAT,
-                SettingsStore.KEY_OCR_SECRET_KEY
+                SettingsStore.KEY_OCR_API_FORMAT
             )
         ) {
             putBoolean(SettingsStore.KEY_OCR_USE_LOCAL, settings.useLocalOcr)
-                .putString(
-                    SettingsStore.KEY_JAPANESE_LOCAL_OCR_ENGINE,
-                    settings.japaneseLocalOcrEngine.prefValue
-                )
                 .putString(SettingsStore.KEY_OCR_API_URL, settings.apiUrl)
                 .putString(SettingsStore.KEY_OCR_API_KEY, settings.apiKey)
                 .putString(SettingsStore.KEY_OCR_MODEL_NAME, settings.modelName)
@@ -95,7 +98,6 @@ internal class OcrSettingsStore(
                     SettingsStore.KEY_OCR_API_FORMAT,
                     settings.ocrApiFormat.prefValue
                 )
-                .putString(SettingsStore.KEY_OCR_SECRET_KEY, settings.secretKey)
         }
     }
 }

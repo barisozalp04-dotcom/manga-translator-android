@@ -42,7 +42,7 @@ object RectGeometryDeduplicator {
             .sortedWith(compareBy({ it.top }, { it.left }))
     }
 
-    fun mergeShortTextDetectorOcrBubbles(
+    fun mergeShortOcrBubbles(
         bubbles: List<OcrBubble>,
         imageWidth: Int,
         imageHeight: Int,
