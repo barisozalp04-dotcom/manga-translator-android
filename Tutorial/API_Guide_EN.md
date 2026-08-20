@@ -77,3 +77,24 @@ With this configuration, the app appends `/responses` to the base URL. The offic
 - An authentication error usually means the key is invalid, revoked, or pasted with extra spaces.
 - A model-not-found error means the model name is unavailable to the account or has been mistyped. Copy the exact model ID from the provider dashboard.
 - Rate-limit, billing, or quota errors must be resolved in the provider dashboard. Reducing app concurrency can help prevent repeated rate-limit errors.
+
+## Support / Tips
+
+If this project has been helpful to you, feel free to support it with stablecoins.  
+Currently accepting **USDT (BNB Chain)** and **USDC (Base)**.
+
+### USDT (BNB Chain / BEP-20)
+
+![USDT Reward QR Code](./reward_USDT.jpg)
+
+- **Network**: BNB Smart Chain (BEP-20)
+- **Token**: USDT
+- Please make sure to select the **BNB Chain / BEP-20** network when sending. Sending on the wrong network may result in permanent loss of funds.
+
+### USDC (Base)
+
+![USDC Reward QR Code](./reward_USDC.jpg)
+
+- **Network**: Base
+- **Token**: USDC
+- Please make sure to select the **Base** network when sending. Sending on the wrong network may result in permanent loss of funds.
