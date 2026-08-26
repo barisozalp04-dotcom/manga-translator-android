@@ -309,6 +309,12 @@ class SettingsStore(context: Context) {
         apiSettingsStore.saveModelIoLogging(enabled)
     }
 
+    fun loadUseXnnpack(): Boolean = appSettingsStore.loadUseXnnpack()
+
+    fun saveUseXnnpack(enabled: Boolean) {
+        appSettingsStore.saveUseXnnpack(enabled)
+    }
+
     internal fun persistMainSettings(form: SettingsMainForm): SettingsPersistenceResult {
         return apiSettingsStore.persistMainSettings(
             form = form,
@@ -503,6 +509,7 @@ class SettingsStore(context: Context) {
         internal const val KEY_BUBBLE_CUSTOM_FONT_FILE = "bubble_custom_font_file"
         internal const val KEY_BUBBLE_FONT_BOLD = "bubble_font_bold"
         internal const val KEY_MODEL_IO_LOGGING = "model_io_logging"
+        internal const val KEY_USE_XNNPACK = "use_xnnpack"
         internal const val KEY_API_RETRY_COUNT = "api_retry_count"
         internal const val KEY_MAX_CONCURRENCY = "max_concurrency"
         internal const val KEY_API_TIMEOUT_SECONDS = "api_timeout_seconds"

@@ -102,6 +102,7 @@ internal class AppContainer(private val appContext: Context) {
                 prefs = libraryPrefs,
                 repository = libraryRepository
             ),
+            repository = libraryRepository,
             llmClient = llmClient,
             ui = ui,
             progressStore = translationProgressStore,

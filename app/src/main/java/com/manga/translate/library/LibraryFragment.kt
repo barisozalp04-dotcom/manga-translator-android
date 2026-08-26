@@ -45,16 +45,23 @@ import com.manga.translate.platform.ResourceAssessment
 import com.manga.translate.platform.ResourceWarningDialogs
 import com.manga.translate.platform.showWithScrollableMessage
 import com.manga.translate.reader.ReadingSessionViewModel
-import com.manga.translate.storage.TranslationTaskPersistence
-import com.manga.translate.translation.FolderTranslationTask
+import com.manga.translate.translation.FolderTranslationTaskFactory
 import java.io.File
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlin.coroutines.resume
 
 class LibraryFragment : Fragment() {
+
+    private sealed interface FolderContent {
+        data class Chapters(val items: List<FolderItem>) : FolderContent
+        data class Images(val items: List<ImageItem>) : FolderContent
+    }
 
     private var _binding: FragmentLibraryBinding? = null
     private val binding get() = _binding!!
@@ -75,7 +82,12 @@ class LibraryFragment : Fragment() {
     private lateinit var preferencesGateway: LibraryPreferencesGateway
     private lateinit var importExportCoordinator: LibraryImportExportCoordinator
     private lateinit var selectionController: LibrarySelectionController
+    private lateinit var selectionManager: LibrarySelectionManager
     private var imageConversionDialog: AlertDialog? = null
+
+    private val taskFactory by lazy(LazyThreadSafetyMode.NONE) {
+        FolderTranslationTaskFactory(repository, preferencesGateway, settingsStore)
+    }
 
     private var currentFolder: File? = null
     private var currentParentFolder: File? = null
@@ -85,9 +97,11 @@ class LibraryFragment : Fragment() {
     private var lastFolderDetailScrollY: Int = 0
     private var folderTopBarScrollAccumulated: Int = 0
     private var folderDetailContentBaseTopPadding: Int = 0
-    private var isChapterSelectionMode: Boolean = false
-    private var isLibrarySelectionMode: Boolean = false
     private var activeFolderFilter: FolderFilter? = null
+    private var folderLoadJob: Job? = null
+    private var folderLoadGeneration: Long = 0L
+    private var folderContentLoadJob: Job? = null
+    private var folderContentLoadGeneration: Long = 0L
     private var pendingFloatingTranslateLanguage: TranslationLanguage? = null
     private var isRegionDetectionIndicatorPositioned: Boolean = false
     private var suppressRegionDetectionIndicatorAnimation: Boolean = false
@@ -123,10 +137,10 @@ class LibraryFragment : Fragment() {
         onMove = { showMoveFolderPicker(it.folder) },
         onEditTags = { showEditFolderTagsDialog(it) },
         onTagClick = { applyFolderFilter(FolderFilter.CustomTag(it)) },
-        onStatusClick = { applyFolderFilter(FolderFilter.Status(it)) },
+        onStatusClick = null,
         showOverflowMenu = true,
         onSelectionChanged = { updateLibrarySelectionActions() },
-        onItemLongPress = { enterLibrarySelectionMode(it.folder) }
+        onItemLongPress = { selectionManager.enterLibrarySelectionMode(it.folder) }
     )
 
     private val imageAdapter = FolderImageAdapter(
@@ -141,7 +155,7 @@ class LibraryFragment : Fragment() {
         onRename = { showRenameFolderDialog(it.folder) },
         onMove = { showMoveFolderPicker(it.folder) },
         onSelectionChanged = { updateChapterSelectionActions() },
-        onItemLongPress = { enterChapterSelectionMode(it.folder) }
+        onItemLongPress = { selectionManager.enterChapterSelectionMode(it.folder) }
     )
 
     private val uiCallbacks = object : LibraryUiCallbacks {
@@ -403,6 +417,7 @@ class LibraryFragment : Fragment() {
             translationStore = translationStore,
             ocrStore = ocrStore,
             repository = repository,
+            preferencesGateway = preferencesGateway,
             ui = uiCallbacks,
             dialogs = dialogs,
             bindingProvider = { _binding },
@@ -411,9 +426,16 @@ class LibraryFragment : Fragment() {
                 runTranslation(folder, selected, force)
             }
         )
+        selectionManager = LibrarySelectionManager(
+            folderAdapter = folderAdapter,
+            chapterAdapter = chapterAdapter,
+            ui = uiCallbacks,
+            bindingProvider = { _binding },
+            onExitImageSelectionMode = { selectionController.exitSelectionMode() }
+        )
 
         binding.folderList.layoutManager = LinearLayoutManager(requireContext())
-        binding.folderList.isNestedScrollingEnabled = false
+        binding.folderList.isNestedScrollingEnabled = true
         binding.folderList.adapter = folderAdapter
         (binding.folderList.itemAnimator as? SimpleItemAnimator)?.supportsChangeAnimations = false
         binding.root.setOnClickListener { folderAdapter.clearActionSelection() }
@@ -446,10 +468,10 @@ class LibraryFragment : Fragment() {
             )
         }
         binding.tutorialButton.setOnClickListener { openTutorial() }
-        binding.librarySelectAll.setOnClickListener { toggleSelectAllLibraryFolders() }
+        binding.librarySelectAll.setOnClickListener { selectionManager.toggleSelectAllLibraryFolders() }
         binding.libraryTranslateSelected.setOnClickListener { translateSelectedLibraryFolders() }
         binding.libraryDeleteSelected.setOnClickListener { confirmDeleteSelectedLibraryFolders() }
-        binding.libraryCancelSelection.setOnClickListener { exitLibrarySelectionMode() }
+        binding.libraryCancelSelection.setOnClickListener { selectionManager.exitLibrarySelectionMode() }
         binding.libraryActiveFilter.setOnClickListener { applyFolderFilter(null) }
         binding.librarySortField.setOnClickListener { toggleLibrarySortField() }
         binding.librarySortOrder.setOnClickListener { toggleLibrarySortOrder() }
@@ -533,8 +555,8 @@ class LibraryFragment : Fragment() {
                         selectionController.exitSelectionMode()
                         return
                     }
-                    if (isLibrarySelectionMode) {
-                        exitLibrarySelectionMode()
+                    if (selectionManager.isLibrarySelectionMode) {
+                        selectionManager.exitLibrarySelectionMode()
                         return
                     }
                     if (binding.folderDetailContainer.isVisible) {
@@ -547,7 +569,6 @@ class LibraryFragment : Fragment() {
             }
         )
 
-        loadFolders()
         showFolderList()
     }
 
@@ -656,6 +677,12 @@ class LibraryFragment : Fragment() {
     }
 
     override fun onDestroyView() {
+        folderLoadGeneration += 1
+        folderLoadJob?.cancel()
+        folderLoadJob = null
+        folderContentLoadGeneration += 1
+        folderContentLoadJob?.cancel()
+        folderContentLoadJob = null
         imageConversionDialog?.dismiss()
         imageConversionDialog = null
         LibraryUiBridge.unregister(uiCallbacks)
@@ -673,10 +700,13 @@ class LibraryFragment : Fragment() {
     private fun showFolderList() {
         currentFolder = null
         currentParentFolder = null
+        folderContentLoadGeneration += 1
+        folderContentLoadJob?.cancel()
+        folderContentLoadJob = null
         resetFolderTopBar(forceVisible = true)
         uiCallbacks.clearFolderStatus()
         exitActiveSelectionMode()
-        exitLibrarySelectionMode()
+        selectionManager.exitLibrarySelectionMode()
         folderAdapter.clearActionSelection()
         chapterAdapter.clearActionSelection()
         loadFolders()
@@ -715,6 +745,8 @@ class LibraryFragment : Fragment() {
         updateReadingModeButton(folder)
         updateFolderContentMode(folder)
         exitActiveSelectionMode()
+        chapterAdapter.submit(emptyList())
+        imageAdapter.submit(emptyList())
         loadImages(folder)
         if (binding.folderDetailContainer.isVisible && !binding.libraryListContainer.isVisible) {
             binding.folderDetailContainer.alpha = 1f
@@ -939,26 +971,64 @@ class LibraryFragment : Fragment() {
     }
 
     private fun loadFolders() {
+        if (_binding == null || !isAdded) return
+        val generation = ++folderLoadGeneration
+        folderLoadJob?.cancel()
         val sortField = preferencesGateway.getLibrarySortField()
         val ascending = preferencesGateway.isLibrarySortAscending()
-        val folders = repository.listFolders(sortField, ascending)
-        val items = folders.map(::buildFolderItem).filter { item ->
-            when (val filter = activeFolderFilter) {
-                null -> true
-                is FolderFilter.Status -> item.status == filter.status
-                is FolderFilter.CustomTag -> item.customTags.any { it == filter.tag }
+        val filter = activeFolderFilter
+        folderLoadJob = viewLifecycleOwner.lifecycleScope.launch {
+            val items = withContext(Dispatchers.IO) {
+                val folders = repository.listFolders(sortField, ascending)
+                buildFolderPreviewItems(folders).filter { item ->
+                    when (filter) {
+                        null -> true
+                        // Status is intentionally not available on the home screen. It requires
+                        // reading every page result and is shown after opening a folder instead.
+                        is FolderFilter.Status -> true
+                        is FolderFilter.CustomTag -> item.customTags.any { it == filter.tag }
+                    }
+                }
+            }
+            if (!isAdded || _binding == null || generation != folderLoadGeneration) return@launch
+            folderAdapter.submit(items)
+            binding.libraryEmpty.text = getString(
+                if (filter == null) R.string.folder_empty else R.string.folder_filter_empty
+            )
+            binding.libraryEmpty.visibility = if (items.isEmpty()) View.VISIBLE else View.GONE
+            updateActiveFolderFilter()
+            updateLibrarySortControl()
+            if (selectionManager.isLibrarySelectionMode) {
+                updateLibrarySelectionActions()
             }
         }
-        folderAdapter.submit(items)
-        binding.libraryEmpty.text = getString(
-            if (activeFolderFilter == null) R.string.folder_empty else R.string.folder_filter_empty
-        )
-        binding.libraryEmpty.visibility = if (items.isEmpty()) View.VISIBLE else View.GONE
-        updateActiveFolderFilter()
-        updateLibrarySortControl()
-        if (isLibrarySelectionMode) {
-            updateLibrarySelectionActions()
+    }
+
+    private fun buildFolderPreviewItems(folders: List<File>): List<FolderItem> {
+        val items = ArrayList<FolderItem>(folders.size)
+        for (folder in folders) {
+            val cachedStatus = preferencesGateway.getCachedFolderStatus(folder)
+            items += FolderItem(
+                folder = folder,
+                imageCount = 0,
+                isCollection = repository.isCollectionFolder(folder),
+                status = cachedStatus ?: FolderStatus.UNTRANSLATED,
+                customTags = preferencesGateway.getFolderTags(folder)
+                    .sortedWith(String.CASE_INSENSITIVE_ORDER),
+                statsLoaded = false,
+                statusLoaded = cachedStatus != null
+            )
         }
+        return items
+    }
+
+    private suspend fun buildFolderItems(folders: List<File>): List<FolderItem> {
+        val items = ArrayList<FolderItem>(folders.size)
+        for (folder in folders) {
+            currentCoroutineContext().ensureActive()
+            items += buildFolderItem(folder)
+        }
+        return items
     }
 
     private fun toggleLibrarySortField() {
@@ -994,34 +1064,59 @@ class LibraryFragment : Fragment() {
 
     private fun loadImages(folder: File) {
         syncExportActionState(folder)
-        if (repository.isCollectionFolder(folder)) {
-            val chapters = repository.listChildFolders(folder)
-            chapterAdapter.submit(chapters.map(::buildFolderItem))
-            imageAdapter.submit(emptyList())
-            binding.folderChapterList.visibility = View.VISIBLE
-            binding.folderImageList.visibility = View.GONE
-            binding.folderImagesEmpty.text = getString(R.string.folder_chapters_empty)
-            binding.folderImagesEmpty.visibility = if (chapters.isEmpty()) View.VISIBLE else View.GONE
-            uiCallbacks.clearFolderStatus()
-            return
-        }
-        val images = repository.listImages(folder)
-        val items = images.map { file ->
-            ImageItem(
-                file = file,
-                translated = isImageTranslated(file, folder)
-            )
-        }
-        imageAdapter.submit(items)
-        chapterAdapter.submit(emptyList())
-        binding.folderChapterList.visibility = View.GONE
-        binding.folderImageList.visibility = View.VISIBLE
-        binding.folderImagesEmpty.text = getString(R.string.folder_images_empty)
-        binding.folderImagesEmpty.visibility = if (items.isEmpty()) View.VISIBLE else View.GONE
-        if (selectionController.isSelectionMode) {
-            selectionController.updateSelectionActions()
-        } else {
-            uiCallbacks.clearFolderStatus()
+        val generation = ++folderContentLoadGeneration
+        folderContentLoadJob?.cancel()
+        folderContentLoadJob = viewLifecycleOwner.lifecycleScope.launch {
+            val content = withContext(Dispatchers.IO) {
+                if (repository.isCollectionFolder(folder)) {
+                    val items = buildFolderItems(repository.listChildFolders(folder))
+                    preferencesGateway.setCachedFolderStatus(
+                        folder,
+                        resolveFolderStatus(items.map { it.status })
+                    )
+                    FolderContent.Chapters(items)
+                } else {
+                    val items = repository.listImages(folder).map { file ->
+                        ImageItem(file = file, translated = isImageTranslated(file, folder))
+                    }
+                    preferencesGateway.setCachedFolderStatus(
+                        folder,
+                        resolveFolderStatus(items.map { item ->
+                            if (item.translated) FolderStatus.TRANSLATED else FolderStatus.UNTRANSLATED
+                        })
+                    )
+                    FolderContent.Images(items)
+                }
+            }
+            if (!isAdded || _binding == null || generation != folderContentLoadGeneration ||
+                currentFolder?.absolutePath != folder.absolutePath
+            ) return@launch
+            when (content) {
+                is FolderContent.Chapters -> {
+                    chapterAdapter.submit(content.items)
+                    imageAdapter.submit(emptyList())
+                    binding.folderChapterList.visibility = View.VISIBLE
+                    binding.folderImageList.visibility = View.GONE
+                    binding.folderImagesEmpty.text = getString(R.string.folder_chapters_empty)
+                    binding.folderImagesEmpty.visibility =
+                        if (content.items.isEmpty()) View.VISIBLE else View.GONE
+                    uiCallbacks.clearFolderStatus()
+                }
+                is FolderContent.Images -> {
+                    imageAdapter.submit(content.items)
+                    chapterAdapter.submit(emptyList())
+                    binding.folderChapterList.visibility = View.GONE
+                    binding.folderImageList.visibility = View.VISIBLE
+                    binding.folderImagesEmpty.text = getString(R.string.folder_images_empty)
+                    binding.folderImagesEmpty.visibility =
+                        if (content.items.isEmpty()) View.VISIBLE else View.GONE
+                    if (selectionController.isSelectionMode) {
+                        selectionController.updateSelectionActions()
+                    } else {
+                        uiCallbacks.clearFolderStatus()
+                    }
+                }
+            }
         }
     }
 
@@ -1037,7 +1132,7 @@ class LibraryFragment : Fragment() {
     }
 
     private fun openChildFolder(folder: File) {
-        if (isChapterSelectionMode) return
+        if (selectionManager.isChapterSelectionMode) return
         chapterAdapter.clearActionSelection()
         val parent = currentFolder ?: return
         showFolderDetail(folder, parent)
@@ -1133,7 +1228,9 @@ class LibraryFragment : Fragment() {
                 preferencesGateway.autoDetectAndSetReadingMode(folder, added)
             }
             withContext(Dispatchers.Main) {
-                if (wasEmpty && added.isNotEmpty()) {
+                if (added.isEmpty() && uris.isNotEmpty()) {
+                    Toast.makeText(requireContext(), R.string.import_images_failed, Toast.LENGTH_SHORT).show()
+                } else if (wasEmpty && added.isNotEmpty()) {
                     updateReadingModeButton(folder)
                 }
                 AppLogger.log("Library", "Added ${added.size} images to ${folder.name}")
@@ -1262,7 +1359,7 @@ class LibraryFragment : Fragment() {
     private fun showEditFolderTagsDialog(item: FolderItem) {
         dialogs.showEditFolderTagsDialog(
             context = requireContext(),
-            statusLabel = getString(item.status.labelRes),
+            statusLabel = item.status.labelRes.takeIf { item.statsLoaded }?.let(::getString),
             initialTags = item.customTags.toSet()
         ) { tags ->
             preferencesGateway.setFolderTags(item.folder, tags)
@@ -1271,8 +1368,8 @@ class LibraryFragment : Fragment() {
     }
 
     private fun applyFolderFilter(filter: FolderFilter?) {
-        if (isLibrarySelectionMode) {
-            exitLibrarySelectionMode()
+        if (selectionManager.isLibrarySelectionMode) {
+            selectionManager.exitLibrarySelectionMode()
         }
         activeFolderFilter = if (activeFolderFilter == filter) null else filter
         loadFolders()
@@ -1372,76 +1469,22 @@ class LibraryFragment : Fragment() {
     }
 
     private fun runTranslation(folder: File, images: List<File>, force: Boolean) {
-        val fullTranslate = preferencesGateway.isFullTranslateEnabled(folder)
-        val glossaryProcessingEnabled = preferencesGateway.isGlossaryProcessingEnabled(folder)
-        val useVlDirectTranslate = preferencesGateway.isVlDirectTranslateEnabled(folder)
-        val useLocalOcr = settingsStore.loadOcrApiSettings().useLocalOcr
-        val language = TranslationLanguage.resolveForOcr(
-            preferencesGateway.getTranslationLanguage(folder),
-            useLocalOcr
-        )
         _binding?.folderTranslate?.isEnabled = false
         TranslationKeepAliveService.startTranslationTask(
             requireContext(),
-            TranslationTaskPersistence.fromFolder(
-                folder = folder,
-                images = images,
-                force = force,
-                fullTranslate = fullTranslate,
-                glossaryProcessingEnabled = glossaryProcessingEnabled,
-                useVlDirectTranslate = useVlDirectTranslate,
-                language = language
-            )
+            taskFactory.buildFolderDescriptor(folder, images, force)
         )
     }
 
     private fun runCollectionTranslation(collectionFolder: File, force: Boolean) {
-        val tasks = buildTranslationTasksForFolder(collectionFolder, force)
         _binding?.folderImportChapters?.isEnabled = false
         _binding?.folderExportCollection?.isEnabled = false
         _binding?.folderTranslateCollection?.isEnabled = false
         _binding?.folderCollectionAddChapter?.isEnabled = false
         TranslationKeepAliveService.startTranslationTask(
             requireContext(),
-            TranslationTaskPersistence.fromCollection(collectionFolder, tasks)
+            taskFactory.buildCollectionDescriptor(collectionFolder, force)
         )
-    }
-
-    private fun buildTranslationTasksForFolder(folder: File, force: Boolean): List<FolderTranslationTask> {
-        if (!repository.isCollectionFolder(folder)) {
-            val useLocalOcr = settingsStore.loadOcrApiSettings().useLocalOcr
-            val language = TranslationLanguage.resolveForOcr(
-                preferencesGateway.getTranslationLanguage(folder),
-                useLocalOcr
-            )
-            return listOf(
-                FolderTranslationTask(
-                    folder = folder,
-                    images = repository.listImages(folder),
-                    force = force,
-                    fullTranslate = preferencesGateway.isFullTranslateEnabled(folder),
-                    glossaryProcessingEnabled = preferencesGateway.isGlossaryProcessingEnabled(folder),
-                    useVlDirectTranslate = preferencesGateway.isVlDirectTranslateEnabled(folder),
-                    language = language
-                )
-            )
-        }
-        return repository.listChildFolders(folder).map { chapter ->
-            val useLocalOcr = settingsStore.loadOcrApiSettings().useLocalOcr
-            val language = TranslationLanguage.resolveForOcr(
-                preferencesGateway.getTranslationLanguage(chapter),
-                useLocalOcr
-            )
-            FolderTranslationTask(
-                folder = chapter,
-                images = repository.listImages(chapter),
-                force = force,
-                fullTranslate = preferencesGateway.isFullTranslateEnabled(chapter),
-                glossaryProcessingEnabled = preferencesGateway.isGlossaryProcessingEnabled(chapter),
-                useVlDirectTranslate = preferencesGateway.isVlDirectTranslateEnabled(chapter),
-                language = language
-            )
-        }
     }
 
     private fun updateGlossaryProcessingSwitchState(folder: File) {
@@ -1714,6 +1757,14 @@ class LibraryFragment : Fragment() {
         return if (allTranslated) FolderStatus.TRANSLATED else FolderStatus.UNTRANSLATED
     }
 
+    private fun resolveFolderStatus(statuses: List<FolderStatus>): FolderStatus {
+        return if (statuses.isNotEmpty() && statuses.all { it == FolderStatus.TRANSLATED }) {
+            FolderStatus.TRANSLATED
+        } else {
+            FolderStatus.UNTRANSLATED
+        }
+    }
+
     private fun isImageTranslated(image: File, folder: File): Boolean {
         // Align list/folder badges with engine skip rules: only SUCCESS or manual counts.
         val result = translationStore.load(image) ?: return false
@@ -1751,41 +1802,19 @@ class LibraryFragment : Fragment() {
     }
 
     private fun handleSelectAllClick() {
-        if (isChapterSelectionMode) {
-            if (chapterAdapter.areAllSelected()) {
-                chapterAdapter.clearSelection()
-            } else {
-                chapterAdapter.selectAll()
-            }
+        if (selectionManager.isChapterSelectionMode) {
+            selectionManager.toggleSelectAllChapters()
             return
         }
         selectionController.toggleSelectAllImages()
     }
 
-    private fun enterLibrarySelectionMode(target: File) {
-        if (!isLibrarySelectionMode) {
-            isLibrarySelectionMode = true
-            folderAdapter.setSelectionMode(true)
-            binding.librarySelectionActions.visibility = View.VISIBLE
-            uiCallbacks.clearFolderStatus()
-        }
-        folderAdapter.toggleSelectionAndNotify(target)
-    }
-
-    private fun exitLibrarySelectionMode() {
-        if (!isLibrarySelectionMode) return
-        isLibrarySelectionMode = false
-        folderAdapter.setSelectionMode(false)
-        binding.librarySelectionActions.visibility = View.GONE
-        uiCallbacks.clearFolderStatus()
-    }
-
     private fun updateLibrarySelectionActions() {
-        if (!isLibrarySelectionMode || _binding == null) return
-        val count = folderAdapter.selectedCount()
+        if (!selectionManager.isLibrarySelectionMode || _binding == null) return
+        val count = selectionManager.librarySelectedCount()
         uiCallbacks.setFolderStatus(getString(R.string.library_selection_count, count))
         binding.librarySelectAll.text = getString(
-            if (folderAdapter.areAllSelected()) R.string.clear_all else R.string.select_all
+            if (selectionManager.isLibraryAllSelected()) R.string.clear_all else R.string.select_all
         )
     }
 
@@ -1803,7 +1832,7 @@ class LibraryFragment : Fragment() {
         binding.folderDetectionModeBubbles.isEnabled = enabled
         binding.folderDetectionModeText.isEnabled = enabled
         binding.folderDetectionModeBubblesAndText.isEnabled = enabled
-        if (isLibrarySelectionMode) {
+        if (selectionManager.isLibrarySelectionMode) {
             binding.librarySelectAll.isEnabled = enabled
             binding.libraryTranslateSelected.isEnabled = enabled
             binding.libraryDeleteSelected.isEnabled = enabled
@@ -1811,34 +1840,25 @@ class LibraryFragment : Fragment() {
         }
     }
 
-    private fun toggleSelectAllLibraryFolders() {
-        if (!isLibrarySelectionMode) return
-        if (folderAdapter.areAllSelected()) {
-            folderAdapter.clearSelection()
-        } else {
-            folderAdapter.selectAll()
-        }
-    }
-
     private fun translateSelectedLibraryFolders() {
-        val selected = folderAdapter.getSelectedFolders()
+        val selected = selectionManager.librarySelectedFolders()
         if (selected.isEmpty()) {
             uiCallbacks.setFolderStatus(getString(R.string.translate_folders_empty))
             return
         }
-        val tasks = selected.flatMap { buildTranslationTasksForFolder(it, force = false) }
+        val tasks = selected.flatMap { taskFactory.buildTasksForFolder(it, force = false) }
         _binding?.librarySelectAll?.isEnabled = false
         _binding?.libraryTranslateSelected?.isEnabled = false
         _binding?.libraryDeleteSelected?.isEnabled = false
         _binding?.libraryCancelSelection?.isEnabled = false
         TranslationKeepAliveService.startTranslationTask(
             requireContext(),
-            TranslationTaskPersistence.fromBatch(tasks)
+            taskFactory.buildBatchDescriptor(tasks)
         )
     }
 
     private fun confirmDeleteSelectedLibraryFolders() {
-        val selected = folderAdapter.getSelectedFolders()
+        val selected = selectionManager.librarySelectedFolders()
         if (selected.isEmpty()) {
             uiCallbacks.setFolderStatus(getString(R.string.folder_delete_empty))
             return
@@ -1859,13 +1879,13 @@ class LibraryFragment : Fragment() {
             } else {
                 AppLogger.log("Library", "Deleted ${selected.size} root folders")
             }
-            exitLibrarySelectionMode()
+            selectionManager.exitLibrarySelectionMode()
             refreshFolderViewsAfterBatchMutation(selected)
         }
     }
 
     private fun handleDeleteSelectedClick() {
-        if (isChapterSelectionMode) {
+        if (selectionManager.isChapterSelectionMode) {
             confirmDeleteSelectedChapters()
             return
         }
@@ -1873,46 +1893,23 @@ class LibraryFragment : Fragment() {
     }
 
     private fun exitActiveSelectionMode() {
-        if (isChapterSelectionMode) {
-            exitChapterSelectionMode()
-        }
+        selectionManager.exitChapterSelectionMode()
         selectionController.exitSelectionMode()
     }
 
-    private fun enterChapterSelectionMode(target: File) {
-        if (!isChapterSelectionMode) {
-            isChapterSelectionMode = true
-            selectionController.exitSelectionMode()
-            chapterAdapter.setSelectionMode(true)
-            binding.folderSelectionActions.visibility = View.VISIBLE
-            binding.folderRetranslateSelected.visibility = View.GONE
-        }
-        chapterAdapter.toggleSelectionAndNotify(target)
-    }
-
-    private fun exitChapterSelectionMode() {
-        if (!isChapterSelectionMode) return
-        isChapterSelectionMode = false
-        chapterAdapter.setSelectionMode(false)
-        binding.folderSelectionActions.visibility = View.GONE
-        binding.folderRenameSelected.visibility = View.GONE
-        binding.folderRetranslateSelected.visibility = View.GONE
-        uiCallbacks.clearFolderStatus()
-    }
-
     private fun updateChapterSelectionActions() {
-        if (!isChapterSelectionMode) return
-        val count = chapterAdapter.selectedCount()
+        if (!selectionManager.isChapterSelectionMode) return
+        val count = selectionManager.chapterSelectedCount()
         uiCallbacks.setFolderStatus(getString(R.string.chapter_selection_count, count))
         binding.folderSelectAll.text = getString(
-            if (chapterAdapter.areAllSelected()) R.string.clear_all else R.string.select_all
+            if (selectionManager.isChapterAllSelected()) R.string.clear_all else R.string.select_all
         )
         binding.folderRenameSelected.visibility = if (count == 1) View.VISIBLE else View.GONE
     }
 
     private fun confirmDeleteSelectedChapters() {
         val folder = currentFolder ?: return
-        val selected = chapterAdapter.getSelectedFolders()
+        val selected = selectionManager.chapterSelectedFolders()
         if (selected.isEmpty()) {
             uiCallbacks.setFolderStatus(getString(R.string.delete_chapters_empty))
             return
@@ -1933,16 +1930,16 @@ class LibraryFragment : Fragment() {
             } else {
                 AppLogger.log("Library", "Deleted ${selected.size} chapters from ${folder.name}")
             }
-            exitChapterSelectionMode()
+            selectionManager.exitChapterSelectionMode()
             loadImages(folder)
             loadFolders()
         }
     }
 
     private fun renameSelectedChapter() {
-        val selected = chapterAdapter.getSelectedFolders()
+        val selected = selectionManager.chapterSelectedFolders()
         if (selected.size != 1) return
-        exitChapterSelectionMode()
+        selectionManager.exitChapterSelectionMode()
         showRenameFolderDialog(selected.first())
     }
 

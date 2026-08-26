@@ -29,6 +29,7 @@ Tutorial: [English Tutorial](./Tutorial/Tutorial_EN.md) | [Simplified Chinese Tu
   - Traditional Chinese UI -> Traditional Chinese
   - English UI -> English
   - Russian UI -> Russian
+  - Brazilian Portuguese UI -> Brazilian Portuguese
 - Source language for each folder can be set independently in the library and supports: Japanese, English, Korean, Simplified Chinese, Traditional Chinese, Chinese-English mixed, French, Spanish, Portuguese, German, Italian, Russian
 - When the app UI is switched to Traditional Chinese, it will prioritize Traditional Chinese prompts
 
@@ -51,7 +52,7 @@ Join the QQ group for questions and discussion: `1080302768`
 
 ## Star History
 ** If you like this project, please consider giving it a star **
-[![Star History Chart](https://star-history.dera.page/svg?repos=jedzqer/manga-translator-android&type=date&legend=top-left)](https://star-history.dera.page/#jedzqer/manga-translator-android&type=date&legend=top-left)
+[![Star History Chart](https://api.star-history.com/svg?repos=jedzqer/manga-translator&type=date&legend=top-left)](https://www.star-history.com/#jedzqer/manga-translator&type=date&legend=top-left)
 
 ## Data and File Layout 🗂️
 - Manga library storage: `/Android/data/<package>/files/manga_library/`
@@ -74,39 +75,21 @@ Join the QQ group for questions and discussion: `1080302768`
 ```
 
 ### Models and Assets
-Model files are not included in the source repository to keep it lightweight. Download them and place them in the matching subdirectories under `assets/`:
+Place the following model files into the corresponding subdirectories under `assets/`:
+- `models/detection/manga-bubble-seg-yolo26n-1472.onnx` (YOLO26n-seg speech-bubble detector at 1472x1472; also provides bubble contours)
+- `models/detection/PP-OCRv6_det_mobile_infer.onnx` (Paddle OCR text-line detection and text-block grouping)
+- `models/ocr/PP-OCRv6_small_rec.onnx` (Japanese, English, Chinese, and mixed OCR)
+- `models/ocr/korean_PP-OCRv5_mobile_rec.onnx` and `models/ocr/korean_PP-OCRv5_mobile_rec_dict.txt` (Korean OCR and character dictionary)
+- `models/detection/PP-OCRv6_det_mobile_infer.onnx` (English line detection)
 
-- `models/detection/manga-bubble-seg-yolo26n-1472.onnx`: YOLO26n-seg speech-bubble segmentation model with 1472x1472 ONNX input and bubble-contour output.
-- `models/detection/PP-OCRv6_det_mobile_infer.onnx`: PaddleOCR PP-OCRv6 mobile text-line detector.
-- `models/ocr/PP-OCRv6_small_rec.onnx` and `models/ocr/ppocr_keys_v6_small.txt`: Japanese, English, Chinese, and mixed-text recognizer plus character dictionary.
-- `models/ocr/korean_PP-OCRv5_mobile_rec.onnx` and `models/ocr/korean_PP-OCRv5_mobile_rec_dict.txt`: Korean recognizer plus character dictionary.
+Model download links:
+- Speech-bubble detection model: YOLO26n-seg bubble segmentation model (bundled in app assets)
+- Text detection model: PaddleOCR PP-OCRv6 mobile det
+- General recognition model: https://huggingface.co/PaddlePaddle/PP-OCRv6_small_rec_onnx
+- English detection model: https://huggingface.co/PaddlePaddle/PP-OCRv6_small_det_onnx
+- Korean OCR model: https://huggingface.co/PaddlePaddle/korean_PP-OCRv5_mobile_rec_onnx
 
-Model sources:
-
-- Text detection and general recognition: [PaddleOCR ONNX models](https://huggingface.co/PaddlePaddle/PP-OCRv6_small_rec_onnx)
-- Korean recognition: [PaddleOCR Korean PP-OCRv5 ONNX model](https://huggingface.co/PaddlePaddle/korean_PP-OCRv5_mobile_rec_onnx)
-- Speech-bubble segmentation: use a YOLO26n-seg bubble model whose filename matches `manga-bubble-seg-yolo26n-1472.onnx` for this version.
-
-Prompts, fonts, and OCR configuration files are also stored under `assets/`; their names must remain consistent with the code.
-
-### Local signing configuration
-
-This repository contains no signing key or passwords. To build a signed release, create an untracked local `signing.properties` and pass its values as Gradle properties:
-
-```properties
-STORE_FILE=/absolute/path/to/your-release-key.jks
-STORE_PASSWORD=your-store-password
-KEY_ALIAS=your-key-alias
-KEY_PASSWORD=your-key-password
-```
-
-```bash
-./gradlew :app:assembleRelease \
-  -PSTORE_FILE="$(grep '^STORE_FILE=' signing.properties | cut -d= -f2-)" \
-  -PSTORE_PASSWORD="$(grep '^STORE_PASSWORD=' signing.properties | cut -d= -f2-)" \
-  -PKEY_ALIAS="$(grep '^KEY_ALIAS=' signing.properties | cut -d= -f2-)" \
-  -PKEY_PASSWORD="$(grep '^KEY_PASSWORD=' signing.properties | cut -d= -f2-)"
-```
+Prompts, fonts, and OCR configuration files are located in subdirectories under `assets/`, and their names must stay consistent with the code.
 
 ### Release Version Sync
 Update all of the following files at the same time:

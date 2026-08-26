@@ -165,13 +165,15 @@ class LibraryFolderAdapter(
         fun bind(item: FolderItem, showActions: Boolean, selectionMode: Boolean, selected: Boolean) {
             binding.folderName.text = item.folder.name
             val context = binding.root.context
-            binding.folderMeta.text = if (item.isCollection) {
+            binding.folderMeta.text = if (!item.statsLoaded) {
+                context.getString(R.string.folder_open_to_view)
+            } else if (item.isCollection) {
                 context.getString(R.string.folder_collection_meta, item.chapterCount, item.imageCount)
             } else {
                 context.getString(R.string.folder_image_count, item.imageCount)
             }
             binding.folderStatus.setText(item.status.labelRes)
-            binding.folderStatus.isVisible = item.imageCount > 0 || item.status == FolderStatus.UNTRANSLATED
+            binding.folderStatus.isVisible = item.statusLoaded
             binding.folderStatus.isClickable = onStatusClick != null
             binding.folderStatus.isFocusable = onStatusClick != null
             binding.folderStatus.setOnClickListener {

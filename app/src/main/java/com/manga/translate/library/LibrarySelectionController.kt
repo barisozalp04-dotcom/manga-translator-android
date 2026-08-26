@@ -8,6 +8,7 @@ import com.manga.translate.databinding.FragmentLibraryBinding
 import com.manga.translate.platform.AppLogger
 import com.manga.translate.storage.OcrStore
 import com.manga.translate.storage.TranslationStore
+import com.manga.translate.model.FolderStatus
 import java.io.File
 
 internal class LibrarySelectionController(
@@ -15,6 +16,7 @@ internal class LibrarySelectionController(
     private val translationStore: TranslationStore,
     private val ocrStore: OcrStore,
     private val repository: LibraryRepository,
+    private val preferencesGateway: LibraryPreferencesGateway,
     private val ui: LibraryUiCallbacks,
     private val dialogs: LibraryDialogs,
     private val bindingProvider: () -> FragmentLibraryBinding?,
@@ -99,6 +101,7 @@ internal class LibrarySelectionController(
                 Toast.makeText(context, message, Toast.LENGTH_LONG).show()
             } else {
                 AppLogger.log("Library", "Deleted ${selected.size} images from ${folder.name}")
+                preferencesGateway.setCachedFolderStatus(folder, FolderStatus.UNTRANSLATED)
                 exitSelectionMode()
             }
             ui.refreshImages(folder)

@@ -27,6 +27,7 @@ import com.manga.translate.detection.remapTileMaskContourToPage
 import com.manga.translate.detection.shouldDeduplicateTileCandidates
 import com.manga.translate.detection.shouldFilterLongImageRegion
 import com.manga.translate.detection.shouldFilterTextRectByBubble
+import com.manga.translate.detection.shouldKeepBubblesWhenTextDetectionFails
 import com.manga.translate.detection.shouldDiscardReplayTileTopFragments
 import com.manga.translate.detection.shouldTreatRectsAsSameBubbleForDedup
 import com.manga.translate.detection.shouldUnionTileBubbleCandidates
@@ -59,6 +60,7 @@ class PageRegionDetectorTest {
 
         assertEquals(listOf(RectF(10f, 20f, 60f, 40f)), mapped)
         assertEquals(null, mapPageLineRectsToCrop(null, RectF(0f, 0f, 10f, 10f), 10, 10))
+        assertEquals(emptyList<RectF>(), mapPageLineRectsToCrop(emptyList(), RectF(0f, 0f, 10f, 10f), 10, 10))
     }
 
     @Test
@@ -81,6 +83,28 @@ class PageRegionDetectorTest {
         assertEquals(
             RegionDetectionSelection.BUBBLES_AND_TEXT,
             RegionDetectionSelection.fromPref(null)
+        )
+    }
+
+    @Test
+    fun `failed text detection keeps completed bubbles only when bubbles are enabled`() {
+        assertTrue(
+            shouldKeepBubblesWhenTextDetectionFails(
+                RegionDetectionSelection.BUBBLES_AND_TEXT,
+                bubbleDetectionSucceeded = true
+            )
+        )
+        assertFalse(
+            shouldKeepBubblesWhenTextDetectionFails(
+                RegionDetectionSelection.BUBBLES_AND_TEXT,
+                bubbleDetectionSucceeded = false
+            )
+        )
+        assertFalse(
+            shouldKeepBubblesWhenTextDetectionFails(
+                RegionDetectionSelection.TEXT_ONLY,
+                bubbleDetectionSucceeded = true
+            )
         )
     }
 

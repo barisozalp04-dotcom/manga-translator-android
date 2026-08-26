@@ -18,6 +18,7 @@ import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
+import androidx.core.graphics.withClip
 import androidx.core.graphics.withScale
 import androidx.core.graphics.withTranslation
 import com.manga.translate.model.BubbleSource
@@ -27,6 +28,7 @@ import com.manga.translate.rendering.BubbleColorSampler
 import com.manga.translate.rendering.BubbleFontResolver
 import com.manga.translate.rendering.BubbleShapePaths
 import com.manga.translate.rendering.BubbleTextColorResolver
+import com.manga.translate.rendering.BubbleTextPlacement
 import com.manga.translate.rendering.BubbleTextScaling
 import com.manga.translate.rendering.VerticalTextLayout
 import com.manga.translate.rendering.VerticalTextLayoutCalculator
@@ -1057,19 +1059,51 @@ class FloatingTranslationView @JvmOverloads constructor(
         resolveBubbleFillColor(bubble, offset, opacityAlpha)
         val drawPath = resolveBubblePath(bubble, offset, shrinkPercent) ?: return
         if (bubbleBounds.width() <= 0f || bubbleBounds.height() <= 0f) return
+        val pageClip = pageClipRect()
+        val startFromTop = BubbleTextPlacement.spillsAcrossPage(
+            RectF(
+                bubble.rect.left + offset.first,
+                bubble.rect.top + offset.second,
+                bubble.rect.right + offset.first,
+                bubble.rect.bottom + offset.second
+            ),
+            imageHeight
+        )
         // Empty bubbles still need a filled frame in edit mode; text layout can exit early.
         val hasText = bubble.hasDisplayText()
         if (lightweightDraw || !hasText) {
-            canvas.drawPath(drawPath, fillPaint)
+            drawClippedPath(canvas, drawPath, pageClip)
             return
         }
         val effectiveMinArea = bubbleRenderSettings.minAreaPerCharSp * contentZoomScale * contentZoomScale
         val textRect = BubbleTextScaling.resolveAreaAdjustedTextRect(
             bubble.text, Path(drawPath), effectiveMinArea, resources.displayMetrics.density
         )
-        canvas.drawPath(drawPath, fillPaint)
+        drawClippedPath(canvas, drawPath, pageClip)
         if (textRect.width() <= 0f || textRect.height() <= 0f) return
-        drawTextInRect(canvas, bubble.text, textRect)
+        drawClippedContent(canvas, pageClip) {
+            drawTextInRect(this, bubble.text, textRect, startFromTop)
+        }
+    }
+
+    private fun pageClipRect(): RectF {
+        return RectF(0f, 0f, width.toFloat(), height.toFloat())
+    }
+
+    private fun drawClippedPath(canvas: Canvas, path: Path, pageClip: RectF) {
+        drawClippedContent(canvas, pageClip) {
+            drawPath(path, fillPaint)
+        }
+    }
+
+    private fun drawClippedContent(canvas: Canvas, pageClip: RectF, draw: Canvas.() -> Unit) {
+        if (pageClip.width() <= 0f || pageClip.height() <= 0f) {
+            canvas.draw()
+            return
+        }
+        canvas.withClip(pageClip) {
+            draw()
+        }
     }
 
     private fun resolveBubblePath(
@@ -1351,14 +1385,25 @@ class FloatingTranslationView @JvmOverloads constructor(
         outRect.set(left, top, right, bottom)
     }
 
-    private fun drawTextInRect(canvas: Canvas, text: String, rect: RectF) {
+    private fun drawTextInRect(
+        canvas: Canvas,
+        text: String,
+        rect: RectF,
+        startFromTop: Boolean
+    ) {
         if (verticalLayoutEnabled) {
-            drawVerticalTextInRect(canvas, VerticalTextSymbolConverter.convert(text), rect)
+            drawVerticalTextInRect(
+                canvas,
+                VerticalTextSymbolConverter.convert(text),
+                rect,
+                startFromTop
+            )
         } else {
             val textSize = resolveHorizontalTextSize(rect, text)
             val layout = buildLayout(text, rect.width().toInt().coerceAtLeast(1), textSize)
-            canvas.withTranslation(rect.centerX(), rect.centerY()) {
-                translate(-layout.width / 2f, -layout.height / 2f)
+            val left = BubbleTextPlacement.horizontalTextLeft(rect, layout.width)
+            val top = BubbleTextPlacement.horizontalTextTop(rect, layout.height, startFromTop)
+            canvas.withTranslation(left, top) {
                 layout.draw(this)
             }
         }
@@ -1423,12 +1468,17 @@ class FloatingTranslationView @JvmOverloads constructor(
         }
     }
 
-    private fun drawVerticalTextInRect(canvas: Canvas, text: String, rect: RectF) {
+    private fun drawVerticalTextInRect(
+        canvas: Canvas,
+        text: String,
+        rect: RectF,
+        startFromTop: Boolean
+    ) {
         val maxWidth = rect.width().toInt().coerceAtLeast(1)
         val maxHeight = rect.height().toInt().coerceAtLeast(1)
         val textSize = findDefaultVerticalTextSize(text, maxWidth, maxHeight, rect.width() / 2.2f)
         val layout = buildVerticalLayout(text, maxWidth, maxHeight, textSize)
-        VerticalTextRenderer.draw(canvas, text, rect, textPaint, layout)
+        VerticalTextRenderer.draw(canvas, text, rect, textPaint, layout, startFromTop)
     }
 
     private fun findDefaultVerticalTextSize(

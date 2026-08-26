@@ -274,7 +274,7 @@
                             android:text="@string/cancel_selection" />
                     </LinearLayout>
 
-                    <androidx.recyclerview.widget.RecyclerView
+                    <com.manga.translate.platform.BoundedRecyclerView
                         android:id="@+id/folder_list"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"

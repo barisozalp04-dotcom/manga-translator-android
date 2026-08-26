@@ -264,7 +264,7 @@ internal class LibraryDialogs {
 
     fun showEditFolderTagsDialog(
         context: Context,
-        statusLabel: String,
+        statusLabel: String?,
         initialTags: Set<String>,
         onConfirm: (Set<String>) -> Unit
     ) {
@@ -297,7 +297,7 @@ internal class LibraryDialogs {
 
         fun renderTags() {
             tagGroup.removeAllViews()
-            tagGroup.addView(createStatusChipView(context, statusLabel))
+            statusLabel?.let { tagGroup.addView(createStatusChipView(context, it)) }
             tags.forEach { tag ->
                 tagGroup.addView(
                     createRemovableTagView(context, tag) {

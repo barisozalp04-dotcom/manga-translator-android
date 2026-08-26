@@ -9,6 +9,7 @@ import androidx.core.content.edit
 import androidx.documentfile.provider.DocumentFile
 import com.manga.translate.detection.RegionDetectionSelection
 import com.manga.translate.model.FolderReadingMode
+import com.manga.translate.model.FolderStatus
 import com.manga.translate.model.TranslationLanguage
 import com.manga.translate.platform.AppLogger
 import java.io.File
@@ -118,6 +119,15 @@ internal class LibraryPreferencesGateway(
         }
     }
 
+    fun getCachedFolderStatus(folder: File): FolderStatus? {
+        return prefs.getString(folderStatusKeyPrefix + folder.absolutePath, null)
+            ?.let { value -> FolderStatus.entries.firstOrNull { it.name == value } }
+    }
+
+    fun setCachedFolderStatus(folder: File, status: FolderStatus) {
+        prefs.edit { putString(folderStatusKeyPrefix + folder.absolutePath, status.name) }
+    }
+
     fun autoDetectAndSetReadingMode(folder: File, importedImages: List<File>): FolderReadingMode? {
         if (importedImages.isEmpty()) return null
         if (hasStoredReadingMode(folder)) return null
@@ -155,6 +165,7 @@ internal class LibraryPreferencesGateway(
                 }
             }
             migrateFolderTags(from, to)
+            migrateFolderStatuses(from, to)
         }
     }
 
@@ -168,7 +179,10 @@ internal class LibraryPreferencesGateway(
                 }
             }
             prefs.all.keys
-                .filter { key -> isFolderTagKeyInTree(key, folderPath) }
+                .filter { key ->
+                    isFolderTagKeyInTree(key, folderPath) ||
+                        isFolderStatusKeyInTree(key, folderPath)
+                }
                 .forEach(::remove)
         }
     }
@@ -266,8 +280,28 @@ internal class LibraryPreferencesGateway(
             }
     }
 
+    private fun SharedPreferences.Editor.migrateFolderStatuses(from: File, to: File) {
+        val fromPath = from.absolutePath
+        val toPath = to.absolutePath
+        prefs.all.keys
+            .filter { key -> isFolderStatusKeyInTree(key, fromPath) }
+            .forEach { key ->
+                val suffix = key.removePrefix(folderStatusKeyPrefix + fromPath)
+                val value = prefs.getString(key, null)
+                if (value != null) {
+                    putString(folderStatusKeyPrefix + toPath + suffix, value)
+                }
+                remove(key)
+            }
+    }
+
     private fun isFolderTagKeyInTree(key: String, folderPath: String): Boolean {
         val prefix = folderTagsKeyPrefix + folderPath
+        return key == prefix || key.startsWith("$prefix${File.separator}")
+    }
+
+    private fun isFolderStatusKeyInTree(key: String, folderPath: String): Boolean {
+        val prefix = folderStatusKeyPrefix + folderPath
         return key == prefix || key.startsWith("$prefix${File.separator}")
     }
 
@@ -310,13 +344,15 @@ internal class LibraryPreferencesGateway(
         private const val vlDirectTranslateKeyPrefix = "vl_direct_translate_enabled_"
         private const val readingModeKeyPrefix = "reading_mode_"
         private const val folderTagsKeyPrefix = "folder_tags_"
+        private const val folderStatusKeyPrefix = "folder_status_"
         private val settingsKeyPrefixes = listOf(
             fullTranslateKeyPrefix,
             glossaryProcessingKeyPrefix,
             regionDetectionModeKeyPrefix,
             languageKeyPrefix,
             vlDirectTranslateKeyPrefix,
-            readingModeKeyPrefix
+            readingModeKeyPrefix,
+            folderStatusKeyPrefix
         )
         private const val READING_MODE_SAMPLE_COUNT = 6
         private const val WEBTOON_ASPECT_RATIO_THRESHOLD = 2.4f

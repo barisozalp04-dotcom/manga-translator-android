@@ -5,6 +5,7 @@ import androidx.test.core.app.ApplicationProvider
 import com.manga.translate.library.LibraryPreferencesGateway
 import com.manga.translate.library.LibraryRepository
 import com.manga.translate.model.OcrApiFormat
+import com.manga.translate.model.FolderStatus
 import com.manga.translate.model.ThemeMode
 import com.manga.translate.model.TranslationLanguage
 import com.manga.translate.settings.AiProviderProfilesFileWriter
@@ -82,6 +83,17 @@ class SettingsStoreTest {
         val changedKeys = changeDeferred.await()
         assertTrue(changedKeys.isNotEmpty())
         assertTrue(store.settingsVersion.value > initialVersion)
+    }
+
+    @Test
+    fun `xnnpack setting defaults off and persists`() {
+        val store = SettingsStore(context)
+
+        assertFalse(store.loadUseXnnpack())
+
+        store.saveUseXnnpack(true)
+
+        assertTrue(SettingsStore(context).loadUseXnnpack())
     }
 
     @Test
@@ -375,6 +387,29 @@ class SettingsStoreTest {
 
             gateway.clearFolderSettings(renamed)
             assertTrue(gateway.getFolderTags(renamed).isEmpty())
+        } finally {
+            (renamed ?: folder).deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `cached folder status persists migrates and clears with root folder`() {
+        val repository = LibraryRepository(context)
+        val prefs = context.getSharedPreferences("library_prefs_test", Context.MODE_PRIVATE)
+        val gateway = LibraryPreferencesGateway(context, prefs, repository)
+        val folder = repository.createFolder("status_${System.nanoTime()}")!!
+        var renamed: java.io.File? = null
+
+        try {
+            gateway.setCachedFolderStatus(folder, FolderStatus.TRANSLATED)
+            assertEquals(FolderStatus.TRANSLATED, gateway.getCachedFolderStatus(folder))
+
+            renamed = repository.renameFolder(folder, "status_renamed_${System.nanoTime()}")!!
+            gateway.migrateFolderSettings(folder, renamed)
+            assertEquals(FolderStatus.TRANSLATED, gateway.getCachedFolderStatus(renamed))
+
+            gateway.clearFolderSettings(renamed)
+            assertEquals(null, gateway.getCachedFolderStatus(renamed))
         } finally {
             (renamed ?: folder).deleteRecursively()
         }

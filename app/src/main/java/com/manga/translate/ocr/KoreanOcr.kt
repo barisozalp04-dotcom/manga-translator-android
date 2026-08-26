@@ -15,7 +15,8 @@ class KoreanOcr(
     logTag = LOG_TAG,
     threadProfile = threadProfile,
     settingsStore = settingsStore,
-    dictAssetName = DICT_ASSET
+    dictAssetName = DICT_ASSET,
+    useXnnpack = settingsStore.loadUseXnnpack()
 ) {
     override fun trimLowConfidenceTail(tokens: List<OcrToken>): List<OcrToken> {
         if (tokens.isEmpty()) return tokens

@@ -9,6 +9,7 @@ import android.graphics.pdf.PdfRenderer
 import android.net.Uri
 import android.os.ParcelFileDescriptor
 import androidx.core.graphics.createBitmap
+import com.manga.translate.R
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileOutputStream
@@ -88,10 +89,10 @@ internal object PdfImageCodec {
         importPlan: PdfImportPlan? = null
     ): Int {
         val originalImageExtractor = PdfOriginalImageExtractor.open(context, contentResolver, uri)
-        val descriptor = originalImageExtractor?.openRendererDescriptor()
-            ?: contentResolver.openFileDescriptor(uri, "r")
-            ?: return 0
         return try {
+            val descriptor = originalImageExtractor?.openRendererDescriptor()
+                ?: contentResolver.openFileDescriptor(uri, "r")
+                ?: throw ImportFileException(R.string.pdf_import_cannot_open)
             descriptor.use { pfd ->
                 PdfRenderer(pfd).use { renderer ->
                     val pageSizes = importPlan
@@ -154,7 +155,7 @@ internal object PdfImageCodec {
 
     private suspend fun inspectImportPages(renderer: PdfRenderer): List<ImportPageSize> {
         if (renderer.pageCount > MAX_IMPORT_PAGE_COUNT) {
-            throw PdfImportLimitExceededException("PDF has too many pages: ${renderer.pageCount}")
+            throw ImportFileException(R.string.pdf_import_too_many_pages)
         }
         val pages = ArrayList<ImportPageSize>(renderer.pageCount)
         for (index in 0 until renderer.pageCount) {
@@ -176,14 +177,14 @@ internal object PdfImageCodec {
     private fun scaledDimension(value: Int, scale: Float): Int {
         val scaled = value.toDouble() * scale
         if (scaled < 1.0 || scaled > Int.MAX_VALUE) {
-            throw PdfImportLimitExceededException("PDF page dimensions are invalid")
+            throw ImportFileException(R.string.pdf_import_invalid_page)
         }
         return scaled.roundToInt().coerceAtLeast(1)
     }
 
     private fun ensureImportSpace(context: Context, outputDir: File, totalPixels: Long) {
         if (totalPixels > Long.MAX_VALUE / BYTES_PER_RENDERED_PIXEL) {
-            throw PdfImportLimitExceededException("PDF output size is too large")
+            throw ImportFileException(R.string.pdf_import_output_too_large)
         }
         val estimatedOutput = totalPixels * BYTES_PER_RENDERED_PIXEL
         if (!StorageSpaceChecker.hasSpaceFor(
@@ -193,7 +194,7 @@ internal object PdfImageCodec {
                 reserveBytes = MINIMUM_FREE_SPACE_BYTES
             )
         ) {
-            throw PdfImportLimitExceededException("Insufficient storage space for PDF import")
+            throw ImportFileException(R.string.pdf_import_storage_insufficient)
         }
     }
 
@@ -222,8 +223,6 @@ internal object PdfImageCodec {
         val colorBytes: ByteArray,
         val alphaBytes: ByteArray?
     )
-
-    private class PdfImportLimitExceededException(message: String) : IllegalStateException(message)
 
     fun writeImagesToPdf(
         images: List<File>,

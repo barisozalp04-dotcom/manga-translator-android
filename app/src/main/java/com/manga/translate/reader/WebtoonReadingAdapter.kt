@@ -32,8 +32,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * Projects the part of a previous-page bubble that extends below that page into the current
- * page's coordinate system. The page overlays clip the negative/overflow portions naturally.
+ * Projects a previous-page union bubble into the current page's coordinate system so both
+ * overlays can draw the same top-origin layout. Each overlay clips to its own page bounds.
  */
 internal fun projectPreviousSpillBubbles(
     previous: TranslationResult?,

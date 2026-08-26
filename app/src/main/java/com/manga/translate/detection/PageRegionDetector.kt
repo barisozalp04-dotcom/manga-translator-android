@@ -44,6 +44,13 @@ internal enum class RegionDetectionSelection(val prefValue: String) {
     }
 }
 
+internal fun shouldKeepBubblesWhenTextDetectionFails(
+    detectionSelection: RegionDetectionSelection,
+    bubbleDetectionSucceeded: Boolean
+): Boolean {
+    return detectionSelection.detectBubbles && bubbleDetectionSucceeded
+}
+
 internal data class DetectionTile(
     val left: Int,
     val top: Int,
@@ -653,17 +660,21 @@ internal class PageRegionDetector(
                 height = pageHeight,
                 detections = deduplicatedBubbles,
                 textBlocks = emptyList(),
+                detectionComplete = false,
                 detectionMode = PageRegionDetectionMode.TILED_LONG
             )
         }
         val paddleDetector = getPaddleTextLineDetector(logTag)
         if (paddleDetector == null) {
-            return if (bubbleDetectionSucceeded) {
+            return if (
+                shouldKeepBubblesWhenTextDetectionFails(detectionSelection, bubbleDetectionSucceeded)
+            ) {
                 buildDetectionResult(
                     width = pageWidth,
                     height = pageHeight,
                     detections = deduplicatedBubbles,
                     textBlocks = emptyList(),
+                    detectionComplete = false,
                     detectionMode = PageRegionDetectionMode.TILED_LONG
                 )
             } else {
@@ -731,7 +742,23 @@ internal class PageRegionDetector(
         }
         if (failedTileCount > 0) {
             AppLogger.log(logTag, "Skipped $failedTileCount/${paddleTiles.size} text detection tiles")
-            return null
+            // Paddle text detection is an optional supplement. A failed text tile must
+            // not invalidate bubbles that were already detected successfully. Discard
+            // the partial text output so we do not cache an incomplete free-text set.
+            return if (
+                shouldKeepBubblesWhenTextDetectionFails(detectionSelection, bubbleDetectionSucceeded)
+            ) {
+                buildDetectionResult(
+                    width = pageWidth,
+                    height = pageHeight,
+                    detections = deduplicatedBubbles,
+                    textBlocks = emptyList(),
+                    detectionComplete = false,
+                    detectionMode = PageRegionDetectionMode.TILED_LONG
+                )
+            } else {
+                null
+            }
         }
         val deduplicatedTextLines = TextBlockMerger.deduplicateLines(
             detectedTextLines,
@@ -987,6 +1014,7 @@ internal class PageRegionDetector(
             detections = unified.balloons,
             textBlocks = textBlocks,
             detectedTextLines = unified.detectedTextLines,
+            detectionComplete = unified.detectionComplete,
             detectionMode = PageRegionDetectionMode.FULL
         )
     }
@@ -1044,7 +1072,8 @@ internal class PageRegionDetector(
         return UnifiedRegionDetection(
             balloons = balloons,
             freeTextRects = textRects,
-            detectedTextLines = detectedTextLines
+            detectedTextLines = detectedTextLines,
+            detectionComplete = !detectText || textDetectionSucceeded
         )
     }
 
@@ -1073,6 +1102,7 @@ internal class PageRegionDetector(
         detections: List<BubbleDetection>,
         textBlocks: List<TextBlock>,
         detectedTextLines: List<RectF>? = null,
+        detectionComplete: Boolean = true,
         detectionMode: PageRegionDetectionMode
     ): PageRegionDetectionResult {
         val bubbleRects = detections.map { it.rect }
@@ -1083,6 +1113,7 @@ internal class PageRegionDetector(
             bubbleDetections = detections,
             textRects = textBlocks.map { it.rect },
             regions = regions,
+            detectionComplete = detectionComplete,
             detectionMode = detectionMode
         )
     }
@@ -1295,6 +1326,7 @@ internal class PageRegionDetector(
         return result
     }
 
+    @Synchronized
     private fun getBubbleDetector(logTag: String): BubbleDetector? {
         if (bubbleDetector != null) return bubbleDetector
         return try {
@@ -1312,6 +1344,7 @@ internal class PageRegionDetector(
         }
     }
 
+    @Synchronized
     private fun getPaddleTextLineDetector(logTag: String): PaddleTextLineDetector? {
         if (paddleTextLineDetector != null) return paddleTextLineDetector
         return try {
@@ -1358,7 +1391,7 @@ internal class PageRegionDetector(
                     maskContour = detections.getOrNull(i)?.maskContour,
                     textLineRects = detectedTextLines?.filter { line ->
                         lineBelongsToRegion(line, bubbleRects[i])
-                    }
+                    }?.takeIf { it.isNotEmpty() }
                 )
             )
         }
@@ -1558,6 +1591,7 @@ internal data class PageRegionDetectionResult(
     val bubbleDetections: List<BubbleDetection>,
     val textRects: List<RectF>,
     val regions: List<PageRegion>,
+    val detectionComplete: Boolean = true,
     val detectionMode: PageRegionDetectionMode = PageRegionDetectionMode.FULL
 )
 

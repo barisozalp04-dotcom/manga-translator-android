@@ -25,6 +25,7 @@ internal fun PageRegionDetectionResult.remapToSource(
                 }
             )
         },
+        detectionComplete = detectionComplete,
         detectionMode = detectionMode
     )
 }

@@ -260,7 +260,11 @@ internal class TranslationPipeline(
                     cacheMode,
                     expectedMetadata
                 )
-                ocrStore.save(imageFile, emptyResult)
+                if (pageRegions.detectionComplete) {
+                    ocrStore.save(imageFile, emptyResult)
+                } else {
+                    AppLogger.log("Pipeline", "Skipping OCR cache for incomplete page detection")
+                }
                 return@withContext emptyResult
             }
             onProgress(
@@ -280,7 +284,11 @@ internal class TranslationPipeline(
                 cacheMode,
                 expectedMetadata
             )
-            ocrStore.save(imageFile, result)
+            if (pageRegions.detectionComplete) {
+                ocrStore.save(imageFile, result)
+            } else {
+                AppLogger.log("Pipeline", "Skipping OCR cache for incomplete page detection")
+            }
             result
         } ?: run {
             AppLogger.log("Pipeline", "Failed to open crop source for ${imageFile.name}")

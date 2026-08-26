@@ -493,17 +493,30 @@
     <string name="import_no_folders">所選目錄下沒有可匯入的漫畫資料夾</string>
     <string name="import_no_images">所選資料夾沒有圖片</string>
     <string name="import_failed">匯入失敗，請重試</string>
+    <string name="import_images_failed">匯入失敗：無法讀取所選圖片，請確認檔案未損壞且格式受支援。</string>
     <string name="import_done">已匯入 %1$d 張圖片</string>
     <string name="avif_conversion_progress">正在將 AVIF 圖片轉換為 PNG…</string>
 
     <!-- Import / CBZ -->
     <string name="cbz_import_failed">CBZ/ZIP 匯入失敗，請重試</string>
+    <string name="cbz_import_cannot_read">無法讀取所選壓縮包，請確認檔案存在且可存取。</string>
+    <string name="cbz_import_invalid_archive">所選檔案不是有效的 CBZ/ZIP 壓縮包，或檔案已損壞。</string>
+    <string name="cbz_import_too_many_entries">壓縮包條目過多，無法匯入。</string>
+    <string name="cbz_import_entry_too_large">壓縮包中的圖片檔案過大，無法匯入。</string>
+    <string name="cbz_import_failed_unknown">CBZ/ZIP 匯入失敗，請確認檔案未損壞後重試。</string>
     <string name="cbz_import_no_images">壓縮包中未找到可匯入圖片</string>
     <string name="cbz_import_done">CBZ/ZIP 匯入完成，已匯入 %1$d 張圖片</string>
     <string name="pdf_import_failed">PDF 匯入失敗，請重試</string>
+    <string name="pdf_import_cannot_open">無法開啟 PDF 檔案，請確認檔案未損壞、未加密且格式有效。</string>
+    <string name="pdf_import_too_many_pages">PDF 頁數過多（超過 750 頁），無法匯入。</string>
+    <string name="pdf_import_invalid_page">PDF 頁面尺寸無效，無法匯入。</string>
+    <string name="pdf_import_output_too_large">PDF 轉換後的圖片過大，無法匯入。</string>
+    <string name="pdf_import_storage_insufficient">儲存空間不足，無法匯入 PDF。請清理空間後重試。</string>
+    <string name="pdf_import_failed_unknown">PDF 匯入失敗，請確認檔案未損壞後重試。</string>
     <string name="pdf_import_no_images">PDF 中未找到可匯入頁面</string>
     <string name="pdf_import_done">PDF 匯入完成，已拆分 %1$d 頁圖片</string>
     <string name="import_out_of_memory">匯入失敗：裝置可用記憶體不足。請關閉其他應用程式後重試。</string>
+    <string name="import_storage_insufficient">儲存空間不足，無法匯入。請清理空間後重試。</string>
 
     <!-- Export -->
     <string name="exporting_progress">匯出中…(%1$d/%2$d)</string>

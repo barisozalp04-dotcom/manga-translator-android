@@ -11,10 +11,16 @@ internal object VerticalTextRenderer {
         text: String,
         rect: RectF,
         textPaint: TextPaint,
-        layout: VerticalTextLayout
+        layout: VerticalTextLayout,
+        startFromTop: Boolean = false
     ) {
+        val extraTop = BubbleTextPlacement.verticalExtraTopPadding(
+            rect = rect,
+            layoutHeight = layout.totalHeight,
+            startFromTop = startFromTop
+        )
         val dx = rect.right - ((rect.width() - layout.totalWidth) / 2f) - layout.columnWidth
-        val dy = rect.top + ((rect.height() - layout.totalHeight) / 2f) - layout.fontMetrics.ascent
+        val dy = rect.top + extraTop - layout.fontMetrics.ascent
         var col = 0
         var row = 0
         for (ch in text) {

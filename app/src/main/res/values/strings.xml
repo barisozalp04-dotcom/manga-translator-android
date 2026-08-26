@@ -244,6 +244,8 @@
     <string name="floating_ai_api_concurrency_hint">悬浮窗 AI API 并发上限 (1–50)</string>
     <string name="floating_translate_settings_note">留空某一项则使用主设置中的对应配置。</string>
     <string name="ocr_use_local">使用本地 OCR</string>
+    <string name="ocr_use_xnnpack">启用 XNNPACK 本地推理加速（实验性）</string>
+    <string name="ocr_use_xnnpack_note">仅影响本地 ONNX 模型。已加载的模型需重启软件后生效；部分设备可能不兼容、变慢或在加载模型时崩溃，遇到异常请关闭后重启。</string>
     <string name="ocr_api_format_openai_compatible">OpenAI 兼容</string>
     <string name="ocr_api_format_hint">OCR API 格式</string>
     <string name="ocr_api_url_hint">OCR API 地址</string>
@@ -380,6 +382,7 @@
     <string name="folder_back">返回</string>
     <string name="folder_image_count">%1$d 张图片</string>
     <string name="folder_collection_meta">%1$d 个章节 · %2$d 张图片</string>
+    <string name="folder_open_to_view">点击查看内容</string>
     <string name="folder_delete">删除</string>
     <string name="folder_rename">重命名</string>
     <string name="folder_more_actions">更多文件夹操作</string>
@@ -493,16 +496,29 @@
     <string name="import_no_folders">所选目录下没有可导入的漫画文件夹</string>
     <string name="import_no_images">所选文件夹没有图片</string>
     <string name="import_failed">导入失败，请重试</string>
+    <string name="import_images_failed">导入失败：无法读取所选图片，请确认文件未损坏且格式受支持。</string>
     <string name="import_done">已导入 %1$d 张图片</string>
     <string name="avif_conversion_progress">正在将 AVIF 图片转换为 PNG…</string>
 
     <!-- Import / CBZ -->
     <string name="cbz_import_failed">CBZ/ZIP 导入失败，请重试</string>
+    <string name="cbz_import_cannot_read">无法读取所选压缩包，请确认文件存在且可访问。</string>
+    <string name="cbz_import_invalid_archive">所选文件不是有效的 CBZ/ZIP 压缩包，或文件已损坏。</string>
+    <string name="cbz_import_too_many_entries">压缩包条目过多，无法导入。</string>
+    <string name="cbz_import_entry_too_large">压缩包中的图片文件过大，无法导入。</string>
+    <string name="cbz_import_failed_unknown">CBZ/ZIP 导入失败，请确认文件未损坏后重试。</string>
     <string name="cbz_import_no_images">压缩包中未找到可导入图片</string>
     <string name="cbz_import_done">CBZ/ZIP 导入完成，已导入 %1$d 张图片</string>
     <string name="pdf_import_failed">PDF 导入失败，请重试</string>
+    <string name="pdf_import_cannot_open">无法打开 PDF 文件，请确认文件未损坏、未加密且格式有效。</string>
+    <string name="pdf_import_too_many_pages">PDF 页数过多（超过 750 页），无法导入。</string>
+    <string name="pdf_import_invalid_page">PDF 页面尺寸无效，无法导入。</string>
+    <string name="pdf_import_output_too_large">PDF 转换后的图片过大，无法导入。</string>
+    <string name="pdf_import_storage_insufficient">存储空间不足，无法导入 PDF。请清理空间后重试。</string>
+    <string name="pdf_import_failed_unknown">PDF 导入失败，请确认文件未损坏后重试。</string>
     <string name="pdf_import_no_images">PDF 中未找到可导入页面</string>
     <string name="pdf_import_done">PDF 导入完成，已拆分 %1$d 页图片</string>
+    <string name="import_storage_insufficient">存储空间不足，无法导入。请清理空间后重试。</string>
     <string name="import_out_of_memory">导入失败：设备可用内存不足。请关闭其他应用后重试。</string>
 
     <!-- Export -->

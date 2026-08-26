@@ -26,7 +26,8 @@ data class BubbleDetection(
 data class UnifiedRegionDetection(
     val balloons: List<BubbleDetection>,
     val freeTextRects: List<RectF>,
-    val detectedTextLines: List<RectF>? = null
+    val detectedTextLines: List<RectF>? = null,
+    val detectionComplete: Boolean = true
 )
 
 private const val MASK_COEFFICIENT_COUNT = 32
@@ -337,7 +338,7 @@ class BubbleDetector(
             assetProvider = context.assets::open,
             assetName = modelAssetName,
             threadProfile = threadProfile,
-            useXnnpack = false
+            useXnnpack = settingsStore.loadUseXnnpack()
         )
     }
 

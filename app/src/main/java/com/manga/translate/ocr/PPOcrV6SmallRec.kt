@@ -16,7 +16,7 @@ class PPOcrV6SmallRec(
     threadProfile = threadProfile,
     settingsStore = settingsStore,
     dictAssetName = DICT_ASSET,
-    useXnnpack = false
+    useXnnpack = settingsStore.loadUseXnnpack()
 ) {
     override fun getDefaultCharset(): List<String> {
         val latinDict = "!\"#\$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[]_`abcdefghijklmnopqrstuvwxyz{}¡£§ª«­°²³´µ·º»¿ÀÁÂÄÅÇÈÉÊËÌÍÎÏÒÓÔÕÖÚÜÝßàáâãäåæçèéêëìíîïñòóôõöøùúûüýąĆćČčĐđęıŁłōŒœŠšŸŽžʒβδεзṠ'€™"

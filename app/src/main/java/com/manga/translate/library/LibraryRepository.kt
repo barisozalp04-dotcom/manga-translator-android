@@ -3,22 +3,26 @@ package com.manga.translate.library
 import android.content.Context
 import android.net.Uri
 import android.provider.OpenableColumns
+import com.manga.translate.R
 import com.manga.translate.platform.AppLogger
 import com.manga.translate.platform.AvifBitmapDecoder
 import com.manga.translate.platform.DeviceResourcePolicy
 import com.manga.translate.platform.DeviceResourceSnapshot
 import com.manga.translate.platform.ImageFileSupport
+import com.manga.translate.platform.ImportFileException
 import com.manga.translate.platform.PdfImageCodec
 import com.manga.translate.platform.ResourceAssessment
 import com.manga.translate.platform.StorageSpaceChecker
 import java.io.File
 import java.io.FileOutputStream
+import java.io.IOException
 import java.io.InputStream
 import java.util.Locale
 import java.util.UUID
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import net.lingala.zip4j.ZipFile
+import net.lingala.zip4j.exception.ZipException
 import net.lingala.zip4j.model.FileHeader
 import kotlinx.coroutines.CancellationException
 
@@ -219,7 +223,11 @@ class LibraryRepository(private val context: Context) {
                 }
             } ?: run {
                 AppLogger.log("LibraryRepo", "Archive import failed: cannot open input stream")
-                return null
+                return CbzImportResult(
+                    folder = null,
+                    importedCount = 0,
+                    errorMessageRes = R.string.cbz_import_cannot_read
+                )
             }
             
             AppLogger.log("LibraryRepo", "Archive copied to temp file: ${tempFile.length()} bytes")
@@ -252,7 +260,7 @@ class LibraryRepository(private val context: Context) {
                         importedCount += 1
                     } catch (e: Exception) {
                         if (e is CancellationException) throw e
-                        if (e is ImportLimitExceededException) throw e
+                        if (e is ImportFileException) throw e
                         logArchiveEntryImportFailure(header, e)
                     }
                 }
@@ -261,7 +269,11 @@ class LibraryRepository(private val context: Context) {
             if (importedCount == 0) {
                 return CbzImportResult(folder = null, importedCount = 0)
             }
-            val committedFolder = stagedImport.commit() ?: return null
+            val committedFolder = stagedImport.commit() ?: return CbzImportResult(
+                folder = null,
+                importedCount = 0,
+                errorMessageRes = R.string.cbz_import_failed_unknown
+            )
             committed = true
             return CbzImportResult(folder = committedFolder, importedCount = importedCount)
         } catch (e: CancellationException) {
@@ -271,7 +283,28 @@ class LibraryRepository(private val context: Context) {
             return CbzImportResult(folder = null, importedCount = 0, outOfMemory = true)
         } catch (e: Exception) {
             AppLogger.log("LibraryRepo", "Archive import failed: $archiveName", e)
-            return null
+            return when (e) {
+                is ImportFileException -> CbzImportResult(
+                    folder = null,
+                    importedCount = 0,
+                    errorMessageRes = e.messageRes
+                )
+                is ZipException -> CbzImportResult(
+                    folder = null,
+                    importedCount = 0,
+                    errorMessageRes = R.string.cbz_import_invalid_archive
+                )
+                is IOException -> CbzImportResult(
+                    folder = null,
+                    importedCount = 0,
+                    errorMessageRes = R.string.cbz_import_cannot_read
+                )
+                else -> CbzImportResult(
+                    folder = null,
+                    importedCount = 0,
+                    errorMessageRes = R.string.cbz_import_failed_unknown
+                )
+            }
         } finally {
             if (tempFile.exists()) {
                 tempFile.delete()
@@ -301,7 +334,11 @@ class LibraryRepository(private val context: Context) {
             if (importedCount <= 0) {
                 CbzImportResult(folder = null, importedCount = 0)
             } else {
-                val committedFolder = stagedImport.commit() ?: return null
+                val committedFolder = stagedImport.commit() ?: return CbzImportResult(
+                    folder = null,
+                    importedCount = 0,
+                    errorMessageRes = R.string.pdf_import_failed_unknown
+                )
                 committed = true
                 CbzImportResult(folder = committedFolder, importedCount = importedCount)
             }
@@ -312,7 +349,23 @@ class LibraryRepository(private val context: Context) {
             CbzImportResult(folder = null, importedCount = 0, outOfMemory = true)
         } catch (e: Exception) {
             AppLogger.log("LibraryRepo", "PDF import failed: $pdfName", e)
-            null
+            when {
+                e is ImportFileException -> CbzImportResult(
+                    folder = null,
+                    importedCount = 0,
+                    errorMessageRes = e.messageRes
+                )
+                e is IOException || e is SecurityException -> CbzImportResult(
+                    folder = null,
+                    importedCount = 0,
+                    errorMessageRes = R.string.pdf_import_cannot_open
+                )
+                else -> CbzImportResult(
+                    folder = null,
+                    importedCount = 0,
+                    errorMessageRes = R.string.pdf_import_failed_unknown
+                )
+            }
         } finally {
             if (!committed) {
                 stagedImport.discard()
@@ -523,7 +576,7 @@ class LibraryRepository(private val context: Context) {
             val read = input.read(buffer)
             if (read < 0) return
             if (copied > maxBytes - read) {
-                throw ImportLimitExceededException("Imported file exceeds the allowed size")
+                throw ImportFileException(R.string.cbz_import_entry_too_large)
             }
             if (copied >= nextSpaceCheckAt) {
                 ensureRemainingSpace(spaceDirectory, SPACE_CHECK_INTERVAL_BYTES)
@@ -536,7 +589,7 @@ class LibraryRepository(private val context: Context) {
 
     private fun validateArchive(headers: List<FileHeader>): ArchiveStats {
         if (headers.size > MAX_ARCHIVE_ENTRY_COUNT) {
-            throw ImportLimitExceededException("Archive has too many entries: ${headers.size}")
+            throw ImportFileException(R.string.cbz_import_too_many_entries)
         }
 
         var totalUncompressed = 0L
@@ -546,10 +599,10 @@ class LibraryRepository(private val context: Context) {
             val uncompressed = header.uncompressedSize
             val compressed = header.compressedSize
             if (uncompressed < 0L || compressed < 0L) {
-                throw ImportLimitExceededException("Archive entry has an unknown size: ${header.fileName}")
+                throw ImportFileException(R.string.cbz_import_invalid_archive)
             }
             if (uncompressed > 0L && compressed == 0L) {
-                throw ImportLimitExceededException("Archive entry has an invalid compression ratio: ${header.fileName}")
+                throw ImportFileException(R.string.cbz_import_invalid_archive)
             }
             val wholeRatio = if (compressed == 0L) 0L else uncompressed / compressed
             if (
@@ -558,14 +611,14 @@ class LibraryRepository(private val context: Context) {
                         (wholeRatio == MAX_ARCHIVE_COMPRESSION_RATIO && uncompressed % compressed != 0L)
                     )
             ) {
-                throw ImportLimitExceededException("Archive entry compression ratio is too high: ${header.fileName}")
+                throw ImportFileException(R.string.cbz_import_invalid_archive)
             }
             if (totalUncompressed > Long.MAX_VALUE - uncompressed) {
-                throw ImportLimitExceededException("Archive uncompressed size overflow")
+                throw ImportFileException(R.string.cbz_import_invalid_archive)
             }
             totalUncompressed += uncompressed
             if (totalCompressed > Long.MAX_VALUE - compressed) {
-                throw ImportLimitExceededException("Archive compressed size overflow")
+                throw ImportFileException(R.string.cbz_import_invalid_archive)
             }
             totalCompressed += compressed
         }
@@ -585,7 +638,7 @@ class LibraryRepository(private val context: Context) {
                 reserveBytes = MINIMUM_FREE_SPACE_BYTES
             )
         ) {
-            throw ImportLimitExceededException("Insufficient storage space for import")
+            throw ImportFileException(R.string.import_storage_insufficient)
         }
     }
 
@@ -674,7 +727,8 @@ class LibraryRepository(private val context: Context) {
     data class CbzImportResult(
         val folder: File?,
         val importedCount: Int,
-        val outOfMemory: Boolean = false
+        val outOfMemory: Boolean = false,
+        @param:androidx.annotation.StringRes val errorMessageRes: Int? = null
     )
 
     private data class ArchiveStats(val totalUncompressedBytes: Long)
@@ -793,8 +847,6 @@ class LibraryRepository(private val context: Context) {
     private fun logArchiveEntryImportFailure(header: FileHeader, error: Exception) {
         AppLogger.log("LibraryRepo", "Archive entry import failed: ${header.fileName}", error)
     }
-
-    private class ImportLimitExceededException(message: String) : IllegalStateException(message)
 
     private class ImportCancelledByUserException : CancellationException("Import cancelled by user")
 }

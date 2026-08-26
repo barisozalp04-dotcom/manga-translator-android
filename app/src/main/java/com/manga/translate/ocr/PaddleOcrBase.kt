@@ -24,7 +24,7 @@ abstract class PaddleOcrBase(
     private val threadProfile: OnnxThreadProfile = OnnxThreadProfile.LIGHT,
     private val settingsStore: SettingsStore = SettingsStore(context.applicationContext),
     private val dictAssetName: String? = null,
-    private val useXnnpack: Boolean = true
+    private val useXnnpack: Boolean = false
 ) : OcrEngine {
     private val env = OnnxRuntimeSupport.environment()
     private val session: OrtSession = createSession(modelAssetName)

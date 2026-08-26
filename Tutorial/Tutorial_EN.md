@@ -1,6 +1,6 @@
 # User Guide
 
-For feedback and discussion, join the [Discord server](https://discord.gg/Zf5bpay5G).
+For feedback and discussion, join the [Discord server](https://discord.gg/qxfC2kqfr).
 
 ---
 

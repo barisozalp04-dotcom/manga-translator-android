@@ -9,7 +9,9 @@ data class FolderItem(
     val chapterCount: Int = 0,
     val isCollection: Boolean = false,
     val status: FolderStatus = FolderStatus.UNTRANSLATED,
-    val customTags: List<String> = emptyList()
+    val customTags: List<String> = emptyList(),
+    val statsLoaded: Boolean = true,
+    val statusLoaded: Boolean = true
 )
 
 data class ImageItem(

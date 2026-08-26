@@ -508,12 +508,43 @@ class MainActivity : AppCompatActivity() {
             else -> getString(R.string.global_progress_translate)
         }
         if (state.terminal) {
+            if (state.detail == getString(R.string.translation_canceled)) {
+                return state.detail
+            }
             return if (state.error) {
                 getString(R.string.global_progress_failed, label)
             } else {
                 getString(R.string.global_progress_done, label)
             }
         }
+
+        // Prefer detailed progress whenever the task layer publishes it. The
+        // stage shortcuts below were hiding counts for OCR/glossary/preparing.
+        val progress = extractProgress(state)
+        if (progress != null) {
+            val compactDetail = state.detail.substringBefore("  ").trim()
+            if (compactDetail.isNotBlank()) {
+                return compactDetail
+            }
+            state.failedCount?.let { failedCount ->
+                return getString(
+                    R.string.folder_translation_processed,
+                    progress.first,
+                    progress.second,
+                    failedCount
+                )
+            }
+            return getString(R.string.global_progress_count, label, progress.first, progress.second)
+        }
+
+        // Status-only updates (for example "正在取消翻译…", a raw OCR
+        // stage string, or "准备翻译 · 共 N 页") are already compact; show
+        // them instead of replacing them with a generic stage label.
+        val compactDetail = state.detail.substringBefore("  ").trim()
+        if (compactDetail.isNotBlank()) {
+            return compactDetail
+        }
+
         when (state.stage) {
             GlobalTaskProgressStage.PREPARING_TRANSLATION ->
                 return getString(R.string.global_progress_preparing_translation)
@@ -527,22 +558,6 @@ class MainActivity : AppCompatActivity() {
                     getString(R.string.global_progress_glossary)
                 )
             GlobalTaskProgressStage.TRANSLATING, null -> Unit
-        }
-        val stage = extractStage(state.detail)
-        if (stage != null) {
-            return stage
-        }
-        val progress = extractProgress(state)
-        if (progress != null) {
-            state.failedCount?.let { failedCount ->
-                return getString(
-                    R.string.folder_translation_processed,
-                    progress.first,
-                    progress.second,
-                    failedCount
-                )
-            }
-            return getString(R.string.global_progress_count, label, progress.first, progress.second)
         }
         return getString(R.string.global_progress_in_progress, label)
     }

@@ -200,15 +200,16 @@ class BubbleTextRecognizer(
                     ?: return OcrRecognitionResult.Failure(
                         IllegalStateException("PP-OCRv6_small_rec engine unavailable")
                     )
-                val lineDetector = if (detectedLineRects == null) {
+                val lineDetector = if (detectedLineRects.isNullOrEmpty()) {
                     engineRegistry.getEnglishLineDetector(logTag)
                 } else {
                     null
                 }
-                val lineRects = detectedLineRects ?: lineDetector?.detectLines(crop).orEmpty()
+                val lineRects = detectedLineRects?.takeIf { it.isNotEmpty() }
+                    ?: lineDetector?.detectLines(crop).orEmpty()
                 if (shouldRejectFreeTextWithoutLines(
                         bubbleSource,
-                        detectedLineRects != null || lineDetector != null,
+                        !detectedLineRects.isNullOrEmpty() || lineDetector != null,
                         lineRects.size
                     )
                 ) {
@@ -233,15 +234,16 @@ class BubbleTextRecognizer(
                     ?: return OcrRecognitionResult.Failure(
                         IllegalStateException("PP-OCRv6_small_rec engine unavailable")
                     )
-                val lineDetector = if (detectedLineRects == null) {
+                val lineDetector = if (detectedLineRects.isNullOrEmpty()) {
                     engineRegistry.getEnglishLineDetector(logTag)
                 } else {
                     null
                 }
-                val lineRects = detectedLineRects ?: lineDetector?.detectLines(crop).orEmpty()
+                val lineRects = detectedLineRects?.takeIf { it.isNotEmpty() }
+                    ?: lineDetector?.detectLines(crop).orEmpty()
                 if (shouldRejectFreeTextWithoutLines(
                         bubbleSource,
-                        detectedLineRects != null || lineDetector != null,
+                        !detectedLineRects.isNullOrEmpty() || lineDetector != null,
                         lineRects.size
                     )
                 ) {
@@ -277,15 +279,16 @@ class BubbleTextRecognizer(
                     ?: return OcrRecognitionResult.Failure(
                         IllegalStateException("Korean OCR engine unavailable")
                     )
-                val lineDetector = if (detectedLineRects == null) {
+                val lineDetector = if (detectedLineRects.isNullOrEmpty()) {
                     engineRegistry.getEnglishLineDetector(logTag)
                 } else {
                     null
                 }
-                val lineRects = detectedLineRects ?: lineDetector?.detectLines(crop).orEmpty()
+                val lineRects = detectedLineRects?.takeIf { it.isNotEmpty() }
+                    ?: lineDetector?.detectLines(crop).orEmpty()
                 if (shouldRejectFreeTextWithoutLines(
                         bubbleSource,
-                        detectedLineRects != null || lineDetector != null,
+                        !detectedLineRects.isNullOrEmpty() || lineDetector != null,
                         lineRects.size
                     )
                 ) {

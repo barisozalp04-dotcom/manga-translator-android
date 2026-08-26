@@ -167,7 +167,16 @@ class BubbleRenderer(context: Context) {
                     scaleY = scaleY,
                     shrinkPercent = resolveBubbleShrinkPercent(bubble)
                 )
-                drawBubble(canvas, text, bubblePath, verticalLayoutEnabled)
+                drawBubble(
+                    canvas = canvas,
+                    text = text,
+                    path = bubblePath,
+                    verticalLayoutEnabled = verticalLayoutEnabled,
+                    startFromTop = BubbleTextPlacement.spillsAcrossPage(
+                        bubble.rect,
+                        translation.height
+                    )
+                )
             }
         } finally {
             if (samplingBitmap !== source && !samplingBitmap.isRecycled) {
@@ -203,7 +212,13 @@ class BubbleRenderer(context: Context) {
         return ((opacityPercent.coerceIn(0, 100) / 100f) * 255f).toInt()
     }
 
-    private fun drawBubble(canvas: Canvas, text: String, path: Path, verticalLayoutEnabled: Boolean) {
+    private fun drawBubble(
+        canvas: Canvas,
+        text: String,
+        path: Path,
+        verticalLayoutEnabled: Boolean,
+        startFromTop: Boolean
+    ) {
         path.computeBounds(bubbleBounds, true)
         if (bubbleBounds.width() <= 0f || bubbleBounds.height() <= 0f) return
         val textRect = BubbleTextScaling.resolveAreaAdjustedTextRect(
@@ -211,22 +226,35 @@ class BubbleRenderer(context: Context) {
         )
         if (textRect.width() <= 0f || textRect.height() <= 0f) return
         canvas.drawPath(path, fillPaint)
-        drawTextInRect(canvas, text, textRect, verticalLayoutEnabled)
+        drawTextInRect(
+            canvas,
+            text,
+            textRect,
+            verticalLayoutEnabled,
+            startFromTop
+        )
     }
 
     private fun drawTextInRect(
         canvas: Canvas,
         text: String,
         rect: RectF,
-        verticalLayoutEnabled: Boolean
+        verticalLayoutEnabled: Boolean,
+        startFromTop: Boolean
     ) {
         if (verticalLayoutEnabled) {
-            drawVerticalTextInRect(canvas, VerticalTextSymbolConverter.convert(text), rect)
+            drawVerticalTextInRect(
+                canvas,
+                VerticalTextSymbolConverter.convert(text),
+                rect,
+                startFromTop
+            )
         } else {
             val textSize = resolveHorizontalTextSize(rect, text)
             val layout = buildLayout(text, rect.width().toInt().coerceAtLeast(1), textSize)
-            canvas.withTranslation(rect.centerX(), rect.centerY()) {
-                translate(-layout.width / 2f, -layout.height / 2f)
+            val left = BubbleTextPlacement.horizontalTextLeft(rect, layout.width)
+            val top = BubbleTextPlacement.horizontalTextTop(rect, layout.height, startFromTop)
+            canvas.withTranslation(left, top) {
                 layout.draw(this)
             }
         }
@@ -252,12 +280,17 @@ class BubbleRenderer(context: Context) {
             .build()
     }
 
-    private fun drawVerticalTextInRect(canvas: Canvas, text: String, rect: RectF) {
+    private fun drawVerticalTextInRect(
+        canvas: Canvas,
+        text: String,
+        rect: RectF,
+        startFromTop: Boolean
+    ) {
         val maxWidth = rect.width().toInt().coerceAtLeast(1)
         val maxHeight = rect.height().toInt().coerceAtLeast(1)
         val textSize = findDefaultVerticalTextSize(text, maxWidth, maxHeight, rect.width() / 2.2f)
         val layout = buildVerticalLayout(text, maxWidth, maxHeight, textSize)
-        VerticalTextRenderer.draw(canvas, text, rect, textPaint, layout)
+        VerticalTextRenderer.draw(canvas, text, rect, textPaint, layout, startFromTop)
     }
 
     private fun findDefaultVerticalTextSize(

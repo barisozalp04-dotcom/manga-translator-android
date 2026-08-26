@@ -30,6 +30,7 @@
   - 繁体中文界面 → 繁体中文
   - 英文界面 → 英文
   - 俄文界面 → 俄文
+  - 巴西葡萄牙语界面 → 巴西葡萄牙语
 - 当前文件夹的源语言可在漫画库中单独设置，支持：日文、英文、韩文、简体中文、繁体中文、中英混合、法文、西班牙文、葡萄牙文、德文、意大利文、俄文
 - 软件界面切换为繁体中文时，会优先使用繁体提示词
 
@@ -52,7 +53,7 @@
 
 ## Star History
 ** 喜欢的话可以点个Star哦 **
-[![Star History Chart](https://star-history.dera.page/svg?repos=jedzqer/manga-translator-android&type=date&legend=top-left)](https://star-history.dera.page/#jedzqer/manga-translator-android&type=date&legend=top-left)
+[![Star History Chart](https://api.star-history.com/svg?repos=jedzqer/manga-translator&type=date&legend=top-left)](https://www.star-history.com/#jedzqer/manga-translator&type=date&legend=top-left)
 
 
 ## 数据与文件说明 🗂️
@@ -76,39 +77,21 @@
 ```
 
 ### 模型与资源
-为避免仓库体积过大，模型文件不随源码仓库提供。请下载后放入 `assets/` 的对应子目录：
+将以下模型文件放入 `assets/` 对应子目录：
+- `models/detection/manga-bubble-seg-yolo26n-1472.onnx`（普通气泡检测，YOLO26n-seg，1472×1472 ONNX，输出气泡轮廓）
+- `models/detection/PP-OCRv6_det_mobile_infer.onnx`（Paddle OCR 文字行检测与文字块合并）
+- `models/ocr/PP-OCRv6_small_rec.onnx`（日文、英文、中文及中英混合 OCR）
+- `models/ocr/korean_PP-OCRv5_mobile_rec.onnx`、`models/ocr/korean_PP-OCRv5_mobile_rec_dict.txt`（韩文 OCR 与字符表）
+- `models/detection/PP-OCRv6_det_mobile_infer.onnx`（英文行检测）
 
-- `models/detection/manga-bubble-seg-yolo26n-1472.onnx`：YOLO26n-seg 气泡分割模型，1472×1472 ONNX 输入，输出气泡轮廓。
-- `models/detection/PP-OCRv6_det_mobile_infer.onnx`：PaddleOCR PP-OCRv6 mobile 文字行检测模型。
-- `models/ocr/PP-OCRv6_small_rec.onnx` 与 `models/ocr/ppocr_keys_v6_small.txt`：日文、英文、中文及中英混合识别模型与字符表。
-- `models/ocr/korean_PP-OCRv5_mobile_rec.onnx` 与 `models/ocr/korean_PP-OCRv5_mobile_rec_dict.txt`：韩文识别模型与字符表。
+模型下载链接：
+- 普通气泡检测模型：YOLO26n-seg 气泡分割模型（随应用 assets 提供）
+- 文字检测模型：PaddleOCR PP-OCRv6 mobile det
+- 通用识别模型：https://huggingface.co/PaddlePaddle/PP-OCRv6_small_rec_onnx
+- 英文检测模型：https://huggingface.co/PaddlePaddle/PP-OCRv6_small_det_onnx
+- 韩文 OCR 模型：https://huggingface.co/PaddlePaddle/korean_PP-OCRv5_mobile_rec_onnx
 
-模型来源：
-
-- 文字检测与通用识别模型：[PaddleOCR ONNX 模型](https://huggingface.co/PaddlePaddle/PP-OCRv6_small_rec_onnx)
-- 韩文识别模型：[PaddleOCR Korean PP-OCRv5 ONNX 模型](https://huggingface.co/PaddlePaddle/korean_PP-OCRv5_mobile_rec_onnx)
-- 气泡分割模型：请使用与当前版本 `manga-bubble-seg-yolo26n-1472.onnx` 文件名匹配的 YOLO26n-seg 气泡模型。
-
-提示词、字体与 OCR 配置同样位于 `assets/` 子目录，文件名必须与代码保持一致。
-
-### 本地签名配置
-
-仓库不包含签名密钥或密码。需要构建已签名 release 时，请在本机创建未提交的 `signing.properties`，再通过 Gradle 参数传入：
-
-```properties
-STORE_FILE=/absolute/path/to/your-release-key.jks
-STORE_PASSWORD=your-store-password
-KEY_ALIAS=your-key-alias
-KEY_PASSWORD=your-key-password
-```
-
-```bash
-./gradlew :app:assembleRelease \
-  -PSTORE_FILE="$(grep '^STORE_FILE=' signing.properties | cut -d= -f2-)" \
-  -PSTORE_PASSWORD="$(grep '^STORE_PASSWORD=' signing.properties | cut -d= -f2-)" \
-  -PKEY_ALIAS="$(grep '^KEY_ALIAS=' signing.properties | cut -d= -f2-)" \
-  -PKEY_PASSWORD="$(grep '^KEY_PASSWORD=' signing.properties | cut -d= -f2-)"
-```
+提示词、字体与 OCR 配置位于 `assets/` 子目录中，名称需与代码保持一致。
 
 ### 发布版本号同步
 需同时修改：
