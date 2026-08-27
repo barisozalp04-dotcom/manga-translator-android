@@ -52,7 +52,7 @@ Join the QQ group for questions and discussion: `1080302768`
 
 ## Star History
 ** If you like this project, please consider giving it a star **
-[![Star History Chart](https://api.star-history.com/svg?repos=jedzqer/manga-translator&type=date&legend=top-left)](https://www.star-history.com/#jedzqer/manga-translator&type=date&legend=top-left)
+[![Star History Chart](https://api.star-history.com/svg?repos=jedzqer/manga-translator-android&type=date&legend=top-left)](https://www.star-history.com/#jedzqer/manga-translator-android&type=date&legend=top-left)
 
 ## Data and File Layout 🗂️
 - Manga library storage: `/Android/data/<package>/files/manga_library/`
