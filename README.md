@@ -53,8 +53,7 @@
 
 ## Star History
 ** 喜欢的话可以点个Star哦 **
-[![Star History Chart](https://api.star-history.com/svg?repos=jedzqer/manga-translator-android&type=date&legend=top-left)](https://www.star-history.com/#jedzqer/manga-translator-android&type=date&legend=top-left)
-
+[![Star History Chart](https://api.star-history.com/chart?repos=jedzqer/manga-translator-android&type=date&legend=top-left&sealed_token=2YazS2Kphur58dguyjXJvUdZjAgaLy5Ckqm04dEeskjCGAvyVrTo8KZOe7quJ1KByysmRKbk625CSQNMZhAEKH_DKDbUWlp6JVO77_JGO8dP17C1X8b3Jg)](https://www.star-history.com/?repos=jedzqer%2Fmanga-translator-android&type=date&legend=top-left)
 
 ## 数据与文件说明 🗂️
 - 漫画库存储：`/Android/data/<package>/files/manga_library/`
