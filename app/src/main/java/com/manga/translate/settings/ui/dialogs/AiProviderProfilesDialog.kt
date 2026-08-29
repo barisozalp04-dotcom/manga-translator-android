@@ -174,14 +174,6 @@ internal class AiProviderProfilesDialog(
                 ).show()
                 return@setOnClickListener
             }
-            if (!dataController.canApplyAiProviderProfile(profileName)) {
-                Toast.makeText(
-                    fragment.requireContext(),
-                    R.string.ai_provider_profiles_apply_invalid,
-                    Toast.LENGTH_SHORT
-                ).show()
-                return@setOnClickListener
-            }
             if (!dataController.applyAiProviderProfile(profileName)) {
                 Toast.makeText(
                     fragment.requireContext(),

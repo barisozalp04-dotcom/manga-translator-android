@@ -1479,7 +1479,6 @@ internal class FolderTranslationCoordinator(
         val hasFailures = AtomicBoolean(false)
         val requestFailed = AtomicBoolean(false)
         val requestException = AtomicReference<LlmRequestException?>(null)
-        val scheduler = WeightedTranslationProviderScheduler(settingsStore.loadMainTranslationProviderPool())
 
         supervisorScope {
             suspend fun reportPageProcessed(failed: Boolean) {
@@ -1533,7 +1532,6 @@ internal class FolderTranslationCoordinator(
                                 glossaryProcessingEnabled = glossaryProcessingEnabled,
                                 language = language,
                                 detectionSelection = detectionSelection,
-                                scheduler = scheduler,
                                 glossary = glossary,
                                 glossaryMutex = glossaryMutex
                             )
@@ -1611,7 +1609,6 @@ internal class FolderTranslationCoordinator(
         val hasFailures = AtomicBoolean(false)
         val requestFailed = AtomicBoolean(false)
         val requestException = AtomicReference<LlmRequestException?>(null)
-        val scheduler = WeightedTranslationProviderScheduler(settingsStore.loadMainTranslationProviderPool())
 
         onPrepareProgress(0, pages.size, "")
 
@@ -1701,7 +1698,6 @@ internal class FolderTranslationCoordinator(
                         glossaryProcessingEnabled = glossaryProcessingEnabled,
                         language = language,
                         detectionSelection = detectionSelection,
-                        scheduler = scheduler,
                         glossary = glossary,
                         glossaryMutex = glossaryMutex
                     )
@@ -1802,7 +1798,6 @@ internal class FolderTranslationCoordinator(
         val hasFailures = AtomicBoolean(false)
         val requestFailed = AtomicBoolean(false)
         val requestException = AtomicReference<LlmRequestException?>(null)
-        val scheduler = WeightedTranslationProviderScheduler(settingsStore.loadMainTranslationProviderPool())
         onCountUpdated(0, 0)
         supervisorScope {
             suspend fun reportPageProcessed(failed: Boolean) {
@@ -1836,7 +1831,6 @@ internal class FolderTranslationCoordinator(
                             page = page,
                             promptAsset = promptAsset,
                             language = language,
-                            scheduler = scheduler,
                             glossary = glossary,
                             glossaryMutex = glossaryMutex
                         )
@@ -1942,12 +1936,10 @@ internal class FolderTranslationCoordinator(
         glossaryProcessingEnabled: Boolean,
         language: TranslationLanguage,
         detectionSelection: RegionDetectionSelection,
-        scheduler: WeightedTranslationProviderScheduler,
         glossary: MutableMap<String, String>,
         glossaryMutex: Mutex
     ): PageTranslationExecutionResult {
-        val orderedProviders = scheduler.orderedCandidatesForPage()
-        if (orderedProviders.isEmpty()) {
+        if (!settingsStore.load().isValid()) {
             throw LlmRequestException(LlmErrorCode.MissingApiSettings, "No configured translation provider")
         }
         if (!force) {
@@ -1971,57 +1963,39 @@ internal class FolderTranslationCoordinator(
             ?: return PageTranslationExecutionResult()
         var lastResponseException: LlmResponseException? = null
         var lastRequestException: LlmRequestException? = null
-        orderedProviders.forEach { providerContext ->
-            try {
-                val glossarySnapshot = glossaryMutex.withLock { LinkedHashMap(glossary) }
-                val translated = translationPipeline.translateStandardPageWithGlossary(
-                    page = resolvedPage,
-                    imageFile = image,
-                    glossary = glossarySnapshot,
-                    language = language,
-                    providerContext = providerContext
-                ) { }
-                if (translated != null) {
-                    val glossaryUsed = if (glossaryProcessingEnabled) {
-                        translated.glossaryUsed
-                    } else {
-                        emptyMap()
-                    }
-                    if (glossaryProcessingEnabled) {
-                        mergeGlossary(glossary, glossaryUsed, glossaryMutex, folder)
-                    }
-                    AppLogger.log(
-                        "Library",
-                        "Translated ${image.name} via ${providerContext.displayName}"
-                    )
-                    return PageTranslationExecutionResult(
-                        result = translated.result,
-                        glossaryUsed = glossaryUsed
-                    )
+        try {
+            val glossarySnapshot = glossaryMutex.withLock { LinkedHashMap(glossary) }
+            val translated = translationPipeline.translateStandardPageWithGlossary(
+                page = resolvedPage,
+                imageFile = image,
+                glossary = glossarySnapshot,
+                language = language
+            ) { }
+            if (translated != null) {
+                val glossaryUsed = if (glossaryProcessingEnabled) {
+                    translated.glossaryUsed
+                } else {
+                    emptyMap()
                 }
-            } catch (e: LlmRequestException) {
-                lastRequestException = e
-                AppLogger.log(
-                    "Library",
-                    "Provider ${providerContext.displayName} request failed for ${image.name}",
-                    e
-                )
-            } catch (e: LlmResponseException) {
-                lastResponseException = e
-                AppLogger.log(
-                    "Library",
-                    "Provider ${providerContext.displayName} returned invalid response for ${image.name}",
-                    e
-                )
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Throwable) {
-                AppLogger.log(
-                    "Library",
-                    "Provider ${providerContext.displayName} threw for ${image.name}",
-                    e
+                if (glossaryProcessingEnabled) {
+                    mergeGlossary(glossary, glossaryUsed, glossaryMutex, folder)
+                }
+                AppLogger.log("Library", "Translated ${image.name}")
+                return PageTranslationExecutionResult(
+                    result = translated.result,
+                    glossaryUsed = glossaryUsed
                 )
             }
+        } catch (e: LlmRequestException) {
+            lastRequestException = e
+            AppLogger.log("Library", "Translation request failed for ${image.name}", e)
+        } catch (e: LlmResponseException) {
+            lastResponseException = e
+            AppLogger.log("Library", "Translation returned invalid response for ${image.name}", e)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            AppLogger.log("Library", "Translation threw for ${image.name}", e)
         }
         if (lastResponseException != null) {
             AppLogger.log("Library", "Invalid model response for ${image.name}", lastResponseException)
@@ -2043,12 +2017,10 @@ internal class FolderTranslationCoordinator(
         page: PageOcrResult,
         promptAsset: String,
         language: TranslationLanguage,
-        scheduler: WeightedTranslationProviderScheduler,
         glossary: MutableMap<String, String>,
         glossaryMutex: Mutex
     ): PageTranslationExecutionResult {
-        val orderedProviders = scheduler.orderedCandidatesForPage()
-        if (orderedProviders.isEmpty()) {
+        if (!settingsStore.load().isValid()) {
             throw LlmRequestException(LlmErrorCode.MissingApiSettings, "No configured translation provider")
         }
         tryRefillPartial(
@@ -2063,51 +2035,33 @@ internal class FolderTranslationCoordinator(
         )?.let { return it }
         var lastResponseException: LlmResponseException? = null
         var lastRequestException: LlmRequestException? = null
-        orderedProviders.forEach { providerContext ->
-            try {
-                val glossarySnapshot = glossaryMutex.withLock { LinkedHashMap(glossary) }
-                val translated = translationPipeline.translateFullPageWithGlossary(
-                    page = page,
-                    glossary = glossarySnapshot,
-                    promptAsset = promptAsset,
-                    language = language,
-                    providerContext = providerContext
-                ) { }
-                if (translated != null) {
-                    val glossaryUsed = translated.glossaryUsed
-                    mergeGlossary(glossary, glossaryUsed, glossaryMutex, folder)
-                    AppLogger.log(
-                        "Library",
-                        "Translated ${page.imageFile.name} via ${providerContext.displayName}"
-                    )
-                    return PageTranslationExecutionResult(
-                        result = translated.result,
-                        glossaryUsed = glossaryUsed
-                    )
-                }
-            } catch (e: LlmRequestException) {
-                lastRequestException = e
-                AppLogger.log(
-                    "Library",
-                    "Provider ${providerContext.displayName} request failed for ${page.imageFile.name}",
-                    e
-                )
-            } catch (e: LlmResponseException) {
-                lastResponseException = e
-                AppLogger.log(
-                    "Library",
-                    "Provider ${providerContext.displayName} returned invalid response for ${page.imageFile.name}",
-                    e
-                )
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Throwable) {
-                AppLogger.log(
-                    "Library",
-                    "Provider ${providerContext.displayName} threw for ${page.imageFile.name}",
-                    e
+        try {
+            val glossarySnapshot = glossaryMutex.withLock { LinkedHashMap(glossary) }
+            val translated = translationPipeline.translateFullPageWithGlossary(
+                page = page,
+                glossary = glossarySnapshot,
+                promptAsset = promptAsset,
+                language = language
+            ) { }
+            if (translated != null) {
+                val glossaryUsed = translated.glossaryUsed
+                mergeGlossary(glossary, glossaryUsed, glossaryMutex, folder)
+                AppLogger.log("Library", "Translated ${page.imageFile.name}")
+                return PageTranslationExecutionResult(
+                    result = translated.result,
+                    glossaryUsed = glossaryUsed
                 )
             }
+        } catch (e: LlmRequestException) {
+            lastRequestException = e
+            AppLogger.log("Library", "Translation request failed for ${page.imageFile.name}", e)
+        } catch (e: LlmResponseException) {
+            lastResponseException = e
+            AppLogger.log("Library", "Translation returned invalid response for ${page.imageFile.name}", e)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            AppLogger.log("Library", "Translation threw for ${page.imageFile.name}", e)
         }
         if (lastResponseException != null) {
             AppLogger.log("Library", "Invalid model response for ${page.imageFile.name}", lastResponseException)
@@ -2265,7 +2219,6 @@ internal class FolderTranslationCoordinator(
         glossaryProcessingEnabled: Boolean,
         language: TranslationLanguage,
         detectionSelection: RegionDetectionSelection,
-        scheduler: WeightedTranslationProviderScheduler,
         glossary: MutableMap<String, String>,
         glossaryMutex: Mutex
     ): PageTranslationExecutionResult {
@@ -2280,7 +2233,6 @@ internal class FolderTranslationCoordinator(
                     glossaryProcessingEnabled = glossaryProcessingEnabled,
                     language = language,
                     detectionSelection = detectionSelection,
-                    scheduler = scheduler,
                     glossary = glossary,
                     glossaryMutex = glossaryMutex
                 )
@@ -2308,7 +2260,6 @@ internal class FolderTranslationCoordinator(
         page: PageOcrResult,
         promptAsset: String,
         language: TranslationLanguage,
-        scheduler: WeightedTranslationProviderScheduler,
         glossary: MutableMap<String, String>,
         glossaryMutex: Mutex
     ): PageTranslationExecutionResult {
@@ -2320,7 +2271,6 @@ internal class FolderTranslationCoordinator(
                     page = page,
                     promptAsset = promptAsset,
                     language = language,
-                    scheduler = scheduler,
                     glossary = glossary,
                     glossaryMutex = glossaryMutex
                 )

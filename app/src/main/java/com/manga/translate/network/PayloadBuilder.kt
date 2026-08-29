@@ -442,14 +442,13 @@ internal class PayloadBuilder(
     }
 
     private fun applyCustomRequestParameters(payload: JSONObject, settings: ApiSettings) {
+        if (settings.providerId.ifBlank { PRIMARY_PROVIDER_ID } != PRIMARY_PROVIDER_ID) return
         val parameters = settingsStore.loadCustomRequestParameters()
         if (parameters.isEmpty()) return
-        val providerId = settings.providerId.ifBlank { PRIMARY_PROVIDER_ID }
         val reservedKeys = ReservedRequestKeys.forFormat(settings.apiFormat)
         val seenKeys = LinkedHashSet<String>()
         parameters.forEach { parameter ->
             if (!parameter.enabled) return@forEach
-            if (parameter.targetProviderId != providerId) return@forEach
             val key = parameter.key.trim()
             val value = parameter.value.trim()
             if (key.isBlank() && value.isBlank()) return@forEach

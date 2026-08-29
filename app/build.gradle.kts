@@ -21,8 +21,8 @@ android {
         applicationId = "com.manga.translate.v3beta"
         minSdk = 24
         targetSdk = 36
-        versionCode = 86
-        versionName = "3.4.1"
+        versionCode = 87
+        versionName = "3.4.2"
         ndk {
             abiFilters += listOf("arm64-v8a")
         }

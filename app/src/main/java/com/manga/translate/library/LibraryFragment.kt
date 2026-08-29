@@ -1001,6 +1001,16 @@ class LibraryFragment : Fragment() {
             if (selectionManager.isLibrarySelectionMode) {
                 updateLibrarySelectionActions()
             }
+
+            if (items.none { !it.statsLoaded }) return@launch
+            val completedItems = withContext(Dispatchers.IO) {
+                items.map { item ->
+                    currentCoroutineContext().ensureActive()
+                    if (item.statsLoaded) item else loadAndCacheFolderStats(item)
+                }
+            }
+            if (!isAdded || _binding == null || generation != folderLoadGeneration) return@launch
+            folderAdapter.submit(completedItems)
         }
     }
 
@@ -1008,18 +1018,35 @@ class LibraryFragment : Fragment() {
         val items = ArrayList<FolderItem>(folders.size)
         for (folder in folders) {
             val cachedStatus = preferencesGateway.getCachedFolderStatus(folder)
+            val cachedStats = preferencesGateway.getCachedFolderStats(folder)
             items += FolderItem(
                 folder = folder,
-                imageCount = 0,
+                imageCount = cachedStats?.imageCount ?: 0,
+                chapterCount = cachedStats?.chapterCount ?: 0,
                 isCollection = repository.isCollectionFolder(folder),
                 status = cachedStatus ?: FolderStatus.UNTRANSLATED,
                 customTags = preferencesGateway.getFolderTags(folder)
                     .sortedWith(String.CASE_INSENSITIVE_ORDER),
-                statsLoaded = false,
+                statsLoaded = cachedStats != null,
                 statusLoaded = cachedStatus != null
             )
         }
         return items
+    }
+
+    private fun loadAndCacheFolderStats(item: FolderItem): FolderItem {
+        val chapters = if (item.isCollection) repository.listChildFolders(item.folder) else emptyList()
+        val imageCount = if (item.isCollection) {
+            chapters.sumOf { chapter -> repository.listImages(chapter).size }
+        } else {
+            repository.listImages(item.folder).size
+        }
+        preferencesGateway.setCachedFolderStats(item.folder, imageCount, chapters.size)
+        return item.copy(
+            imageCount = imageCount,
+            chapterCount = chapters.size,
+            statsLoaded = true
+        )
     }
 
     private suspend fun buildFolderItems(folders: List<File>): List<FolderItem> {
@@ -1070,6 +1097,11 @@ class LibraryFragment : Fragment() {
             val content = withContext(Dispatchers.IO) {
                 if (repository.isCollectionFolder(folder)) {
                     val items = buildFolderItems(repository.listChildFolders(folder))
+                    preferencesGateway.setCachedFolderStats(
+                        folder,
+                        imageCount = items.sumOf { it.imageCount },
+                        chapterCount = items.size
+                    )
                     preferencesGateway.setCachedFolderStatus(
                         folder,
                         resolveFolderStatus(items.map { it.status })
@@ -1079,6 +1111,7 @@ class LibraryFragment : Fragment() {
                     val items = repository.listImages(folder).map { file ->
                         ImageItem(file = file, translated = isImageTranslated(file, folder))
                     }
+                    preferencesGateway.setCachedFolderStats(folder, imageCount = items.size)
                     preferencesGateway.setCachedFolderStatus(
                         folder,
                         resolveFolderStatus(items.map { item ->
@@ -1213,6 +1246,7 @@ class LibraryFragment : Fragment() {
                 Toast.makeText(requireContext(), R.string.folder_create_failed, Toast.LENGTH_SHORT).show()
             } else {
                 AppLogger.log("Library", "Created chapter ${folder.name} in ${parent.name}")
+                preferencesGateway.invalidateCachedFolderStats(parent)
                 loadImages(parent)
                 loadFolders()
             }
@@ -1327,6 +1361,7 @@ class LibraryFragment : Fragment() {
     }
 
     private fun confirmDeleteFolder(folder: File) {
+        val parentCollection = folder.parentFile?.takeIf(repository::isCollectionFolder)
         dialogs.confirmDeleteFolder(requireContext(), folder.name) {
             val deleted = repository.deleteFolder(folder)
             if (!deleted) {
@@ -1334,6 +1369,7 @@ class LibraryFragment : Fragment() {
                 Toast.makeText(requireContext(), R.string.folder_delete_failed, Toast.LENGTH_SHORT).show()
             } else {
                 preferencesGateway.clearFolderTreeSettings(folder)
+                parentCollection?.let(preferencesGateway::invalidateCachedFolderStats)
                 readingProgressStore.removeTree(folder)
                 AppLogger.log("Library", "Deleted folder ${folder.name}")
             }
@@ -1388,6 +1424,7 @@ class LibraryFragment : Fragment() {
     }
 
     private fun showMoveFolderPicker(folder: File) {
+        val sourceCollection = folder.parentFile?.takeIf(repository::isCollectionFolder)
         val collections = repository
             .listFolders(LibrarySortField.NAME, ascending = true)
             .filter { it.absolutePath != folder.absolutePath }
@@ -1405,6 +1442,8 @@ class LibraryFragment : Fragment() {
                 Toast.makeText(requireContext(), R.string.folder_move_failed, Toast.LENGTH_SHORT).show()
             } else {
                 AppLogger.log("Library", "Moved folder ${folder.name} -> ${targetCollection.name}/${moved.name}")
+                sourceCollection?.let(preferencesGateway::invalidateCachedFolderStats)
+                preferencesGateway.invalidateCachedFolderStats(targetCollection)
                 refreshFolderViewsAfterMutation(folder, moved)
             }
         }
@@ -1740,6 +1779,7 @@ class LibraryFragment : Fragment() {
         } else {
             repository.listImages(folder)
         }
+        preferencesGateway.setCachedFolderStats(folder, images.size, chapters.size)
         return FolderItem(
             folder = folder,
             imageCount = images.size,
@@ -1930,6 +1970,7 @@ class LibraryFragment : Fragment() {
             } else {
                 AppLogger.log("Library", "Deleted ${selected.size} chapters from ${folder.name}")
             }
+            preferencesGateway.invalidateCachedFolderStats(folder)
             selectionManager.exitChapterSelectionMode()
             loadImages(folder)
             loadFolders()

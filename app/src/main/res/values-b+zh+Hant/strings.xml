@@ -110,7 +110,7 @@
     <string name="ai_provider_profiles_section_label">配置檔列表</string>
     <string name="ai_provider_profiles_current">目前配置：%1$s</string>
     <string name="ai_provider_profiles_current_none">目前配置：未啟用</string>
-    <string name="ai_provider_profiles_note">配置檔會儲存目前主模型、重試和並發、OCR、懸浮窗翻譯覆蓋、AI 參數、多供應商調度和自訂請求參數，切換時會整體套用。</string>
+    <string name="ai_provider_profiles_note">配置檔會儲存目前主模型、重試和並發、OCR、懸浮窗翻譯覆蓋、AI 參數和自訂請求參數，切換時會整體套用。</string>
     <string name="ai_provider_profiles_empty">還沒有已儲存的配置。</string>
     <string name="ai_provider_profiles_apply">切換到選中配置</string>
     <string name="ai_provider_profiles_save_new">新建並儲存目前配置</string>
@@ -127,7 +127,6 @@
     <string name="ai_provider_profiles_delete_confirm">確定刪除配置「%1$s」嗎？</string>
     <string name="ai_provider_profiles_deleted">配置已刪除</string>
     <string name="ai_provider_profiles_select_required">請先選擇一個配置</string>
-    <string name="ai_provider_profiles_apply_invalid">所選配置的最大並發低於啟用供應商數，無法套用</string>
     <string name="ai_provider_profiles_write_failed">配置檔寫入失敗，原有配置未變更</string>
     <string name="fetch_models_title">模型列表</string>
     <string name="fetch_models_loading">正在取得模型列表…</string>
@@ -136,35 +135,18 @@
 %1$s</string>
     <string name="llm_params_button">AI 參數設定</string>
     <string name="llm_params_title">AI 參數設定</string>
-    <string name="multi_provider_scheduling_button">多供應商調度</string>
-    <string name="multi_provider_scheduling_button_format">多供應商調度：%1$d 個供應商</string>
-    <string name="multi_provider_scheduling_title">多供應商調度</string>
-    <string name="multi_provider_scheduling_section_label">翻譯供應商池</string>
-    <string name="multi_provider_scheduling_note">主供應商存取權重固定為 10。系統會按權重比例為頁面翻譯請求分配供應商。
-例如：主供應商 10，供應商 A 5，供應商 B 5，則會盡量按 10:5:5 均勻分配請求。總並行數不能小於啟用中的供應商數量。</string>
-    <string name="multi_provider_scheduling_add">新增一個供應商</string>
-    <string name="multi_provider_scheduling_enabled">啟用</string>
-    <string name="multi_provider_scheduling_row_title">供應商 %1$d</string>
-    <string name="multi_provider_scheduling_delete_action">刪除</string>
-    <string name="multi_provider_scheduling_weight_hint">存取權重</string>
-    <string name="multi_provider_scheduling_saved">多供應商調度已儲存</string>
-    <string name="multi_provider_scheduling_empty_field_error">啟用中的供應商必須填寫 API 位址、API Key 與模型名稱</string>
-    <string name="multi_provider_scheduling_invalid_weight_error">啟用中的供應商存取權重必須是正整數</string>
-    <string name="max_concurrency_provider_count_error">AI API 呼叫並行數不能小於啟用中的供應商數量，目前至少需要 %1$d。</string>
     <string name="custom_request_params_button">自訂請求參數</string>
     <string name="custom_request_params_button_format">自訂請求參數：%1$d 項</string>
     <string name="custom_request_params_title">自訂請求參數</string>
-    <string name="custom_request_params_note">會以頂層欄位附加到 AI 請求本體。預設作用於主供應商，也可以單獨指定給 OCR API、供應商 1、供應商 2 等。支援多組鍵值對，自動辨識布林值、數字、null，以及合法 JSON 物件或陣列。不能覆蓋既有內建參數；同一供應商內的重複鍵和衝突會被攔截。</string>
+    <string name="custom_request_params_note">會以頂層欄位附加到主供應商的 AI 請求本體。支援多組鍵值對，自動辨識布林值、數字、null，以及合法 JSON 物件或陣列。不能覆蓋既有內建參數；重複鍵和衝突會被攔截。</string>
     <string name="custom_request_params_add">新增一項參數</string>
     <string name="custom_request_params_enabled">啟用</string>
     <string name="custom_request_param_key_hint">參數鍵名</string>
-    <string name="custom_request_param_target_provider_hint">套用到供應商</string>
     <string name="custom_request_param_value_hint">參數值</string>
     <string name="custom_request_params_section_label">請求本體附加欄位</string>
     <string name="custom_request_params_row_title">參數 %1$d</string>
     <string name="custom_request_params_delete_action">刪除</string>
     <string name="custom_request_params_provider_primary">主供應商</string>
-    <string name="custom_request_params_provider_ocr">OCR API</string>
     <string name="custom_request_params_empty_row_error">參數鍵名不能為空</string>
     <string name="custom_request_params_duplicate_error_scoped">供應商「%1$s」存在重複的自訂參數鍵：%2$s</string>
     <string name="custom_request_params_conflict_error">自訂參數不能覆蓋內建欄位：%1$s</string>
@@ -626,8 +608,6 @@
     <string name="notification_permission_message">用於顯示翻譯進度通知。</string>
     <string name="notification_permission_denied">未授予通知權限，可能無法顯示翻譯進度。</string>
     <string name="unnamed_folder">未命名</string>
-    <string name="provider_name_primary">主供應商</string>
-    <string name="provider_name_default">供應商 %1$d</string>
     <string name="global_progress_export">匯出</string>
     <string name="global_progress_translate">翻譯</string>
     <string name="global_progress_preparing_translation">準備翻譯中</string>

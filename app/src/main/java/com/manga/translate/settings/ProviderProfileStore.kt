@@ -6,7 +6,6 @@ import com.manga.translate.model.FloatingBallGestureAction
 import com.manga.translate.model.OcrApiFormat
 import com.manga.translate.model.ThinkingLength
 import com.manga.translate.platform.AppLogger
-import java.util.UUID
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -17,16 +16,7 @@ internal class ProviderProfileStore(
     private val llmParameterStore: LlmParameterStore,
     private val profileFileWriter: AiProviderProfilesFileWriter = AtomicAiProviderProfilesFileWriter
 ) {
-    private data class ParsedAdditionalProviders(
-        val providers: List<AdditionalTranslationProvider>,
-        val legacyIdMap: Map<String, String>,
-        val requiresRewrite: Boolean
-    )
-
-    private val legacyAdditionalProviderIdPattern = Regex("additional_(\\d+)")
-
     fun loadCustomRequestParameters(): List<CustomRequestParameter> {
-        ensureAdditionalProviderIdsMigrated()
         val raw = storage.prefs.getString(SettingsStore.KEY_CUSTOM_REQUEST_PARAMETERS, null).orEmpty()
         if (raw.isBlank()) return emptyList()
         return runCatching {
@@ -41,16 +31,12 @@ internal class ProviderProfileStore(
                     val key = item.optString("key").trim()
                     val value = item.optString("value")
                     val enabled = item.optBoolean("enabled", true)
-                    val targetProviderId = item.optString("targetProviderId")
-                        .trim()
-                        .ifBlank { PRIMARY_PROVIDER_ID }
                     if (key.isBlank() && value.isBlank()) continue
                     add(
                         CustomRequestParameter(
                             key = key,
                             value = value,
-                            enabled = enabled,
-                            targetProviderId = targetProviderId
+                            enabled = enabled
                         )
                     )
                 }
@@ -69,10 +55,6 @@ internal class ProviderProfileStore(
                     .put("key", key)
                     .put("value", value)
                     .put("enabled", parameter.enabled)
-                    .put(
-                        "targetProviderId",
-                        parameter.targetProviderId.trim().ifBlank { PRIMARY_PROVIDER_ID }
-                    )
             )
         }
         storage.editSettings(setOf(SettingsStore.KEY_CUSTOM_REQUEST_PARAMETERS)) {
@@ -84,98 +66,6 @@ internal class ProviderProfileStore(
                     .toString()
             )
         }
-    }
-
-    fun loadAdditionalTranslationProviders(): List<AdditionalTranslationProvider> {
-        ensureAdditionalProviderIdsMigrated()
-        val raw = storage.prefs.getString(SettingsStore.KEY_ADDITIONAL_TRANSLATION_PROVIDERS, null)
-            .orEmpty()
-        if (raw.isBlank()) return emptyList()
-        return runCatching {
-            val array = storage.parseVersionedArrayPayload(
-                raw = raw,
-                arrayKey = "providers",
-                label = SettingsStore.KEY_ADDITIONAL_TRANSLATION_PROVIDERS
-            )
-            buildList {
-                for (index in 0 until array.length()) {
-                    val item = array.optJSONObject(index) ?: continue
-                    val provider = parseAdditionalTranslationProvider(item, index)
-                    if (
-                        provider.apiUrl.isBlank() &&
-                        provider.apiKey.isBlank() &&
-                        provider.modelName.isBlank()
-                    ) {
-                        continue
-                    }
-                    add(provider)
-                }
-            }
-        }.getOrDefault(emptyList())
-    }
-
-    fun saveAdditionalTranslationProviders(providers: List<AdditionalTranslationProvider>) {
-        val array = JSONArray()
-        providers.forEachIndexed { index, provider ->
-            val apiUrl = provider.apiUrl.trim()
-            val apiKey = provider.apiKey.trim()
-            val modelName = provider.modelName.trim()
-            if (apiUrl.isBlank() && apiKey.isBlank() && modelName.isBlank()) return@forEachIndexed
-            array.put(
-                JSONObject()
-                    .put("providerId", provider.providerId.ifBlank { UUID.randomUUID().toString() })
-                    .put("name", provider.name.ifBlank { defaultAdditionalProviderName(index) })
-                    .put("apiUrl", apiUrl)
-                    .put("apiKey", apiKey)
-                    .put("modelName", modelName)
-                    .put("weight", provider.weight.coerceAtLeast(1))
-                    .put("enabled", provider.enabled)
-            )
-        }
-        storage.editSettings(setOf(SettingsStore.KEY_ADDITIONAL_TRANSLATION_PROVIDERS)) {
-            putString(
-                SettingsStore.KEY_ADDITIONAL_TRANSLATION_PROVIDERS,
-                JSONObject()
-                    .put("version", SettingsStore.SETTINGS_JSON_SCHEMA_VERSION)
-                    .put("providers", array)
-                    .toString()
-            )
-        }
-    }
-
-    fun countEnabledConfiguredAdditionalProviders(): Int {
-        return loadAdditionalTranslationProviders().count { it.enabled && it.isConfigured() }
-    }
-
-    fun loadMainTranslationProviderPool(): List<WeightedProviderCandidate> {
-        val main = apiSettingsStore.load()
-        val candidates = ArrayList<WeightedProviderCandidate>()
-        if (main.isValid()) {
-            candidates += WeightedProviderCandidate(
-                providerId = PRIMARY_PROVIDER_ID,
-                displayName = storage.appContext.getString(R.string.provider_name_primary),
-                settings = main,
-                weight = SettingsStore.PRIMARY_PROVIDER_WEIGHT,
-                isPrimary = true
-            )
-        }
-        loadAdditionalTranslationProviders().forEachIndexed { index, provider ->
-            if (!provider.enabled || !provider.isConfigured()) return@forEachIndexed
-            candidates += WeightedProviderCandidate(
-                providerId = provider.providerId,
-                displayName = provider.name.ifBlank { defaultAdditionalProviderName(index) },
-                settings = ApiSettings(
-                    apiUrl = provider.apiUrl.trim(),
-                    apiKey = provider.apiKey.trim(),
-                    modelName = provider.modelName.trim(),
-                    apiFormat = main.apiFormat,
-                    providerId = provider.providerId
-                ),
-                weight = provider.weight.coerceAtLeast(1),
-                isPrimary = false
-            )
-        }
-        return candidates
     }
 
     fun loadAiProviderProfilesState(): AiProviderProfilesState {
@@ -262,7 +152,6 @@ internal class ProviderProfileStore(
         apiSettingsStore.saveFloatingTranslateApiSettings(profile.floatingTranslateSettings)
         llmParameterStore.saveLlmParameters(profile.llmParameters)
         saveCustomRequestParameters(profile.customRequestParameters)
-        saveAdditionalTranslationProviders(profile.additionalTranslationProviders)
         return true
     }
 
@@ -286,10 +175,6 @@ internal class ProviderProfileStore(
         )
     }
 
-    fun defaultAdditionalProviderName(index: Int): String {
-        return defaultAdditionalProviderName(storage.appContext, index)
-    }
-
     private fun captureCurrentAiProviderProfile(name: String): AiProviderProfile {
         return AiProviderProfile(
             name = name,
@@ -300,8 +185,7 @@ internal class ProviderProfileStore(
             ocrSettings = ocrSettingsStore.loadOcrApiSettings(),
             floatingTranslateSettings = apiSettingsStore.loadFloatingTranslateApiSettings(),
             llmParameters = llmParameterStore.loadLlmParameters(),
-            customRequestParameters = loadCustomRequestParameters(),
-            additionalTranslationProviders = loadAdditionalTranslationProviders()
+            customRequestParameters = loadCustomRequestParameters()
         )
     }
 
@@ -312,9 +196,7 @@ internal class ProviderProfileStore(
         if (profile.maxConcurrency !in SettingsStore.MIN_MAX_CONCURRENCY..SettingsStore.MAX_MAX_CONCURRENCY) {
             return false
         }
-        val enabledProviderCount = (if (profile.mainSettings.isValid()) 1 else 0) +
-            profile.additionalTranslationProviders.count { it.enabled && it.isConfigured() }
-        return profile.maxConcurrency >= enabledProviderCount.coerceAtLeast(1)
+        return profile.maxConcurrency >= 1
     }
 
     private fun writeAiProviderProfilesState(state: AiProviderProfilesState): Boolean {
@@ -427,30 +309,6 @@ internal class ProviderProfileStore(
                                 .put("key", parameter.key)
                                 .put("value", parameter.value)
                                 .put("enabled", parameter.enabled)
-                                .put(
-                                    "targetProviderId",
-                                    parameter.targetProviderId.ifBlank { PRIMARY_PROVIDER_ID }
-                                )
-                        )
-                    }
-                }
-            )
-            .put(
-                "additionalTranslationProviders",
-                JSONArray().apply {
-                    profile.additionalTranslationProviders.forEachIndexed { index, provider ->
-                        put(
-                            JSONObject()
-                                .put("providerId", provider.providerId)
-                                .put(
-                                    "name",
-                                    provider.name.ifBlank { defaultAdditionalProviderName(index) }
-                                )
-                                .put("apiUrl", provider.apiUrl)
-                                .put("apiKey", provider.apiKey)
-                                .put("modelName", provider.modelName)
-                                .put("weight", provider.weight)
-                                .put("enabled", provider.enabled)
                         )
                     }
                 }
@@ -465,8 +323,6 @@ internal class ProviderProfileStore(
         val floatingJson = item.optJSONObject("floatingTranslateSettings") ?: JSONObject()
         val llmJson = item.optJSONObject("llmParameters") ?: JSONObject()
         val customParams = item.optJSONArray("customRequestParameters") ?: JSONArray()
-        val additionalProviders = item.optJSONArray("additionalTranslationProviders") ?: JSONArray()
-        val parsedAdditionalProviders = parseAdditionalProvidersArray(additionalProviders)
         val ocrApiFormatPref = ocrJson.optStringOrNull("ocrApiFormat")
         val hasUnsupportedOcrFormat = OcrApiFormat.isUnsupportedPref(ocrApiFormatPref)
         return AiProviderProfile(
@@ -619,17 +475,11 @@ internal class ProviderProfileStore(
                         CustomRequestParameter(
                             key = key,
                             value = value,
-                            enabled = param.optBoolean("enabled", true),
-                            targetProviderId = parsedAdditionalProviders.legacyIdMap[
-                                param.optString("targetProviderId").trim()
-                            ] ?: param.optString("targetProviderId")
-                                .trim()
-                                .ifBlank { PRIMARY_PROVIDER_ID }
+                            enabled = param.optBoolean("enabled", true)
                         )
                     )
                 }
-            },
-            additionalTranslationProviders = parsedAdditionalProviders.providers
+            }
         )
     }
 
@@ -641,132 +491,4 @@ internal class ProviderProfileStore(
         return ThinkingLength.fromLegacyBudget(llmJson.optOptionalInt("thinkingBudget"))
     }
 
-    private fun parseAdditionalTranslationProvider(
-        item: JSONObject,
-        index: Int
-    ): AdditionalTranslationProvider {
-        return AdditionalTranslationProvider(
-            providerId = item.optString("providerId").trim().ifBlank { UUID.randomUUID().toString() },
-            name = item.optString("name").trim().ifBlank { defaultAdditionalProviderName(index) },
-            apiUrl = item.optString("apiUrl"),
-            apiKey = item.optString("apiKey"),
-            modelName = item.optString("modelName"),
-            weight = item.optInt("weight", 1).coerceAtLeast(1),
-            enabled = item.optBoolean("enabled", true)
-        )
-    }
-
-    private fun ensureAdditionalProviderIdsMigrated() {
-        val raw = storage.prefs.getString(SettingsStore.KEY_ADDITIONAL_TRANSLATION_PROVIDERS, null)
-            .orEmpty()
-        if (raw.isBlank()) return
-        val parsed = runCatching {
-            val array = storage.parseVersionedArrayPayload(
-                raw = raw,
-                arrayKey = "providers",
-                label = SettingsStore.KEY_ADDITIONAL_TRANSLATION_PROVIDERS
-            )
-            parseAdditionalProvidersArray(array)
-        }.getOrNull() ?: return
-        if (!parsed.requiresRewrite) return
-        writeAdditionalTranslationProviders(parsed.providers)
-        migrateCustomRequestParameterProviderIds(parsed.legacyIdMap)
-    }
-
-    private fun parseAdditionalProvidersArray(array: JSONArray): ParsedAdditionalProviders {
-        val providers = mutableListOf<AdditionalTranslationProvider>()
-        val legacyIdMap = linkedMapOf<String, String>()
-        val seenIds = mutableSetOf<String>()
-        var requiresRewrite = false
-        for (index in 0 until array.length()) {
-            val item = array.optJSONObject(index) ?: continue
-            val storedId = item.optString("providerId").trim()
-            val providerId = if (
-                storedId.isBlank() ||
-                legacyAdditionalProviderIdPattern.matches(storedId) ||
-                storedId in seenIds
-            ) {
-                requiresRewrite = true
-                generateUniqueProviderId(seenIds)
-            } else {
-                storedId
-            }
-            seenIds += providerId
-            legacyIdMap["additional_${index + 1}"] = providerId
-            val provider = parseAdditionalTranslationProvider(item, index).copy(providerId = providerId)
-            if (
-                provider.apiUrl.isNotBlank() ||
-                provider.apiKey.isNotBlank() ||
-                provider.modelName.isNotBlank()
-            ) {
-                providers += provider
-            }
-        }
-        return ParsedAdditionalProviders(providers, legacyIdMap, requiresRewrite)
-    }
-
-    private fun generateUniqueProviderId(existing: Set<String>): String {
-        var id: String
-        do {
-            id = UUID.randomUUID().toString()
-        } while (id in existing)
-        return id
-    }
-
-    private fun writeAdditionalTranslationProviders(providers: List<AdditionalTranslationProvider>) {
-        val array = JSONArray()
-        providers.forEachIndexed { index, provider ->
-            array.put(
-                JSONObject()
-                    .put("providerId", provider.providerId)
-                    .put("name", provider.name.ifBlank { defaultAdditionalProviderName(index) })
-                    .put("apiUrl", provider.apiUrl.trim())
-                    .put("apiKey", provider.apiKey.trim())
-                    .put("modelName", provider.modelName.trim())
-                    .put("weight", provider.weight.coerceAtLeast(1))
-                    .put("enabled", provider.enabled)
-            )
-        }
-        storage.editSettings(setOf(SettingsStore.KEY_ADDITIONAL_TRANSLATION_PROVIDERS)) {
-            putString(
-                SettingsStore.KEY_ADDITIONAL_TRANSLATION_PROVIDERS,
-                JSONObject()
-                    .put("version", SettingsStore.SETTINGS_JSON_SCHEMA_VERSION)
-                    .put("providers", array)
-                    .toString()
-            )
-        }
-    }
-
-    private fun migrateCustomRequestParameterProviderIds(legacyIdMap: Map<String, String>) {
-        if (legacyIdMap.isEmpty()) return
-        val raw = storage.prefs.getString(SettingsStore.KEY_CUSTOM_REQUEST_PARAMETERS, null).orEmpty()
-        if (raw.isBlank()) return
-        val migrated = runCatching {
-            val array = storage.parseVersionedArrayPayload(
-                raw = raw,
-                arrayKey = "items",
-                label = SettingsStore.KEY_CUSTOM_REQUEST_PARAMETERS
-            )
-            buildList {
-                for (index in 0 until array.length()) {
-                    val item = array.optJSONObject(index) ?: continue
-                    val key = item.optString("key").trim()
-                    val value = item.optString("value")
-                    if (key.isBlank() && value.isBlank()) continue
-                    val targetProviderId = item.optString("targetProviderId").trim()
-                    add(
-                        CustomRequestParameter(
-                            key = key,
-                            value = value,
-                            enabled = item.optBoolean("enabled", true),
-                            targetProviderId = legacyIdMap[targetProviderId]
-                                ?: targetProviderId.ifBlank { PRIMARY_PROVIDER_ID }
-                        )
-                    )
-                }
-            }
-        }.getOrNull() ?: return
-        saveCustomRequestParameters(migrated)
-    }
 }

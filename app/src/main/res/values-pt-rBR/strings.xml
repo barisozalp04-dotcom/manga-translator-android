@@ -98,7 +98,7 @@
     <string name="ai_provider_profiles_section_label">Profile List</string>
     <string name="ai_provider_profiles_current">Current configuration: %1$s</string>
     <string name="ai_provider_profiles_current_none">Current profile: None</string>
-    <string name="ai_provider_profiles_note">Profiles save the current primary model, retry and concurrency settings, OCR settings, floating translation overrides, AI parameters, multi-provider scheduling, and custom request parameters. Applying a profile switches all of them together.</string>
+    <string name="ai_provider_profiles_note">Profiles save the current primary model, retry and concurrency settings, OCR settings, floating translation overrides, AI parameters, and custom request parameters. Applying a profile switches all of them together.</string>
     <string name="ai_provider_profiles_empty">There are no saved configurations yet.</string>
     <string name="ai_provider_profiles_apply">Switch to Selected Profile</string>
     <string name="ai_provider_profiles_save_new">Create new and save current configuration</string>
@@ -115,7 +115,6 @@
     <string name="ai_provider_profiles_delete_confirm">Are you sure you want to delete the configuration "%1$s"?</string>
     <string name="ai_provider_profiles_deleted">Profile deleted</string>
     <string name="ai_provider_profiles_select_required">Please select a profile first</string>
-    <string name="ai_provider_profiles_apply_invalid">The selected profile has fewer concurrent requests than enabled providers and cannot be applied.</string>
     <string name="ai_provider_profiles_write_failed">Could not write the profile. Existing profiles were not changed.</string>
     <string name="fetch_models_title">Model List</string>
     <string name="fetch_models_loading">Getting model list…</string>
@@ -124,35 +123,18 @@
 %1$s</string>
     <string name="llm_params_button">AI Parameter Settings</string>
     <string name="llm_params_title">AI Parameter Settings</string>
-    <string name="multi_provider_scheduling_button">Multi-Provider Scheduling</string>
-    <string name="multi_provider_scheduling_button_format">Multi-provider scheduling: %1$d providers</string>
-    <string name="multi_provider_scheduling_title">Multi-Provider Scheduling</string>
-    <string name="multi_provider_scheduling_section_label">Translation Provider Pool</string>
-    <string name="multi_provider_scheduling_note">The primary provider weight is fixed at 10. Page translation requests are assigned by weight.
-For example: if the primary provider is 10, provider A is 5, and provider B is 5, requests will be distributed as evenly as possible at 10:5:5. Total concurrency cannot be lower than the number of enabled providers.</string>
-    <string name="multi_provider_scheduling_add">Add Provider</string>
-    <string name="multi_provider_scheduling_enabled">Enabled</string>
-    <string name="multi_provider_scheduling_row_title">Provider %1$d</string>
-    <string name="multi_provider_scheduling_delete_action">Delete</string>
-    <string name="multi_provider_scheduling_weight_hint">Weight</string>
-    <string name="multi_provider_scheduling_saved">Multi-provider scheduling saved</string>
-    <string name="multi_provider_scheduling_empty_field_error">Enabled providers must include an API URL, API Key, and model name</string>
-    <string name="multi_provider_scheduling_invalid_weight_error">Enabled provider weights must be positive integers</string>
-    <string name="max_concurrency_provider_count_error">AI API concurrency cannot be lower than the number of enabled providers. At least %1$d is currently required.</string>
     <string name="custom_request_params_button">Custom Request Parameters</string>
     <string name="custom_request_params_button_format">Custom request parameters: %1$d items</string>
     <string name="custom_request_params_title">Custom Request Parameters</string>
-    <string name="custom_request_params_note">These fields are appended to the top level of the AI request body. They target the primary provider by default, and can also be assigned to the OCR API or specific additional providers. Multiple key-value pairs are supported, with automatic detection for booleans, numbers, null, and valid JSON objects or arrays. Built-in fields cannot be overridden, and duplicate keys within the same target are blocked.</string>
+    <string name="custom_request_params_note">These fields are appended to the top level of the primary provider AI request body. Multiple key-value pairs are supported, with automatic detection for booleans, numbers, null, and valid JSON objects or arrays. Built-in fields cannot be overridden, and duplicate keys are blocked.</string>
     <string name="custom_request_params_add">Add Parameter</string>
     <string name="custom_request_params_enabled">Enabled</string>
     <string name="custom_request_param_key_hint">Parameter Key</string>
-    <string name="custom_request_param_target_provider_hint">Apply to Provider</string>
     <string name="custom_request_param_value_hint">Parameter Value</string>
     <string name="custom_request_params_section_label">Extra Request Body Fields</string>
     <string name="custom_request_params_row_title">Parameter %1$d</string>
     <string name="custom_request_params_delete_action">Delete</string>
     <string name="custom_request_params_provider_primary">Primary Provider</string>
-    <string name="custom_request_params_provider_ocr">OCR API</string>
     <string name="custom_request_params_duplicate_error_scoped">Duplicate custom parameter key for provider "%1$s": %2$s</string>
     <string name="custom_request_params_empty_row_error">Parameter key cannot be empty</string>
     <string name="custom_request_params_conflict_error">Custom parameters cannot override built-in fields: %1$s</string>
@@ -586,8 +568,6 @@ Communication and feedback group: %2$s</string>
     <string name="notification_permission_message">Used to display translation progress notifications.</string>
     <string name="notification_permission_denied">Translation progress may not be displayed if notification permission is not granted.</string>
     <string name="unnamed_folder">Unnamed</string>
-    <string name="provider_name_primary">Primary Provider</string>
-    <string name="provider_name_default">Provider %1$d</string>
     <string name="global_progress_export">Export</string>
     <string name="global_progress_translate">Translation</string>
     <string name="global_progress_preparing_translation">Preparing translation</string>

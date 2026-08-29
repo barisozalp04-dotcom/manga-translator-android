@@ -77,11 +77,10 @@ internal class TranslationPipeline(
         glossary: MutableMap<String, String>,
         forceOcr: Boolean,
         language: TranslationLanguage = TranslationLanguage.JA_TO_ZH,
-        providerContext: PageTranslationProviderContext? = null,
         detectionSelection: RegionDetectionSelection = RegionDetectionSelection.BUBBLES_AND_TEXT,
         onProgress: (String) -> Unit
     ): TranslationResult? = withContext(Dispatchers.Default) {
-        val resolvedApiSettings = providerContext?.apiSettings
+        val resolvedApiSettings = settingsStore.load()
         if (!llmClient.isConfigured(resolvedApiSettings)) {
             onProgress(appContext.getString(R.string.missing_api_settings))
             AppLogger.log("Pipeline", "Missing API settings")
@@ -99,7 +98,6 @@ internal class TranslationPipeline(
             imageFile = imageFile,
             glossary = glossary,
             language = language,
-            providerContext = providerContext,
             onProgress = onProgress
         )
     }
@@ -109,7 +107,6 @@ internal class TranslationPipeline(
         imageFile: File,
         glossary: MutableMap<String, String>,
         language: TranslationLanguage = TranslationLanguage.JA_TO_ZH,
-        providerContext: PageTranslationProviderContext? = null,
         onProgress: (String) -> Unit
     ): TranslationResult? {
         val translated = translateStandardPageWithGlossary(
@@ -117,7 +114,6 @@ internal class TranslationPipeline(
             imageFile = imageFile,
             glossary = glossary,
             language = language,
-            providerContext = providerContext,
             onProgress = onProgress
         ) ?: return null
         if (translated.glossaryUsed.isNotEmpty()) {
@@ -131,17 +127,15 @@ internal class TranslationPipeline(
         imageFile: File,
         glossary: Map<String, String>,
         language: TranslationLanguage = TranslationLanguage.JA_TO_ZH,
-        providerContext: PageTranslationProviderContext? = null,
         onProgress: (String) -> Unit
     ): PipelinePageTranslationOutcome? = withContext(Dispatchers.Default) {
-        val resolvedApiSettings = providerContext?.apiSettings
+        val resolvedApiSettings = settingsStore.load()
         val metadata = buildTranslationMetadata(
             imageFile = imageFile,
             language = language,
             mode = TranslationMetadata.MODE_STANDARD,
             promptAsset = STANDARD_PROMPT_ASSET,
-            ocrCacheMode = page.cacheMode,
-            providerContext = providerContext
+            ocrCacheMode = page.cacheMode
         )
         AppLogger.log("Pipeline", "Translate image ${imageFile.name}")
         val ocrPage = page.withRecognizedTextBubblesOnly("Pipeline")
@@ -301,7 +295,6 @@ internal class TranslationPipeline(
         glossary: Map<String, String>,
         promptAsset: String,
         language: TranslationLanguage = TranslationLanguage.JA_TO_ZH,
-        providerContext: PageTranslationProviderContext? = null,
         onProgress: (String) -> Unit
     ): TranslationResult? {
         return translateFullPageWithGlossary(
@@ -309,7 +302,6 @@ internal class TranslationPipeline(
             glossary = glossary,
             promptAsset = promptAsset,
             language = language,
-            providerContext = providerContext,
             onProgress = onProgress
         )?.result
     }
@@ -319,7 +311,6 @@ internal class TranslationPipeline(
         glossary: Map<String, String>,
         promptAsset: String,
         language: TranslationLanguage = TranslationLanguage.JA_TO_ZH,
-        providerContext: PageTranslationProviderContext? = null,
         onProgress: (String) -> Unit
     ): PipelinePageTranslationOutcome? = withContext(Dispatchers.Default) {
         val metadata = buildTranslationMetadata(
@@ -327,8 +318,7 @@ internal class TranslationPipeline(
             language = language,
             mode = TranslationMetadata.MODE_FULL_PAGE,
             promptAsset = promptAsset,
-            ocrCacheMode = page.cacheMode,
-            providerContext = providerContext
+            ocrCacheMode = page.cacheMode
         )
         val ocrPage = page.withRecognizedTextBubblesOnly("Pipeline")
         val translatable = ocrPage.bubbles
@@ -359,7 +349,7 @@ internal class TranslationPipeline(
                     },
                     glossary = glossary,
                     promptAsset = promptAsset,
-                    apiSettings = providerContext?.apiSettings,
+                    apiSettings = settingsStore.load(),
                     language = language,
                     logTag = "Pipeline",
                     translationMode = "full_page"
@@ -422,8 +412,7 @@ internal class TranslationPipeline(
                                 language = language,
                                 mode = TranslationMetadata.MODE_VL_DIRECT,
                                 promptAsset = VL_PROMPT_ASSET,
-                                ocrCacheMode = "",
-                                providerContext = null
+                                ocrCacheMode = ""
                             ).copy(status = PageTranslationStatus.SUCCESS)
                         )
                     )
@@ -461,8 +450,7 @@ internal class TranslationPipeline(
                     language = language,
                     mode = TranslationMetadata.MODE_VL_DIRECT,
                     promptAsset = VL_PROMPT_ASSET,
-                    ocrCacheMode = "",
-                    providerContext = null
+                    ocrCacheMode = ""
                 )
                 val resultBase = TranslationResult(
                     imageFile.name,
@@ -554,8 +542,7 @@ internal class TranslationPipeline(
             language = language,
             mode = mode,
             promptAsset = promptAsset,
-            ocrCacheMode = page.cacheMode,
-            providerContext = null
+            ocrCacheMode = page.cacheMode
         )
         val ocrPage = page.withRecognizedTextBubblesOnly("Pipeline")
         val bubbles = ocrPage.bubbles.map { bubble ->
@@ -739,8 +726,7 @@ internal class TranslationPipeline(
                 language = language,
                 mode = TranslationMetadata.MODE_VL_DIRECT,
                 promptAsset = VL_PROMPT_ASSET,
-                ocrCacheMode = "",
-                providerContext = null
+                ocrCacheMode = ""
             )
             fullTranslate -> buildTranslationMetadata(
                 imageFile = imageFile,
@@ -751,8 +737,7 @@ internal class TranslationPipeline(
                     imageFile,
                     settingsStore.loadOcrApiSettings().useLocalOcr,
                     language
-                ),
-                providerContext = null
+                )
             )
             else -> buildTranslationMetadata(
                 imageFile = imageFile,
@@ -763,8 +748,7 @@ internal class TranslationPipeline(
                     imageFile,
                     settingsStore.loadOcrApiSettings().useLocalOcr,
                     language
-                ),
-                providerContext = null
+                )
             )
         }
         return baseMetadata
@@ -775,10 +759,9 @@ internal class TranslationPipeline(
         language: TranslationLanguage,
         mode: String,
         promptAsset: String,
-        ocrCacheMode: String,
-        providerContext: PageTranslationProviderContext?
+        ocrCacheMode: String
     ): TranslationMetadata {
-        val apiSettings = providerContext?.apiSettings ?: settingsStore.load()
+        val apiSettings = settingsStore.load()
         return TranslationMetadata(
             sourceLastModified = imageFile.lastModified(),
             sourceFileSize = imageFile.length(),
@@ -800,23 +783,7 @@ internal class TranslationPipeline(
         val engineModel = if (effectiveUseLocalOcr) {
             "local:$cacheMode"
         } else {
-            val customParamsFingerprint = settingsStore.loadCustomRequestParameters()
-                .asSequence()
-                .filter { it.enabled && it.targetProviderId == OCR_PROVIDER_ID }
-                .map {
-                    buildString {
-                        append(it.key.trim())
-                        append('=')
-                        append(it.value.trim())
-                    }
-                }
-                .sorted()
-                .joinToString("&")
-            if (customParamsFingerprint.isBlank()) {
-                "api:${ocrSettings.modelName}"
-            } else {
-                "api:${ocrSettings.modelName}?$customParamsFingerprint"
-            }
+            "api:${ocrSettings.modelName}"
         }
         return OcrMetadata(
             sourceLastModified = imageFile.lastModified(),

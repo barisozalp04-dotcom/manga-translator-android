@@ -39,6 +39,7 @@ internal class ImportCoordinator(
         }.also { added ->
             if (added.isNotEmpty()) {
                 preferencesGateway.setCachedFolderStatus(folder, FolderStatus.UNTRANSLATED)
+                preferencesGateway.invalidateCachedFolderStats(folder)
             }
         }
 
@@ -237,6 +238,7 @@ internal class ImportCoordinator(
                 }
                 importedFolder?.let { folder ->
                     preferencesGateway.setCachedFolderStatus(folder, FolderStatus.UNTRANSLATED)
+                    preferencesGateway.setCachedFolderStats(folder, imageCount = added.size)
                     preferencesGateway.autoDetectAndSetReadingMode(folder, repository.listImages(folder))
                 }
             } catch (e: CancellationException) {
@@ -337,10 +339,20 @@ internal class ImportCoordinator(
                 }
                 collection?.let { importedCollection ->
                     preferencesGateway.setCachedFolderStatus(importedCollection, FolderStatus.UNTRANSLATED)
-                    repository.listChildFolders(importedCollection).forEach { chapter ->
+                    val importedChapterFolders = repository.listChildFolders(importedCollection)
+                    importedChapterFolders.forEach { chapter ->
                         preferencesGateway.setCachedFolderStatus(chapter, FolderStatus.UNTRANSLATED)
+                        preferencesGateway.setCachedFolderStats(
+                            chapter,
+                            imageCount = repository.listImages(chapter).size
+                        )
                     }
-                    val samples = repository.listChildFolders(importedCollection)
+                    preferencesGateway.setCachedFolderStats(
+                        importedCollection,
+                        imageCount = importedImages,
+                        chapterCount = importedChapterFolders.size
+                    )
+                    val samples = importedChapterFolders
                         .flatMap(repository::listImages)
                         .take(READING_MODE_SAMPLE_LIMIT)
                     preferencesGateway.autoDetectAndSetReadingMode(importedCollection, samples)
@@ -491,9 +503,14 @@ internal class ImportCoordinator(
                 }
                 committedChapters.orEmpty().forEach { chapter ->
                     preferencesGateway.setCachedFolderStatus(chapter, FolderStatus.UNTRANSLATED)
+                    preferencesGateway.setCachedFolderStats(
+                        chapter,
+                        imageCount = repository.listImages(chapter).size
+                    )
                 }
                 if (!committedChapters.isNullOrEmpty()) {
                     preferencesGateway.setCachedFolderStatus(parentFolder, FolderStatus.UNTRANSLATED)
+                    preferencesGateway.invalidateCachedFolderStats(parentFolder)
                 }
                 if (collectionWasEmpty && !committedChapters.isNullOrEmpty()) {
                     val committedSamples = committedChapters.orEmpty()

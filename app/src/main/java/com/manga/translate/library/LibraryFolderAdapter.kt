@@ -166,7 +166,7 @@ class LibraryFolderAdapter(
             binding.folderName.text = item.folder.name
             val context = binding.root.context
             binding.folderMeta.text = if (!item.statsLoaded) {
-                context.getString(R.string.folder_open_to_view)
+                context.getString(R.string.folder_stats_unknown)
             } else if (item.isCollection) {
                 context.getString(R.string.folder_collection_meta, item.chapterCount, item.imageCount)
             } else {

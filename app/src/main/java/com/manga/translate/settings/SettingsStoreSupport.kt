@@ -97,10 +97,6 @@ private fun getObservationHub(@Suppress("UNUSED_PARAMETER") prefs: SharedPrefere
     }
 }
 
-internal fun defaultAdditionalProviderName(context: Context, index: Int): String {
-    return context.getString(R.string.provider_name_default, index + 1)
-}
-
 private fun SharedPreferences.Editor.putOptionalString(
     key: String,
     value: Number?

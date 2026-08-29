@@ -128,6 +128,30 @@ internal class LibraryPreferencesGateway(
         prefs.edit { putString(folderStatusKeyPrefix + folder.absolutePath, status.name) }
     }
 
+    fun getCachedFolderStats(folder: File): CachedFolderStats? {
+        val imageCountKey = folderImageCountKeyPrefix + folder.absolutePath
+        val chapterCountKey = folderChapterCountKeyPrefix + folder.absolutePath
+        if (!prefs.contains(imageCountKey) || !prefs.contains(chapterCountKey)) return null
+        return CachedFolderStats(
+            imageCount = prefs.getInt(imageCountKey, 0).coerceAtLeast(0),
+            chapterCount = prefs.getInt(chapterCountKey, 0).coerceAtLeast(0)
+        )
+    }
+
+    fun setCachedFolderStats(folder: File, imageCount: Int, chapterCount: Int = 0) {
+        prefs.edit {
+            putInt(folderImageCountKeyPrefix + folder.absolutePath, imageCount.coerceAtLeast(0))
+            putInt(folderChapterCountKeyPrefix + folder.absolutePath, chapterCount.coerceAtLeast(0))
+        }
+    }
+
+    fun invalidateCachedFolderStats(folder: File) {
+        prefs.edit {
+            remove(folderImageCountKeyPrefix + folder.absolutePath)
+            remove(folderChapterCountKeyPrefix + folder.absolutePath)
+        }
+    }
+
     fun autoDetectAndSetReadingMode(folder: File, importedImages: List<File>): FolderReadingMode? {
         if (importedImages.isEmpty()) return null
         if (hasStoredReadingMode(folder)) return null
@@ -166,6 +190,7 @@ internal class LibraryPreferencesGateway(
             }
             migrateFolderTags(from, to)
             migrateFolderStatuses(from, to)
+            migrateFolderStats(from, to)
         }
     }
 
@@ -181,7 +206,8 @@ internal class LibraryPreferencesGateway(
             prefs.all.keys
                 .filter { key ->
                     isFolderTagKeyInTree(key, folderPath) ||
-                        isFolderStatusKeyInTree(key, folderPath)
+                        isFolderStatusKeyInTree(key, folderPath) ||
+                        isFolderStatsKeyInTree(key, folderPath)
                 }
                 .forEach(::remove)
         }
@@ -295,6 +321,20 @@ internal class LibraryPreferencesGateway(
             }
     }
 
+    private fun SharedPreferences.Editor.migrateFolderStats(from: File, to: File) {
+        val fromPath = from.absolutePath
+        val toPath = to.absolutePath
+        listOf(folderImageCountKeyPrefix, folderChapterCountKeyPrefix).forEach { keyPrefix ->
+            prefs.all.keys
+                .filter { key -> isKeyInFolderTree(key, keyPrefix, fromPath) }
+                .forEach { key ->
+                    val suffix = key.removePrefix(keyPrefix + fromPath)
+                    putInt(keyPrefix + toPath + suffix, prefs.getInt(key, 0))
+                    remove(key)
+                }
+        }
+    }
+
     private fun isFolderTagKeyInTree(key: String, folderPath: String): Boolean {
         val prefix = folderTagsKeyPrefix + folderPath
         return key == prefix || key.startsWith("$prefix${File.separator}")
@@ -302,6 +342,16 @@ internal class LibraryPreferencesGateway(
 
     private fun isFolderStatusKeyInTree(key: String, folderPath: String): Boolean {
         val prefix = folderStatusKeyPrefix + folderPath
+        return key == prefix || key.startsWith("$prefix${File.separator}")
+    }
+
+    private fun isFolderStatsKeyInTree(key: String, folderPath: String): Boolean {
+        return isKeyInFolderTree(key, folderImageCountKeyPrefix, folderPath) ||
+            isKeyInFolderTree(key, folderChapterCountKeyPrefix, folderPath)
+    }
+
+    private fun isKeyInFolderTree(key: String, keyPrefix: String, folderPath: String): Boolean {
+        val prefix = keyPrefix + folderPath
         return key == prefix || key.startsWith("$prefix${File.separator}")
     }
 
@@ -345,6 +395,8 @@ internal class LibraryPreferencesGateway(
         private const val readingModeKeyPrefix = "reading_mode_"
         private const val folderTagsKeyPrefix = "folder_tags_"
         private const val folderStatusKeyPrefix = "folder_status_"
+        private const val folderImageCountKeyPrefix = "folder_image_count_"
+        private const val folderChapterCountKeyPrefix = "folder_chapter_count_"
         private val settingsKeyPrefixes = listOf(
             fullTranslateKeyPrefix,
             glossaryProcessingKeyPrefix,
@@ -352,12 +404,19 @@ internal class LibraryPreferencesGateway(
             languageKeyPrefix,
             vlDirectTranslateKeyPrefix,
             readingModeKeyPrefix,
-            folderStatusKeyPrefix
+            folderStatusKeyPrefix,
+            folderImageCountKeyPrefix,
+            folderChapterCountKeyPrefix
         )
         private const val READING_MODE_SAMPLE_COUNT = 6
         private const val WEBTOON_ASPECT_RATIO_THRESHOLD = 2.4f
     }
 }
+
+internal data class CachedFolderStats(
+    val imageCount: Int,
+    val chapterCount: Int
+)
 
 enum class LibrarySortField(val prefValue: String) {
     NAME("name"),

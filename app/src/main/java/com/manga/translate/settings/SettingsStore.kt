@@ -190,8 +190,7 @@ data class FloatingBubbleRenderSettings(
 data class CustomRequestParameter(
     val key: String,
     val value: String,
-    val enabled: Boolean = true,
-    val targetProviderId: String = PRIMARY_PROVIDER_ID
+    val enabled: Boolean = true
 )
 
 data class AiProviderProfile(
@@ -203,8 +202,7 @@ data class AiProviderProfile(
     val ocrSettings: OcrApiSettings,
     val floatingTranslateSettings: FloatingTranslateApiSettings,
     val llmParameters: LlmParameterSettings,
-    val customRequestParameters: List<CustomRequestParameter>,
-    val additionalTranslationProviders: List<AdditionalTranslationProvider>
+    val customRequestParameters: List<CustomRequestParameter>
 )
 
 data class AiProviderProfilesState(
@@ -225,8 +223,7 @@ internal data class SettingsMainForm(
 internal data class SettingsPersistenceResult(
     val apiTimeoutSeconds: Int,
     val apiRetryCount: Int,
-    val maxConcurrency: Int,
-    val concurrencySaved: Boolean
+    val maxConcurrency: Int
 )
 
 class SettingsStore(context: Context) {
@@ -316,10 +313,7 @@ class SettingsStore(context: Context) {
     }
 
     internal fun persistMainSettings(form: SettingsMainForm): SettingsPersistenceResult {
-        return apiSettingsStore.persistMainSettings(
-            form = form,
-            additionalProviderCount = providerProfileStore.countEnabledConfiguredAdditionalProviders()
-        )
+        return apiSettingsStore.persistMainSettings(form)
     }
 
     fun loadApiRetryCount(): Int = apiSettingsStore.loadApiRetryCount()
@@ -416,18 +410,6 @@ class SettingsStore(context: Context) {
         providerProfileStore.saveCustomRequestParameters(parameters)
     }
 
-    fun loadAdditionalTranslationProviders(): List<AdditionalTranslationProvider> {
-        return providerProfileStore.loadAdditionalTranslationProviders()
-    }
-
-    fun saveAdditionalTranslationProviders(providers: List<AdditionalTranslationProvider>) {
-        providerProfileStore.saveAdditionalTranslationProviders(providers)
-    }
-
-    fun loadMainTranslationProviderPool(): List<WeightedProviderCandidate> {
-        return providerProfileStore.loadMainTranslationProviderPool()
-    }
-
     fun loadAiProviderProfilesState(): AiProviderProfilesState {
         return providerProfileStore.loadAiProviderProfilesState()
     }
@@ -450,10 +432,6 @@ class SettingsStore(context: Context) {
 
     fun deleteAiProviderProfile(name: String): Boolean {
         return providerProfileStore.deleteAiProviderProfile(name)
-    }
-
-    fun defaultAdditionalProviderName(index: Int): String {
-        return providerProfileStore.defaultAdditionalProviderName(index)
     }
 
     companion object {
@@ -539,8 +517,6 @@ class SettingsStore(context: Context) {
         internal const val KEY_LLM_TOP_P = "llm_top_p"
         internal const val KEY_LLM_TOP_K = "llm_top_k"
         internal const val KEY_LLM_MAX_OUTPUT_TOKENS = "llm_max_output_tokens"
-        internal const val KEY_ADDITIONAL_TRANSLATION_PROVIDERS =
-            "additional_translation_providers"
         internal const val KEY_LLM_ENABLE_THINKING = "llm_enable_thinking"
         internal const val KEY_LLM_THINKING_BUDGET = "llm_thinking_budget"
         internal const val KEY_LLM_THINKING_LENGTH = "llm_thinking_length"
@@ -551,7 +527,6 @@ class SettingsStore(context: Context) {
         internal const val KEY_AI_PROVIDER_PROFILES_STATE = "ai_provider_profiles_state"
         internal const val LEGACY_SETTINGS_JSON_VERSION = 1
         internal const val SETTINGS_JSON_SCHEMA_VERSION = 2
-        internal const val PRIMARY_PROVIDER_WEIGHT = 10
         internal const val DEFAULT_LLM_TEMPERATURE = 0.8
         internal const val DEFAULT_LLM_TOP_P = 1.0
         internal const val DEFAULT_LLM_ENABLE_THINKING = false

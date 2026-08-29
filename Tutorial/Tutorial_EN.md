@@ -94,13 +94,9 @@ Open **OCR Settings** from Settings:
 - Online OCR can support multiple languages when the selected model supports them.
 - Increase **OCR API timeout** when needed. The allowed range is 30 to 1200 seconds.
 
-### Multi-provider scheduling
-
-Configure additional translation providers to distribute requests by weight. The concurrency setting remains the overall limit across all providers.
-
 ### Custom request parameters
 
-Parameters apply to the main provider by default and may be assigned to a particular additional provider. A provider cannot have duplicate parameter names.
+Parameters apply to the main provider. A provider cannot have duplicate parameter names.
 
 ### Floating translation settings
 

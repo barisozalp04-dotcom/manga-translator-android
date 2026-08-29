@@ -11,7 +11,6 @@ import com.manga.translate.model.TranslationLanguage
 import com.manga.translate.settings.AiProviderProfilesFileWriter
 import com.manga.translate.settings.ApiSettingsStore
 import com.manga.translate.settings.ApiSettings
-import com.manga.translate.settings.AdditionalTranslationProvider
 import com.manga.translate.settings.CustomThemeColors
 import com.manga.translate.settings.LlmParameterStore
 import com.manga.translate.settings.OcrSettingsStore
@@ -25,10 +24,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
-import org.json.JSONArray
-import org.json.JSONObject
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -165,73 +161,6 @@ class SettingsStoreTest {
     }
 
     @Test
-    fun `legacy additional provider parameter targets migrate to stable ids`() {
-        val prefs = context.getSharedPreferences("manga_translate_settings", Context.MODE_PRIVATE)
-        prefs.edit()
-            .putString(
-                "additional_translation_providers",
-                JSONObject()
-                    .put("version", 2)
-                    .put(
-                        "providers",
-                        JSONArray()
-                            .put(legacyProvider("First"))
-                            .put(legacyProvider("Second"))
-                    )
-                    .toString()
-            )
-            .putString(
-                "custom_request_parameters",
-                JSONObject()
-                    .put("version", 2)
-                    .put(
-                        "items",
-                        JSONArray()
-                            .put(customParameter("first_only", "additional_1"))
-                            .put(customParameter("second_only", "additional_2"))
-                    )
-                    .toString()
-            )
-            .commit()
-
-        val store = SettingsStore(context)
-        val providers = store.loadAdditionalTranslationProviders()
-        val firstId = providers[0].providerId
-        val secondId = providers[1].providerId
-
-        assertNotEquals("additional_1", firstId)
-        assertNotEquals("additional_2", secondId)
-        assertEquals(
-            setOf(firstId, secondId),
-            store.loadCustomRequestParameters().map { it.targetProviderId }.toSet()
-        )
-
-        assertTrue(store.saveCurrentAsAiProviderProfile("stable_ids_${System.nanoTime()}"))
-        val profileName = store.loadAiProviderProfilesState().activeProfileName!!
-
-        store.saveAdditionalTranslationProviders(listOf(providers[1], providers[0]))
-        assertEquals(
-            setOf(firstId, secondId),
-            store.loadCustomRequestParameters().map { it.targetProviderId }.toSet()
-        )
-        store.saveAdditionalTranslationProviders(listOf(providers[1]))
-        assertEquals(
-            setOf(firstId, secondId),
-            store.loadCustomRequestParameters().map { it.targetProviderId }.toSet()
-        )
-
-        assertTrue(store.applyAiProviderProfile(profileName))
-        assertEquals(
-            listOf(firstId, secondId),
-            store.loadAdditionalTranslationProviders().map { it.providerId }
-        )
-        assertEquals(
-            setOf(firstId, secondId),
-            store.loadCustomRequestParameters().map { it.targetProviderId }.toSet()
-        )
-    }
-
-    @Test
     fun `provider profile restores retry and concurrency settings`() {
         val store = SettingsStore(context)
         store.saveApiRetryCount(9)
@@ -281,50 +210,6 @@ class SettingsStoreTest {
         prefs.edit().putInt("translation_bubble_opacity_percent", 21).commit()
         assertEquals(21, store.loadNormalBubbleRenderSettings().opacityPercent)
         assertEquals(64, store.loadFloatingBubbleRenderSettings().opacityPercent)
-    }
-
-    @Test
-    fun `profile application rejects concurrency below enabled provider count`() {
-        val store = SettingsStore(context)
-        store.save(ApiSettings("https://primary.example", "primary-key", "primary-model"))
-        store.saveAdditionalTranslationProviders(
-            listOf(
-                AdditionalTranslationProvider(
-                    name = "Secondary",
-                    apiUrl = "https://secondary.example",
-                    apiKey = "secondary-key",
-                    modelName = "secondary-model",
-                    weight = 1
-                )
-            )
-        )
-        store.saveMaxConcurrency(1)
-        val profileName = "invalid_concurrency_${System.nanoTime()}"
-        assertTrue(store.saveCurrentAsAiProviderProfile(profileName))
-
-        store.saveMaxConcurrency(4)
-
-        assertFalse(store.canApplyAiProviderProfile(profileName))
-        assertFalse(store.applyAiProviderProfile(profileName))
-        assertEquals(4, store.loadMaxConcurrency())
-    }
-
-    private fun legacyProvider(name: String): JSONObject {
-        return JSONObject()
-            .put("name", name)
-            .put("apiUrl", "https://$name.example")
-            .put("apiKey", "$name-key")
-            .put("modelName", "$name-model")
-            .put("weight", 1)
-            .put("enabled", true)
-    }
-
-    private fun customParameter(key: String, targetProviderId: String): JSONObject {
-        return JSONObject()
-            .put("key", key)
-            .put("value", "true")
-            .put("enabled", true)
-            .put("targetProviderId", targetProviderId)
     }
 
     @Test
@@ -410,6 +295,40 @@ class SettingsStoreTest {
 
             gateway.clearFolderSettings(renamed)
             assertEquals(null, gateway.getCachedFolderStatus(renamed))
+        } finally {
+            (renamed ?: folder).deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `cached folder stats persist migrate and clear with folder tree`() {
+        val repository = LibraryRepository(context)
+        val prefs = context.getSharedPreferences("library_prefs_test", Context.MODE_PRIVATE)
+        val gateway = LibraryPreferencesGateway(context, prefs, repository)
+        val folder = repository.createCollection("stats_${System.nanoTime()}")!!
+        val chapter = repository.createChildFolder(folder, "chapter")!!
+        var renamed: java.io.File? = null
+
+        try {
+            gateway.setCachedFolderStats(folder, imageCount = 12, chapterCount = 1)
+            gateway.setCachedFolderStats(chapter, imageCount = 12)
+            assertEquals(12, gateway.getCachedFolderStats(folder)?.imageCount)
+            assertEquals(1, gateway.getCachedFolderStats(folder)?.chapterCount)
+            gateway.invalidateCachedFolderStats(folder)
+            assertEquals(null, gateway.getCachedFolderStats(folder))
+            gateway.setCachedFolderStats(folder, imageCount = 12, chapterCount = 1)
+
+            renamed = repository.renameFolder(folder, "stats_renamed_${System.nanoTime()}")!!
+            gateway.migrateFolderSettings(folder, renamed)
+            assertEquals(12, gateway.getCachedFolderStats(renamed)?.imageCount)
+            assertEquals(
+                12,
+                gateway.getCachedFolderStats(java.io.File(renamed, chapter.name))?.imageCount
+            )
+
+            gateway.clearFolderSettings(renamed)
+            assertEquals(null, gateway.getCachedFolderStats(renamed))
+            assertEquals(null, gateway.getCachedFolderStats(java.io.File(renamed, chapter.name)))
         } finally {
             (renamed ?: folder).deleteRecursively()
         }

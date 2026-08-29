@@ -3,12 +3,8 @@
 build/
 */build/
 
-# Local configuration and release signing credentials
+# Machine-local configuration (SDK paths etc.)
 local.properties
-signing.properties
-*.keystore
-*.jks
-keystore.jks
 
 # APK / AAB outputs
 *.apk
@@ -61,3 +57,9 @@ test.webp
 # Misc
 *.swp
 *.swo
+
+# Local signing credentials and keystores (never commit)
+signing.properties
+*.keystore
+*.jks
+keystore.jks

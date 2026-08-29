@@ -187,10 +187,7 @@ internal class ApiSettingsStore(
         }
     }
 
-    fun persistMainSettings(
-        form: SettingsMainForm,
-        additionalProviderCount: Int
-    ): SettingsPersistenceResult {
+    fun persistMainSettings(form: SettingsMainForm): SettingsPersistenceResult {
         val normalizedTimeout = form.apiTimeoutSeconds.coerceIn(
             SettingsStore.MIN_API_TIMEOUT_SECONDS,
             SettingsStore.MAX_API_TIMEOUT_SECONDS
@@ -203,22 +200,6 @@ internal class ApiSettingsStore(
             SettingsStore.MIN_MAX_CONCURRENCY,
             SettingsStore.MAX_MAX_CONCURRENCY
         )
-        val mainProviderCount = if (
-            ApiSettings(
-                apiUrl = form.apiUrl,
-                apiKey = form.apiKey,
-                modelName = form.modelName,
-                apiFormat = form.apiFormat,
-                providerId = PRIMARY_PROVIDER_ID
-            ).isValid()
-        ) {
-            1
-        } else {
-            0
-        }
-        val minimumConcurrency = (mainProviderCount + additionalProviderCount).coerceAtLeast(1)
-        val concurrencySaved = normalizedConcurrency >= minimumConcurrency
-
         val changedKeys = buildSet {
             add(SettingsStore.KEY_API_URL)
             add(SettingsStore.KEY_API_KEY)
@@ -226,7 +207,7 @@ internal class ApiSettingsStore(
             add(SettingsStore.KEY_API_FORMAT)
             add(SettingsStore.KEY_API_TIMEOUT_SECONDS)
             add(SettingsStore.KEY_API_RETRY_COUNT)
-            if (concurrencySaved) add(SettingsStore.KEY_MAX_CONCURRENCY)
+            add(SettingsStore.KEY_MAX_CONCURRENCY)
         }
         storage.editSettings(changedKeys) {
             putString(SettingsStore.KEY_API_URL, form.apiUrl)
@@ -235,16 +216,13 @@ internal class ApiSettingsStore(
             putString(SettingsStore.KEY_API_FORMAT, form.apiFormat.prefValue)
             putInt(SettingsStore.KEY_API_TIMEOUT_SECONDS, normalizedTimeout)
             putInt(SettingsStore.KEY_API_RETRY_COUNT, normalizedRetryCount)
-            if (concurrencySaved) {
-                putInt(SettingsStore.KEY_MAX_CONCURRENCY, normalizedConcurrency)
-            }
+            putInt(SettingsStore.KEY_MAX_CONCURRENCY, normalizedConcurrency)
         }
 
         return SettingsPersistenceResult(
             apiTimeoutSeconds = normalizedTimeout,
             apiRetryCount = normalizedRetryCount,
-            maxConcurrency = if (concurrencySaved) normalizedConcurrency else loadMaxConcurrency(),
-            concurrencySaved = concurrencySaved
+            maxConcurrency = normalizedConcurrency
         )
     }
 

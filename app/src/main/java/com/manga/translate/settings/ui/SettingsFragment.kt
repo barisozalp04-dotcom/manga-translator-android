@@ -24,10 +24,7 @@ import com.manga.translate.model.ThemeMode
 import com.manga.translate.network.LlmRequestException
 import com.manga.translate.platform.AppLogger
 import com.manga.translate.rendering.BubbleFont
-import com.manga.translate.settings.AdditionalTranslationProvider
-import com.manga.translate.settings.ApiSettings
 import com.manga.translate.settings.CustomRequestParameter
-import com.manga.translate.settings.PRIMARY_PROVIDER_ID
 import com.manga.translate.settings.SettingsMainForm
 import com.manga.translate.settings.SettingsStore
 import com.manga.translate.settings.ui.dialogs.AboutDialog
@@ -42,7 +39,6 @@ import com.manga.translate.settings.ui.dialogs.LinkSourceDialog
 import com.manga.translate.settings.ui.dialogs.LlmParamsDialog
 import com.manga.translate.settings.ui.dialogs.LogsDialog
 import com.manga.translate.settings.ui.dialogs.ModelSelectionDialog
-import com.manga.translate.settings.ui.dialogs.MultiProviderSchedulingDialog
 import com.manga.translate.settings.ui.dialogs.NormalBubbleRenderSettingsDialog
 import com.manga.translate.settings.ui.dialogs.OcrSettingsDialog
 import com.manga.translate.settings.ui.dialogs.ReadingDisplayDialog
@@ -222,10 +218,6 @@ class SettingsFragment : Fragment() {
             showLlmParamsDialog()
         }
 
-        binding.multiProviderSchedulingButton.setOnClickListener {
-            showMultiProviderSchedulingDialog()
-        }
-
         binding.customRequestParamsButton.setOnClickListener {
             showCustomRequestParamsDialog()
         }
@@ -315,28 +307,7 @@ class SettingsFragment : Fragment() {
         if (normalizedConcurrencyText != concurrencyInput) {
             binding.maxConcurrencyInput.setText(normalizedConcurrencyText)
         }
-        if (!persisted.concurrencySaved) {
-            val minimumConcurrency = requiredMainTranslationProviderConcurrency()
-            Toast.makeText(
-                requireContext(),
-                getString(R.string.max_concurrency_provider_count_error, minimumConcurrency),
-                Toast.LENGTH_SHORT
-            ).show()
-        }
         AppLogger.log("Settings", "API settings saved")
-    }
-
-    private fun requiredMainTranslationProviderConcurrency(): Int {
-        val mainSettings = ApiSettings(
-            apiUrl = binding.apiUrlInput.text?.toString()?.trim().orEmpty(),
-            apiKey = binding.apiKeyInput.text?.toString()?.trim().orEmpty(),
-            modelName = binding.modelNameInput.text?.toString()?.trim().orEmpty(),
-            apiFormat = currentApiFormat(),
-            providerId = PRIMARY_PROVIDER_ID
-        )
-        var count = if (mainSettings.isValid()) 1 else 0
-        count += settingsStore.loadAdditionalTranslationProviders().count { it.enabled && it.isConfigured() }
-        return count.coerceAtLeast(1)
     }
 
     internal fun currentApiFormat(): ApiFormat {
@@ -390,15 +361,6 @@ class SettingsFragment : Fragment() {
         )
     }
 
-    internal fun updateMultiProviderSchedulingButton(
-        providers: List<AdditionalTranslationProvider>
-    ) {
-        binding.multiProviderSchedulingButton.text = getString(
-            R.string.multi_provider_scheduling_button_format,
-            providers.size
-        )
-    }
-
     internal fun updateAiProviderProfilesButton() {
         val state = settingsStore.loadAiProviderProfilesState()
         binding.aiProviderProfilesButton.text = getString(
@@ -426,7 +388,6 @@ class SettingsFragment : Fragment() {
         updateReadingDisplayButton(settingsStore.loadReadingDisplayMode())
         updateReadingPageAnimationButton(settingsStore.loadReadingPageAnimationMode())
         updateLinkSourceButton(settingsStore.loadLinkSource())
-        updateMultiProviderSchedulingButton(settingsStore.loadAdditionalTranslationProviders())
         updateCustomRequestParamsButton(settingsStore.loadCustomRequestParameters())
         updateAiProviderProfilesButton()
         updateBubbleFontSettingsButton()
@@ -511,9 +472,6 @@ class SettingsFragment : Fragment() {
     private fun showLlmParamsDialog() = LlmParamsDialog(this, settingsStore).show()
 
     private fun showCustomRequestParamsDialog() = CustomRequestParamsDialog(this, settingsStore).show()
-
-    private fun showMultiProviderSchedulingDialog() =
-        MultiProviderSchedulingDialog(this, settingsStore).show()
 
     private fun showTranslationStyleDialog() = TranslationStyleDialog(this, settingsStore).show()
 

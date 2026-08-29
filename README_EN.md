@@ -20,7 +20,6 @@ Tutorial: [English Tutorial](./Tutorial/Tutorial_EN.md) | [Simplified Chinese Tu
 - Glossary and cache: maintain `glossary.json` per folder and automatically accumulate consistent name translations
 - Background translation notification: sends an audible high-priority system notification when folder/batch translation finishes; tapping it returns to the library
 - Updates and logs: check for updates on launch, foreground service during translation, and in-app log viewing
-- Multi-provider load balancing: configure multiple translation providers and balance requests automatically by weight
 - Webtoon/long-image support: automatically detect whether a work is closer to webtoon layout and switch reading mode; cross-page bubble merging is supported in webtoon/long-image mode
 
 ## Supported Translation Languages 🌐

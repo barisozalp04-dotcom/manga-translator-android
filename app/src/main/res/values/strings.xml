@@ -110,7 +110,7 @@
     <string name="ai_provider_profiles_section_label">配置档列表</string>
     <string name="ai_provider_profiles_current">当前配置：%1$s</string>
     <string name="ai_provider_profiles_current_none">当前配置：未启用</string>
-    <string name="ai_provider_profiles_note">配置文件会保存当前主模型、重试和并发、OCR、悬浮窗翻译覆盖、AI 参数、多供应商调度和自定义请求参数，切换时会整体应用。</string>
+    <string name="ai_provider_profiles_note">配置文件会保存当前主模型、重试和并发、OCR、悬浮窗翻译覆盖、AI 参数和自定义请求参数，切换时会整体应用。</string>
     <string name="ai_provider_profiles_empty">还没有已保存的配置。</string>
     <string name="ai_provider_profiles_apply">切换到选中配置</string>
     <string name="ai_provider_profiles_save_new">新建并保存当前配置</string>
@@ -127,7 +127,6 @@
     <string name="ai_provider_profiles_delete_confirm">确定删除配置“%1$s”吗？</string>
     <string name="ai_provider_profiles_deleted">配置已删除</string>
     <string name="ai_provider_profiles_select_required">请先选择一个配置</string>
-    <string name="ai_provider_profiles_apply_invalid">所选配置的最大并发低于启用供应商数，无法应用</string>
     <string name="ai_provider_profiles_write_failed">配置文件写入失败，原配置未更改</string>
     <string name="fetch_models_title">模型列表</string>
     <string name="fetch_models_loading">正在获取模型列表…</string>
@@ -136,35 +135,18 @@
 %1$s</string>
     <string name="llm_params_button">AI 参数设置</string>
     <string name="llm_params_title">AI 参数设置</string>
-    <string name="multi_provider_scheduling_button">多供应商调度</string>
-    <string name="multi_provider_scheduling_button_format">多供应商调度：%1$d 个供应商</string>
-    <string name="multi_provider_scheduling_title">多供应商调度</string>
-    <string name="multi_provider_scheduling_section_label">翻译供应商池</string>
-    <string name="multi_provider_scheduling_note">主供应商访问权重固定为 10。系统会按权重比例为页面翻译请求分配供应商。
-例如：主供应商 10，供应商 A 5，供应商 B 5，则会尽量按 10:5:5 均匀分配请求。总并发数不能小于启用中的供应商数量。</string>
-    <string name="multi_provider_scheduling_add">添加一个供应商</string>
-    <string name="multi_provider_scheduling_enabled">启用</string>
-    <string name="multi_provider_scheduling_row_title">供应商 %1$d</string>
-    <string name="multi_provider_scheduling_delete_action">删除</string>
-    <string name="multi_provider_scheduling_weight_hint">访问权重</string>
-    <string name="multi_provider_scheduling_saved">多供应商调度已保存</string>
-    <string name="multi_provider_scheduling_empty_field_error">启用的供应商必须填写 API 地址、API Key 和模型名称</string>
-    <string name="multi_provider_scheduling_invalid_weight_error">启用的供应商访问权重必须是正整数</string>
-    <string name="max_concurrency_provider_count_error">AI API 调用并发数不能小于启用中的供应商数量，当前至少需要 %1$d。</string>
     <string name="custom_request_params_button">自定义请求参数</string>
     <string name="custom_request_params_button_format">自定义请求参数：%1$d 项</string>
     <string name="custom_request_params_title">自定义请求参数</string>
-    <string name="custom_request_params_note">将以顶层字段附加到 AI 请求体。默认作用于主供应商，也可以单独指定给 OCR API、供应商 1、供应商 2 等。支持多个键值对，自动识别布尔值、数字、null，以及合法 JSON 对象/数组。不能覆盖现有内置参数；同一供应商内的重复键和冲突会被拦截。</string>
+    <string name="custom_request_params_note">将以顶层字段附加到主供应商的 AI 请求体。支持多个键值对，自动识别布尔值、数字、null，以及合法 JSON 对象/数组。不能覆盖现有内置参数；重复键和冲突会被拦截。</string>
     <string name="custom_request_params_add">添加一项参数</string>
     <string name="custom_request_params_enabled">启用</string>
     <string name="custom_request_param_key_hint">参数键名</string>
-    <string name="custom_request_param_target_provider_hint">应用到供应商</string>
     <string name="custom_request_param_value_hint">参数值</string>
     <string name="custom_request_params_section_label">请求体附加字段</string>
     <string name="custom_request_params_row_title">参数 %1$d</string>
     <string name="custom_request_params_delete_action">删除</string>
     <string name="custom_request_params_provider_primary">主供应商</string>
-    <string name="custom_request_params_provider_ocr">OCR API</string>
     <string name="custom_request_params_duplicate_error_scoped">供应商“%1$s”存在重复的自定义参数键：%2$s</string>
     <string name="custom_request_params_empty_row_error">参数键名不能为空</string>
     <string name="custom_request_params_conflict_error">自定义参数不能覆盖内置字段：%1$s</string>
@@ -381,6 +363,7 @@
     <string name="folder_read">开始阅读</string>
     <string name="folder_back">返回</string>
     <string name="folder_image_count">%1$d 张图片</string>
+    <string name="folder_stats_unknown">—</string>
     <string name="folder_collection_meta">%1$d 个章节 · %2$d 张图片</string>
     <string name="folder_open_to_view">点击查看内容</string>
     <string name="folder_delete">删除</string>
@@ -629,8 +612,6 @@
     <string name="notification_permission_message">用于显示翻译进度通知。</string>
     <string name="notification_permission_denied">未授予通知权限，可能无法显示翻译进度。</string>
     <string name="unnamed_folder">未命名</string>
-    <string name="provider_name_primary">主供应商</string>
-    <string name="provider_name_default">供应商 %1$d</string>
     <string name="global_progress_export">导出</string>
     <string name="global_progress_translate">翻译</string>
     <string name="global_progress_preparing_translation">准备翻译中</string>

@@ -102,6 +102,7 @@ internal class LibrarySelectionController(
             } else {
                 AppLogger.log("Library", "Deleted ${selected.size} images from ${folder.name}")
                 preferencesGateway.setCachedFolderStatus(folder, FolderStatus.UNTRANSLATED)
+                preferencesGateway.invalidateCachedFolderStats(folder)
                 exitSelectionMode()
             }
             ui.refreshImages(folder)

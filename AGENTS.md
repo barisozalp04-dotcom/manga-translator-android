@@ -73,7 +73,6 @@ export PATH=$PATH:$ANDROID_HOME/platform-tools
 | 漫画库 | `library/LibraryFragment.kt`、`LibraryRepository.kt`、`LibraryImportExportCoordinator.kt`、`LibraryPreferencesGateway.kt` |
 | 阅读 | `reader/ReadingFragment.kt`、`ReadingSessionViewModel.kt`、`ReadingBitmapDecoder.kt`、`ReadingRegionImageView.kt`、`WebtoonReadingAdapter.kt` |
 | 翻译主流程 | `translation/TranslationPipeline.kt`、`FolderTranslationCoordinator.kt`、`TextBubbleTranslationCoordinator.kt` |
-| 多供应商 | `translation/TranslationProviderScheduler.kt`、`settings/ProviderProfileStore.kt`、`SettingsStore.kt` |
 | 页面检测 | `detection/PageRegionDetector.kt`、`BubbleDetector.kt`、`TextBlockMerger.kt` |
 | OCR | `ocr/OcrSharedTools.kt`、`OcrEngine.kt`、`PPOcrV6SmallRec.kt`、`KoreanOcr.kt`、`EnglishLineDetector.kt` |
 | 网络与模型协议 | `network/LlmClient.kt`、`LlmContracts.kt`、`model/ApiFormat.kt`、`OcrApiFormat.kt` |
@@ -97,12 +96,10 @@ export PATH=$PATH:$ANDROID_HOME/platform-tools
 - 译文与 OCR 原文相同是合法结果。无意义气泡仍必须返回对应 ID 和空译文；完整响应中的空译文表示移除该气泡。
 - 调整上述协议、glossary 回传或错误分类时，必须同步检查 `LlmClient`、`TextBubbleTranslationCoordinator` 及其单元测试。
 
-### 多供应商与 glossary
+### 翻译供应商与 glossary
 
-- 多供应商调度仅用于主文本翻译；不得接入 OCR、悬浮窗专用翻译或 VL 图片直翻。
-- 主供应商始终参与且权重固定为 `10`；仅启用且配置完整的附加供应商进入候选池。
-- 每页先选择一个供应商，失败后仅在该页尚未尝试的候选中切换；单页的一次成功结果只能来自一个供应商，不得把气泡拆给多家。
-- 附加供应商沿用主供应商的 API 格式、超时、重试和 LLM 参数；自定义请求参数按 `providerId` 隔离。
+- 翻译固定使用主供应商，不得再引入附加供应商池或调度。
+- 自定义请求参数作用于主供应商，参数键不可重复。
 - 并发逐页翻译使用 glossary 快照，成功后串行合并。关闭译名处理时仍可读取已有 `glossary.json` 作为上下文，但不得提取、合并或写入新译名。
 - 全文速译固定启用译名处理；`CrossPageBubbleMerger` 只用于 `WEBTOON_SCROLL`，普通横向阅读不得执行跨页气泡合并。
 
@@ -183,7 +180,7 @@ Prompt 位于 `assets/prompts/`，基础文件包括 `llm_prompts.json`、`llm_p
 - 日志入口为 `platform/AppLogger.kt`；日志优先写外部私有目录上级的 `log/`，回退到 `files/logs/`。
 - Java/Kotlin 未捕获异常会写 `crash_latest.log`；ONNX 等 native 崩溃不会进入 Java handler，使用 `adb logcat` 或 tombstone 排查。
 - 翻译问题依次检查 `TranslationPipeline`、`TextBubbleTranslationCoordinator`、`LlmClient` 和对应 `*.json` / `*.ocr.json`。
-- 多供应商问题检查 `SettingsStore.loadMainTranslationProviderPool()`、`TranslationProviderScheduler` 和 `FolderTranslationCoordinator`。
+- 翻译供应商问题检查 `SettingsStore.load()`、`TranslationPipeline` 和 `FolderTranslationCoordinator`。
 - OCR/区域问题检查 `OcrSharedTools`、`PageRegionDetector`、模型加载日志与坐标映射；不要先改缓存兼容规则。
 - 后台任务问题检查 `TranslationKeepAliveService`、`FolderTranslationCoordinator`、`TranslationTaskPersistence` 和 `LibraryUiBridge`。
 

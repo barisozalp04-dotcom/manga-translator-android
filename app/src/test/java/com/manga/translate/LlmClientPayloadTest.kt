@@ -15,6 +15,7 @@ import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -88,11 +89,11 @@ class LlmClientPayloadTest {
     }
 
     @Test
-    fun `gemini payload uses custom parameters from its actual provider`() = runBlocking {
+    fun `gemini payload uses custom parameters for the primary provider`() = runBlocking {
         settingsStore.saveCustomRequestParameters(
             listOf(
-                CustomRequestParameter("wrong_provider", "true", targetProviderId = "provider-a"),
-                CustomRequestParameter("right_provider", "42", targetProviderId = "provider-b")
+                CustomRequestParameter("first_parameter", "true"),
+                CustomRequestParameter("second_parameter", "42")
             )
         )
         server.enqueue(
@@ -104,13 +105,13 @@ class LlmClientPayloadTest {
         val result = LlmClient(context, settingsStore).translate(
             text = "hello",
             glossary = emptyMap(),
-            apiSettings = apiSettings(ApiFormat.GEMINI).copy(providerId = "provider-b")
+            apiSettings = apiSettings(ApiFormat.GEMINI)
         )
         val payload = JSONObject(server.takeRequest().body.readUtf8())
 
         assertEquals("ok", result?.translation)
-        assertEquals(42, payload.getInt("right_provider"))
-        assertFalse(payload.has("wrong_provider"))
+        assertTrue(payload.getBoolean("first_parameter"))
+        assertEquals(42, payload.getInt("second_parameter"))
     }
 
     @Test

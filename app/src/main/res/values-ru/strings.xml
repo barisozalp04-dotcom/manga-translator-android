@@ -98,7 +98,7 @@
     <string name="ai_provider_profiles_section_label">Список профилей</string>
     <string name="ai_provider_profiles_current">Текущая конфигурация: %1$s</string>
     <string name="ai_provider_profiles_current_none">Текущий профиль: нет</string>
-    <string name="ai_provider_profiles_note">В файле конфигурации будут сохранены текущая основная модель, настройки повторов и параллелизма, OCR, покрытие трансляции плавающего окна, параметры AI, планирование для нескольких поставщиков и параметры пользовательского запроса, и он будет применяться в целом при переключении.</string>
+    <string name="ai_provider_profiles_note">В файле конфигурации будут сохранены текущая основная модель, настройки повторов и параллелизма, OCR, покрытие трансляции плавающего окна, параметры AI и параметры пользовательского запроса, и он будет применяться в целом при переключении.</string>
     <string name="ai_provider_profiles_empty">Сохраненных конфигураций пока нет.</string>
     <string name="ai_provider_profiles_apply">Переключить на выбранный профиль</string>
     <string name="ai_provider_profiles_save_new">Создать новую и сохранить текущую конфигурацию</string>
@@ -115,7 +115,6 @@
     <string name="ai_provider_profiles_delete_confirm">Вы уверены, что хотите удалить конфигурацию «%1$s»?</string>
     <string name="ai_provider_profiles_deleted">Профиль удален</string>
     <string name="ai_provider_profiles_select_required">Сначала выберите профиль</string>
-    <string name="ai_provider_profiles_apply_invalid">В выбранном профиле число параллельных запросов меньше числа включенных поставщиков, поэтому его нельзя применить.</string>
     <string name="ai_provider_profiles_write_failed">Не удалось записать профиль. Существующие профили не изменены.</string>
     <string name="fetch_models_title">Список моделей</string>
     <string name="fetch_models_loading">Получение списка моделей…</string>
@@ -124,35 +123,18 @@
 %1$s</string>
     <string name="llm_params_button">Параметры AI</string>
     <string name="llm_params_title">Параметры AI</string>
-    <string name="multi_provider_scheduling_button">Планировщик провайдеров</string>
-    <string name="multi_provider_scheduling_button_format">Планировщик провайдеров: %1$d пров.</string>
-    <string name="multi_provider_scheduling_title">Планировщик провайдеров</string>
-    <string name="multi_provider_scheduling_section_label">Пул провайдеров перевода</string>
-    <string name="multi_provider_scheduling_note">Вес доступа основного поставщика фиксирован и равен 10. Запросы на перевод страниц назначаются поставщикам на взвешенной основе.
-Например: если основного поставщика 10, поставщика А — 5, поставщика Б — 5, запросы будут распределяться равномерно 10:5:5. Общий уровень параллелизма не может быть меньше количества включенных поставщиков.</string>
-    <string name="multi_provider_scheduling_add">Добавить провайдера</string>
-    <string name="multi_provider_scheduling_enabled">Включено</string>
-    <string name="multi_provider_scheduling_row_title">Поставщик %1$d</string>
-    <string name="multi_provider_scheduling_delete_action">Удалить</string>
-    <string name="multi_provider_scheduling_weight_hint">Вес</string>
-    <string name="multi_provider_scheduling_saved">График работы нескольких поставщиков сохранен.</string>
-    <string name="multi_provider_scheduling_empty_field_error">Разрешенные поставщики должны указать адрес API, API Key и название модели.</string>
-    <string name="multi_provider_scheduling_invalid_weight_error">Вес доступа включенного поставщика должен быть положительным целым числом.</string>
-    <string name="max_concurrency_provider_count_error">AI API Количество одновременных вызовов не может быть меньше количества включенных поставщиков. В настоящее время требуется как минимум %1$d.</string>
     <string name="custom_request_params_button">Пользовательские параметры запроса</string>
     <string name="custom_request_params_button_format">Параметры специального запроса: %1$d элементов.</string>
     <string name="custom_request_params_title">Пользовательские параметры запроса</string>
-    <string name="custom_request_params_note">Будет добавлен к телу запроса AI с полями верхнего уровня. По умолчанию он действует на основного поставщика, а также может быть назначен отдельно OCR API, поставщику 1, поставщику 2 и т. д. Поддерживает несколько пар ключ-значение, автоматически определяет логические значения, числа, значения NULL и допустимые объекты/массивы JSON. Существующие встроенные параметры не могут быть перезаписаны; дублирование ключей и конфликты внутри одного провайдера блокируются.</string>
+    <string name="custom_request_params_note">Эти поля добавляются в тело запроса AI основного поставщика. Поддерживается несколько пар ключ-значение, автоматически распознаются логические значения, числа, NULL и допустимые объекты или массивы JSON. Встроенные поля нельзя переопределить, повторяющиеся ключи блокируются.</string>
     <string name="custom_request_params_add">Добавить параметр</string>
     <string name="custom_request_params_enabled">Включено</string>
     <string name="custom_request_param_key_hint">Ключ параметра</string>
-    <string name="custom_request_param_target_provider_hint">Применить к провайдеру</string>
     <string name="custom_request_param_value_hint">Значение параметра</string>
     <string name="custom_request_params_section_label">Дополнительные поля тела запроса</string>
     <string name="custom_request_params_row_title">Параметр %1$d</string>
     <string name="custom_request_params_delete_action">Удалить</string>
     <string name="custom_request_params_provider_primary">Основной провайдер</string>
-    <string name="custom_request_params_provider_ocr">OCR API</string>
     <string name="custom_request_params_duplicate_error_scoped">Дубликат ключа специального параметра для поставщика «%1$s»: %2$s.</string>
     <string name="custom_request_params_empty_row_error">Ключ параметра не может быть пустым</string>
     <string name="custom_request_params_conflict_error">Специальные параметры не могут переопределять встроенные поля: %1$s.</string>
@@ -586,8 +568,6 @@
     <string name="notification_permission_message">Используется для отображения уведомлений о ходе перевода.</string>
     <string name="notification_permission_denied">Ход перевода может не отображаться, если не предоставлено разрешение на уведомление.</string>
     <string name="unnamed_folder">Без имени</string>
-    <string name="provider_name_primary">Основной провайдер</string>
-    <string name="provider_name_default">Поставщик %1$d</string>
     <string name="global_progress_export">Экспорт</string>
     <string name="global_progress_translate">Перевод</string>
     <string name="global_progress_preparing_translation">Подготовка перевода</string>
